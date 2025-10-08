@@ -1,5 +1,5 @@
 // Canton Scan API Client
-const DEFAULT_API_BASE = "https://scan.sv-1.dev.global.canton.network.sync.global/api/scan";
+const DEFAULT_API_BASE = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
 // Get API base URL from environment or use default
 const API_BASE = import.meta.env.VITE_SCAN_API_URL || DEFAULT_API_BASE;
