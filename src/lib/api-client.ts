@@ -493,20 +493,41 @@ export const scanApi = {
     return response.json();
   },
 
+  // Use validator faucets endpoint instead of non-existent rewards endpoint
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-rewards`, {
+    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=100`, {
       mode: 'cors',
     });
     if (!response.ok) throw new Error("Failed to fetch top validators");
-    return response.json();
+    const data: TopValidatorsByFaucetsResponse = await response.json();
+    
+    // Transform the response to match expected format
+    return {
+      validatorsAndRewards: data.validatorsByReceivedFaucets.map(v => ({
+        provider: v.validator,
+        rewards: v.numRoundsCollected.toString(),
+      })),
+    };
   },
 
+  // Get provider rewards from recent round totals
   async fetchTopProviders(): Promise<GetTopProvidersByAppRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards`, {
-      mode: 'cors',
+    const latestRound = await this.fetchLatestRound();
+    const roundTotals = await this.fetchRoundTotals({
+      start_round: Math.max(0, latestRound.round - 10),
+      end_round: latestRound.round,
     });
-    if (!response.ok) throw new Error("Failed to fetch top providers");
-    return response.json();
+    
+    if (roundTotals.entries.length > 0) {
+      const latest = roundTotals.entries[roundTotals.entries.length - 1];
+      return {
+        providersAndRewards: [{
+          provider: "Network Total",
+          rewards: latest.cumulative_app_rewards,
+        }],
+      };
+    }
+    throw new Error("Failed to fetch top providers");
   },
 
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
@@ -543,12 +564,18 @@ export const scanApi = {
     return response.json();
   },
 
+  // Get total balance from latest round totals instead of deprecated endpoint
   async fetchTotalBalance(): Promise<GetTotalAmuletBalanceResponse> {
-    const response = await fetch(`${API_BASE}/v0/total-amulet-balance`, {
-      mode: 'cors',
+    const latestRound = await this.fetchLatestRound();
+    const roundTotals = await this.fetchRoundTotals({
+      start_round: latestRound.round,
+      end_round: latestRound.round,
     });
-    if (!response.ok) throw new Error("Failed to fetch total balance");
-    return response.json();
+    
+    if (roundTotals.entries.length > 0) {
+      return { total_balance: roundTotals.entries[0].total_amulet_balance };
+    }
+    throw new Error("Failed to fetch total balance");
   },
 
   async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {

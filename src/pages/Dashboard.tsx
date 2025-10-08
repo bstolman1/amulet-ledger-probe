@@ -36,12 +36,12 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchTransactions({ page_size: 5, sort_order: "desc" }),
   });
 
-  // Calculate total rewards from validators and providers
-  const totalValidatorRewards = topValidators?.validatorsAndRewards.reduce(
+  // Calculate total rewards from validators (rounds collected) and providers (app rewards)
+  const totalValidatorRounds = topValidators?.validatorsAndRewards.reduce(
     (sum, v) => sum + parseFloat(v.rewards), 0
   ) || 0;
   
-  const totalProviderRewards = topProviders?.providersAndRewards.reduce(
+  const totalAppRewards = topProviders?.providersAndRewards.reduce(
     (sum, p) => sum + parseFloat(p.rewards), 0
   ) || 0;
 
@@ -56,8 +56,8 @@ const Dashboard = () => {
       : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
     recentTransactions: transactions?.transactions.length.toString() || "Loading...",
-    totalRewards: (totalValidatorRewards + totalProviderRewards) > 0
-      ? (totalValidatorRewards + totalProviderRewards).toLocaleString(undefined, { maximumFractionDigits: 2 })
+    totalRewards: totalAppRewards > 0
+      ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, { maximumFractionDigits: 2 })
       : "Connection Failed",
     networkHealth: "99.9%",
   };
@@ -103,7 +103,7 @@ const Dashboard = () => {
             trend={{ value: "8.2%", positive: true }}
           />
           <StatCard
-            title="Total Rewards Distributed"
+            title="Cumulative App Rewards"
             value={stats.totalRewards}
             icon={TrendingUp}
             gradient
