@@ -1,11 +1,13 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, Users, Calendar } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { TrendingUp, Users, Calendar, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 
 const Stats = () => {
   const { data: validators, isLoading: validatorsLoading } = useQuery({
@@ -73,9 +75,74 @@ const Stats = () => {
   });
   const allTimeValidators = recentValidators;
 
+  const { toast } = useToast();
+
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
     return parts[0] || partyId;
+  };
+
+  const exportToCSV = () => {
+    try {
+      // Prepare CSV content
+      const csvRows = [];
+      
+      // Header
+      csvRows.push(['Canton Network Validator Statistics']);
+      csvRows.push(['Generated:', new Date().toISOString()]);
+      csvRows.push(['Current Round:', currentRound]);
+      csvRows.push([]);
+      
+      // Summary statistics
+      csvRows.push(['Summary Statistics']);
+      csvRows.push(['Period', 'New Validators']);
+      csvRows.push(['Last 24 Hours', newValidators.length]);
+      csvRows.push(['Last 7 Days', weeklyValidators.length + newValidators.length]);
+      csvRows.push(['Last 30 Days', monthlyValidators.length + weeklyValidators.length + newValidators.length]);
+      csvRows.push(['Last 6 Months', sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length]);
+      csvRows.push(['Last Year', yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length]);
+      csvRows.push(['All Time', allTimeValidators.length]);
+      csvRows.push([]);
+      
+      // Detailed validator list
+      csvRows.push(['All Active Validators']);
+      csvRows.push(['Provider Name', 'Provider ID', 'Rounds Collected']);
+      
+      allTimeValidators.forEach(validator => {
+        csvRows.push([
+          formatPartyId(validator.provider),
+          validator.provider,
+          parseFloat(validator.rewards).toFixed(0)
+        ]);
+      });
+      
+      // Convert to CSV string
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `validator-stats-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Export successful",
+        description: "Statistics have been exported to CSV",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting the statistics",
+        variant: "destructive",
+      });
+    }
   };
 
   const ValidatorList = ({ validators, title }: { validators: any[], title: string }) => (
@@ -114,11 +181,22 @@ const Stats = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
-          <p className="text-muted-foreground">
-            Track validator growth and onboarding trends
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
+            <p className="text-muted-foreground">
+              Track validator growth and onboarding trends
+            </p>
+          </div>
+          <Button 
+            onClick={exportToCSV}
+            disabled={validatorsLoading}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
         </div>
 
         {/* Summary Cards */}
