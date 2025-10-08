@@ -1,13 +1,16 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Star, Package, ExternalLink } from "lucide-react";
+import { Star, Package, ExternalLink, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 const Apps = () => {
+  const { toast } = useToast();
+  
   const { data: featuredApps, isLoading: featuredLoading, isError: featuredError } = useQuery({
     queryKey: ["featuredApps"],
     queryFn: () => scanApi.fetchFeaturedApps(),
@@ -17,6 +20,55 @@ const Apps = () => {
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
     return parts[0] || partyId;
+  };
+
+  const exportAppData = () => {
+    try {
+      const csvRows = [];
+      
+      csvRows.push(['Canton Network Applications']);
+      csvRows.push(['Generated:', new Date().toISOString()]);
+      csvRows.push([]);
+      
+      csvRows.push(['Featured Applications']);
+      csvRows.push(['App Name', 'Provider ID', 'Contract ID']);
+      
+      if (featuredApps?.featured_apps) {
+        featuredApps.featured_apps.forEach((app: any) => {
+          const provider = app.payload?.provider || "Unknown";
+          csvRows.push([
+            formatPartyId(provider),
+            provider,
+            app.contract_id
+          ]);
+        });
+      }
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `canton-apps-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Export successful",
+        description: "App data has been exported to CSV",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting the data",
+        variant: "destructive",
+      });
+    }
   };
 
   const AppCard = ({ app, featured = false }: { app: any; featured?: boolean }) => {
@@ -51,11 +103,22 @@ const Apps = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-2">Canton Network Apps</h2>
-          <p className="text-muted-foreground">
-            Explore applications built on the Canton Network
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Canton Network Apps</h2>
+            <p className="text-muted-foreground">
+              Explore applications built on the Canton Network
+            </p>
+          </div>
+          <Button 
+            onClick={exportAppData}
+            disabled={featuredLoading || !featuredApps?.featured_apps?.length}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
         </div>
 
         {/* Featured Apps Section */}
