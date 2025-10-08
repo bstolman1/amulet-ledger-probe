@@ -7,9 +7,16 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
+import { useEffect } from "react";
 
 const Validators = () => {
   const { toast } = useToast();
+  
+  // Schedule daily config sync
+  useEffect(() => {
+    scheduleDailySync();
+  }, []);
   
   const { data: topValidators, isLoading, isError } = useQuery({
     queryKey: ["topValidators"],
@@ -23,76 +30,32 @@ const Validators = () => {
     retry: 1,
   });
 
+  const { data: configData, isLoading: configLoading } = useQuery({
+    queryKey: ["sv-config"],
+    queryFn: () => fetchConfigData(),
+    staleTime: 24 * 60 * 60 * 1000, // 24 hours
+  });
+
   // Extract SV data from DsoRules contract
   const dsoRules = dsoInfo?.dso_rules?.contract?.payload;
   const svs = dsoRules?.svs || [];
   const offboardedSvs = dsoRules?.offboardedSvs || [];
   
-  // Convert SVs array to proper format (these are the primary operators)
-  const primaryOperators = svs.map(([id, data]: [string, any]) => ({
-    id,
-    name: data.name,
-    participantId: data.participantId,
-    rewardWeight: data.svRewardWeight,
-    joinedRound: data.joinedAsOfRound?.number || 0,
-    type: 'Primary Operator' as const,
+  // Get all SVs from config (these are the actual supervalidators)
+  const configSuperValidators = configData?.superValidators || [];
+  const operators = configData?.operators || [];
+  
+  // Convert SVs to display format
+  const superValidators = configSuperValidators.map((sv) => ({
+    id: sv.address,
+    name: sv.name,
+    participantId: sv.address,
+    rewardWeight: sv.weight,
+    joinedRound: sv.joinRound,
+    type: 'Supervalidator' as const,
+    svProvider: sv.operatorName,
+    isGhost: sv.isGhost,
   })).sort((a, b) => b.rewardWeight - a.rewardWeight);
-  
-  // Additional beneficiary validators from approvedSvIdentities config (not exposed via API)
-  const beneficiaryValidators = [
-    { name: "validator_GSF-1", beneficiary: "validator_GSF-1::12201725270d497ab23ceffd0d2acce46cc9da44586fd494786ef53cc58b6e4abd79", weight: 100000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "validator_Broadridge", beneficiary: "validator_Broadridge::1220b0008ea5531b9e47d3315a822ca8b923b5bdd568c934557402d7160b8af4815d", weight: 100000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "The Tie", beneficiary: "the_tie_validator::1220d3016091c253f526645cce3a0633837b685da083bac4459dad63e61d5c97b5fa", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Copper", beneficiary: "copper-mainnet-validator::122038dd7fcbdd68bde47034abfd582cbe38854d94dec10c18a7589706914e2b6e61", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Dfns", beneficiary: "validator_DFNS::122055a1a137eacd142f00d72a7bd9c6b83ad00f65d97cb79a343d42c2077ae29ca6", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Copper Clearloop", beneficiary: "copper-mainnet-validator::122038dd7fcbdd68bde47034abfd582cbe38854d94dec10c18a7589706914e2b6e61", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Elliptic", beneficiary: "Elliptic-validator-1::12205ddf609265d68ee694480f86331de14766bdac30800d04e491b93aca1a81d629", weight: 5000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Obsidian Systems", beneficiary: "ObsidianSystems-validator-1::1220f8a24f975dc3d070e3111279bc2bf2d713a77c5570cbdd2064acb6a4d8d6feea", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Coin Metrics", beneficiary: "CoinMetrics-validator-1::1220b6cf34a2c8937dc72403e7a8b57c80049be8aff3e5e2d992063460bdc8636466", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Circle", beneficiary: "circle-validator-1::12209d457bab21f1ce3d52f979cdf021c2990cb74cf01ef2dcf41bf87a79ddaf3ba8", weight: 100000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Quantstamp", beneficiary: "Quantstamp-validator-1::1220acba2f1ab44b954a6de966678d7cc069e66a3986e4b5f4af29a6445c208f8fb1", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Bitwave", beneficiary: "bitwave-finance-1::1220ab03fc0c7f77428d8f568276b64a6e6a04e340c842581a0d4e676ad7e094c1bb", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "IntellectEU", beneficiary: "IntellectEU-SVrewards-1::122085181345795b9e58122cef90b8df61ddfe128cdaf9abbcb77f8cef92950c1d05", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "AngelHack", beneficiary: "angelhack-mainnet-1::12205162445638c3f71c9942b74360134b4ebc953b5bea2c25adc99bff130bffd060", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "AngelHack (escrow)", beneficiary: "AngelHack-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 15000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Kaiko", beneficiary: "kaiko-mainnet-1::1220f67b4f1c8742d83ac7e12749d98195bf88ff120b2dab369291cf6a2ca27be9a9", weight: 40000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Kaiko (escrow)", beneficiary: "Kaiko-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 25000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Kiln", beneficiary: "kiln-validator-1::12209024881cf76bf1c15342e9e3b4bd751d5582947a58b42a6532eef867f83ceea3", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Figment", beneficiary: "figment-mainnetValidator-1::1220b46e6ce64f99510274b4aaa573b32089e69cfee0f1e918539f19f78e9ea23ba4", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "TRM", beneficiary: "TRM-validator-1::1220bc3dc0350c7c2479ff1e7dfc67f4af0ee25c9ab63861d953483d9bdbb36691fe", weight: 25000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Monstera FZE (escrow)", beneficiary: "MonsteraFZE-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 50000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Woodside AI (escrow)", beneficiary: "WoodsideAI-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 100000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Zero Hash (escrow)", beneficiary: "ZeroHash-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 75000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Ubyx (escrow)", beneficiary: "Ubyx-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 50000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Hypernative (escrow)", beneficiary: "Hypernative-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 10000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Chainlink (escrow 1)", beneficiary: "Chainlink-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 75000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Chainlink (escrow 2)", beneficiary: "Chainlink-ghost-2::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 30000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Layer Zero (escrow)", beneficiary: "LayerZero-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 30000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Wormhole (escrow)", beneficiary: "Wormhole-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 30000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Ledger (escrow)", beneficiary: "Ledger-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 50000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "Taurus (escrow)", beneficiary: "Taurus-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2", weight: 50000, svProvider: "Global-Synchronizer-Foundation" },
-    { name: "MPCH", beneficiary: "auth0_007c66f47b4f7dbebab8f2af6967::12204783725aa3adcd787311531134baed8b9b28ccf76b100c62b8d4995842aabd6b", weight: 10000, svProvider: "MPC-Holding-Inc" },
-    { name: "MPCH 2", beneficiary: "auth0_007c684c0bbea5e9c9e5a9ad16f6::12204783725aa3adcd787311531134baed8b9b28ccf76b100c62b8d4995842aabd6b", weight: 2500, svProvider: "MPC-Holding-Inc" },
-    { name: "Lukka", beneficiary: "auth0_007c6882116872613fe1d8b0aeb6::12204783725aa3adcd787311531134baed8b9b28ccf76b100c62b8d4995842aabd6b", weight: 7500, svProvider: "MPC-Holding-Inc" },
-    { name: "Nima Capital", beneficiary: "auth0_007c67acae90ab8ef9d344b817b4::12205d4d358e9de3351c74419d9746ea9083854c113f826240fe2b2ce808a51a3a7e", weight: 50000, svProvider: "Orb-1-LP-1" },
-    { name: "Nima Capital (Lennar)", beneficiary: "auth0_007c6723cbcc5cee3153df57da4d::122039b0120dda65f350bbd22731b636ffe2eb757a4f04bf41a18d689c6e9351633a", weight: 50000, svProvider: "Orb-1-LP-1" },
-  ];
-  
-  // Combine all validators
-  const allValidators = [
-    ...primaryOperators,
-    ...beneficiaryValidators.map(b => ({
-      id: b.beneficiary,
-      name: b.name,
-      participantId: b.beneficiary,
-      rewardWeight: b.weight,
-      joinedRound: 0,
-      type: 'Beneficiary' as const,
-      svProvider: b.svProvider,
-    }))
-  ];
-  
-  const superValidators = allValidators.sort((a, b) => b.rewardWeight - a.rewardWeight);
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -179,8 +142,8 @@ const Validators = () => {
   const totalValidators = topValidators?.validatorsAndRewards?.length || 0;
   const totalRewardWeight = superValidators.reduce((sum, sv) => sum + sv.rewardWeight, 0);
   
-  const primaryCount = superValidators.filter(sv => sv.type === 'Primary Operator').length;
-  const beneficiaryCount = superValidators.filter(sv => sv.type === 'Beneficiary').length;
+  const primaryOperatorsCount = operators.length;
+  const totalSuperValidators = superValidators.length;
 
   return (
     <DashboardLayout>
@@ -212,13 +175,13 @@ const Validators = () => {
                 <h3 className="text-xs font-medium text-muted-foreground">Total SVs</h3>
                 <Award className="h-4 w-4 text-primary" />
               </div>
-              {dsoLoading ? (
+              {dsoLoading || configLoading ? (
                 <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-3xl font-bold text-primary">{superValidators.length}</p>
+                  <p className="text-3xl font-bold text-primary">{totalSuperValidators}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    All validators
+                    Beneficiary validators
                   </p>
                 </>
               )}
@@ -231,10 +194,10 @@ const Validators = () => {
                 <h3 className="text-xs font-medium text-muted-foreground">Primary Operators</h3>
                 <Zap className="h-4 w-4 text-chart-2" />
               </div>
-              {dsoLoading ? (
+              {dsoLoading || configLoading ? (
                 <Skeleton className="h-10 w-16" />
               ) : (
-                <p className="text-3xl font-bold text-chart-2">{primaryCount}</p>
+                <p className="text-3xl font-bold text-chart-2">{primaryOperatorsCount}</p>
               )}
             </div>
           </Card>
@@ -242,13 +205,13 @@ const Validators = () => {
           <Card className="glass-card">
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-medium text-muted-foreground">Beneficiaries</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">Total Weight</h3>
                 <TrendingUp className="h-4 w-4 text-chart-3" />
               </div>
-              {dsoLoading ? (
+              {dsoLoading || configLoading ? (
                 <Skeleton className="h-10 w-16" />
               ) : (
-                <p className="text-3xl font-bold text-chart-3">{beneficiaryCount}</p>
+                <p className="text-3xl font-bold text-chart-3">{formatRewardWeight(totalRewardWeight)}</p>
               )}
             </div>
           </Card>
@@ -278,9 +241,9 @@ const Validators = () => {
                   Complete Supervalidator Network
                 </p>
                 <p className="text-muted-foreground">
-                  Showing all {superValidators.length} supervalidators including {primaryCount} primary operators 
-                  and {beneficiaryCount} beneficiary validators. Each primary operator may distribute portions of 
-                  their rewards to beneficiary validators based on the network's governance configuration.
+                  Displaying all {totalSuperValidators} supervalidators managed by {primaryOperatorsCount} primary operators. 
+                  Data is synced daily from the GSF config file. Join rounds are determined by cross-referencing validator 
+                  addresses with historical round data.
                 </p>
               </div>
             </div>
@@ -292,9 +255,9 @@ const Validators = () => {
           <div className="p-6">
             <h3 className="text-xl font-bold mb-2">All Supervalidators</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              Complete network of primary operators and beneficiary validators
+              All {totalSuperValidators} supervalidators with operator information and join rounds
             </p>
-            {dsoLoading ? (
+            {dsoLoading || configLoading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((i) => (
                   <Skeleton key={i} className="h-32 w-full" />
@@ -320,21 +283,29 @@ const Validators = () => {
                           </div>
                           <div>
                             <h3 className="text-xl font-bold mb-1">{sv.name}</h3>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-mono text-xs text-muted-foreground">
                                 {sv.id}
                               </p>
-                              {sv.type === 'Beneficiary' && (
-                                <Badge variant="outline" className="text-xs">
-                                  via {sv.svProvider}
+                              <Badge variant="outline" className="text-xs">
+                                via {sv.svProvider}
+                              </Badge>
+                              {sv.isGhost && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Ghost (Escrow)
+                                </Badge>
+                              )}
+                              {sv.joinedRound && (
+                                <Badge variant="default" className="text-xs">
+                                  Joined: Round {sv.joinedRound}
                                 </Badge>
                               )}
                             </div>
                           </div>
                         </div>
-                        <Badge className={sv.type === 'Primary Operator' ? "bg-primary/20 text-primary border-primary/30" : "bg-chart-2/20 text-chart-2 border-chart-2/30"}>
+                        <Badge className="bg-primary/20 text-primary border-primary/30">
                           <Zap className="h-3 w-3 mr-1" />
-                          {sv.type}
+                          Supervalidator
                         </Badge>
                       </div>
 
