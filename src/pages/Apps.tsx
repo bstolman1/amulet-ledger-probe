@@ -22,62 +22,26 @@ const Apps = () => {
   const AppCard = ({ app, featured = false }: { app: any; featured?: boolean }) => {
     const payload = app.payload;
     const provider = payload?.provider || "Unknown Provider";
+    const appName = formatPartyId(provider);
     
     return (
-      <Card className={`glass-card ${featured ? 'border-2 border-primary/30' : ''}`}>
+      <Card className={`glass-card hover:border-primary/30 transition-all ${featured ? 'border-2 border-primary/30' : ''}`}>
         <div className="p-6">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <h3 className="text-xl font-bold">{formatPartyId(provider)}</h3>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-lg bg-primary/10">
+                <Package className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold mb-1">{appName}</h3>
                 {featured && (
-                  <Badge className="bg-primary/20 text-primary border-primary/30">
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
                     <Star className="h-3 w-3 mr-1 fill-current" />
-                    Featured
+                    Featured App
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground font-mono truncate">
-                {provider}
-              </p>
             </div>
-            <Package className="h-8 w-8 text-primary/50" />
-          </div>
-
-          {payload?.configuration && (
-            <div className="space-y-3">
-              {payload.configuration.name && (
-                <div className="p-3 rounded-lg bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-1">App Name</p>
-                  <p className="font-semibold">{payload.configuration.name}</p>
-                </div>
-              )}
-              
-              {payload.configuration.version && (
-                <div className="p-3 rounded-lg bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-1">Version</p>
-                  <p className="font-mono text-sm">{payload.configuration.version}</p>
-                </div>
-              )}
-
-              {payload.configuration.url && (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => window.open(payload.configuration.url, '_blank')}
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Visit App
-                </Button>
-              )}
-            </div>
-          )}
-
-          <div className="mt-4 pt-4 border-t border-border/50">
-            <p className="text-xs text-muted-foreground">Contract ID</p>
-            <p className="text-xs font-mono text-foreground/70 truncate mt-1">
-              {app.contract_id}
-            </p>
           </div>
         </div>
       </Card>
@@ -124,7 +88,7 @@ const Apps = () => {
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {featuredApps.featured_apps.map((app: any) => (
                 <AppCard key={app.contract_id} app={app} featured={true} />
               ))}
