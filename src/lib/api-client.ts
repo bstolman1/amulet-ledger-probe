@@ -416,6 +416,61 @@ export interface SpliceInstanceNamesResponse {
   name_service_name_acronym: string;
 }
 
+export interface UpdateByIdResponse {
+  update_id: string;
+  migration_id: number;
+  workflow_id: string;
+  record_time: string;
+  synchronizer_id: string;
+  effective_at: string;
+  offset: string;
+  root_event_ids: string[];
+  events_by_id: Record<string, TreeEvent>;
+}
+
+export interface AcsSnapshotResponse {
+  acs_snapshot: string;
+}
+
+export interface AggregatedRoundsResponse {
+  start: number;
+  end: number;
+}
+
+export interface RoundPartyTotalsRequest {
+  start_round: number;
+  end_round: number;
+}
+
+export interface RoundPartyTotalsResponse {
+  entries: RoundPartyTotal[];
+}
+
+export interface RoundPartyTotal {
+  closed_round: number;
+  party: string;
+  app_rewards: string;
+  validator_rewards: string;
+  traffic_purchased: number;
+  traffic_purchased_cc_spent: string;
+  traffic_num_purchases: number;
+  cumulative_app_rewards: string;
+  cumulative_validator_rewards: string;
+  cumulative_change_to_initial_amount_as_of_round_zero: string;
+  cumulative_change_to_holding_fees_rate: string;
+  cumulative_traffic_purchased: number;
+  cumulative_traffic_purchased_cc_spent: string;
+  cumulative_traffic_num_purchases: number;
+}
+
+export interface WalletBalanceResponse {
+  wallet_balance: string;
+}
+
+export interface AmuletConfigForRoundResponse {
+  amulet_config: any;
+}
+
 // API Client Functions
 export const scanApi = {
   async fetchUpdates(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
@@ -697,6 +752,100 @@ export const scanApi = {
       mode: 'cors',
     });
     if (!response.ok) throw new Error("Failed to fetch splice instance names");
+    return response.json();
+  },
+
+  // V1 Updates API
+  async fetchUpdatesV1(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
+    const response = await fetch(`${API_BASE}/v1/updates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch v1 updates");
+    return response.json();
+  },
+
+  async fetchUpdateByIdV1(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
+    const params = new URLSearchParams();
+    if (damlValueEncoding) params.append('daml_value_encoding', damlValueEncoding);
+    
+    const url = params.toString() 
+      ? `${API_BASE}/v1/updates/${updateId}?${params.toString()}`
+      : `${API_BASE}/v1/updates/${updateId}`;
+    
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) throw new Error("Failed to fetch v1 update by ID");
+    return response.json();
+  },
+
+  async fetchUpdateByIdV2(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
+    const params = new URLSearchParams();
+    if (damlValueEncoding) params.append('daml_value_encoding', damlValueEncoding);
+    
+    const url = params.toString() 
+      ? `${API_BASE}/v2/updates/${updateId}?${params.toString()}`
+      : `${API_BASE}/v2/updates/${updateId}`;
+    
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) throw new Error("Failed to fetch v2 update by ID");
+    return response.json();
+  },
+
+  // Deprecated endpoints
+  async fetchAcsSnapshot(party: string, recordTime?: string): Promise<AcsSnapshotResponse> {
+    const params = new URLSearchParams();
+    if (recordTime) params.append('record_time', recordTime);
+    
+    const url = params.toString() 
+      ? `${API_BASE}/v0/acs/${party}?${params.toString()}`
+      : `${API_BASE}/v0/acs/${party}`;
+    
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) throw new Error("Failed to fetch ACS snapshot");
+    return response.json();
+  },
+
+  async fetchAggregatedRounds(): Promise<AggregatedRoundsResponse> {
+    const response = await fetch(`${API_BASE}/v0/aggregated-rounds`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch aggregated rounds");
+    return response.json();
+  },
+
+  async fetchRoundPartyTotals(request: RoundPartyTotalsRequest): Promise<RoundPartyTotalsResponse> {
+    const response = await fetch(`${API_BASE}/v0/round-party-totals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch round party totals");
+    return response.json();
+  },
+
+  async fetchWalletBalance(partyId: string, asOfEndOfRound: number): Promise<WalletBalanceResponse> {
+    const params = new URLSearchParams();
+    params.append('party_id', partyId);
+    params.append('asOfEndOfRound', asOfEndOfRound.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/wallet-balance?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch wallet balance");
+    return response.json();
+  },
+
+  async fetchAmuletConfigForRound(round: number): Promise<AmuletConfigForRoundResponse> {
+    const params = new URLSearchParams();
+    params.append('round', round.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/amulet-config-for-round?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch amulet config for round");
     return response.json();
   },
 };
