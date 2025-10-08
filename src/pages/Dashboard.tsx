@@ -47,18 +47,18 @@ const Dashboard = () => {
 
   const stats = {
     totalBalance: balanceError 
-      ? "Unavailable" 
+      ? "Connection Failed" 
       : totalBalance?.total_balance 
         ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
         : "Loading...",
     activeValidators: validatorsError
-      ? "Unavailable"
+      ? "Connection Failed"
       : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
     recentTransactions: transactions?.transactions.length.toString() || "Loading...",
     totalRewards: (totalValidatorRewards + totalProviderRewards) > 0
       ? (totalValidatorRewards + totalProviderRewards).toLocaleString(undefined, { maximumFractionDigits: 2 })
-      : "Unavailable",
+      : "Connection Failed",
     networkHealth: "99.9%",
   };
 
