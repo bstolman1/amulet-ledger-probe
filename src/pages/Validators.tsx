@@ -13,6 +13,12 @@ const Validators = () => {
     retry: 1,
   });
 
+  const { data: dsoInfo, isLoading: dsoLoading } = useQuery({
+    queryKey: ["dsoInfo"],
+    queryFn: () => scanApi.fetchDsoInfo(),
+    retry: 1,
+  });
+
   const getRankColor = (rank: number) => {
     switch (rank) {
       case 1:
@@ -32,14 +38,70 @@ const Validators = () => {
     return parts[0] || partyId;
   };
 
+  const svNodeStates = dsoInfo?.sv_node_states || [];
+  const totalValidators = topValidators?.validatorsAndRewards?.length || 0;
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Supervalidators Section */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-3xl font-bold mb-2">Supervalidators</h2>
+              <p className="text-muted-foreground">
+                Supervalidator nodes on the Canton Network ({svNodeStates.length} total)
+              </p>
+            </div>
+          </div>
+
+          <Card className="glass-card">
+            <div className="p-6">
+              {dsoLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-24 w-full" />
+                  ))}
+                </div>
+              ) : !svNodeStates.length ? (
+                <div className="text-center p-8">
+                  <p className="text-muted-foreground">No supervalidator data available</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {svNodeStates.map((svNode: any, index: number) => {
+                    const svName = svNode.contract?.payload?.svName || `SV ${index + 1}`;
+                    const svParty = svNode.contract?.payload?.svParty || "Unknown";
+                    return (
+                      <div
+                        key={index}
+                        className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-bold">{svName}</h3>
+                          <Badge className="bg-primary/20 text-primary border-primary/30">
+                            <Zap className="h-3 w-3 mr-1" />
+                            SV
+                          </Badge>
+                        </div>
+                        <p className="font-mono text-xs text-muted-foreground truncate">
+                          {svParty}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* Regular Validators Section */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold mb-2">Validator Leaderboard</h2>
+            <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
             <p className="text-muted-foreground">
-              Top performing validators on the Canton Network
+              All active validators on the Canton Network ({totalValidators} total)
             </p>
           </div>
         </div>
@@ -89,11 +151,11 @@ const Validators = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="p-4 rounded-lg bg-background/50">
-                          <p className="text-sm text-muted-foreground mb-1">Total Rewards</p>
+                          <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
                           <p className="text-2xl font-bold text-primary">
                             {parseFloat(validator.rewards).toLocaleString(undefined, {
-                              maximumFractionDigits: 2,
-                            })} CC
+                              maximumFractionDigits: 0,
+                            })}
                           </p>
                         </div>
                         <div className="p-4 rounded-lg bg-background/50">

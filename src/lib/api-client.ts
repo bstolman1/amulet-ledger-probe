@@ -495,7 +495,7 @@ export const scanApi = {
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=100`, {
+    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
       mode: 'cors',
     });
     if (!response.ok) throw new Error("Failed to fetch top validators");
