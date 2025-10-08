@@ -7,14 +7,26 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const MiningRounds = () => {
-  const { data: miningRounds, isLoading: miningRoundsLoading } = useQuery({
+  const { data: miningRounds, isLoading: miningRoundsLoading, isError: miningRoundsError } = useQuery({
     queryKey: ["miningRounds"],
     queryFn: () => scanApi.fetchOpenAndIssuingRounds(),
+    retry: 1,
   });
 
   const { data: closedRounds, isLoading: closedRoundsLoading } = useQuery({
     queryKey: ["closedRounds"],
     queryFn: () => scanApi.fetchClosedRounds(),
+  });
+
+  const { data: dsoInfo, isLoading: dsoLoading } = useQuery({
+    queryKey: ["dsoInfo"],
+    queryFn: () => scanApi.fetchDsoInfo(),
+    retry: 1,
+  });
+
+  const { data: latestRound } = useQuery({
+    queryKey: ["latestRound"],
+    queryFn: () => scanApi.fetchLatestRound(),
   });
   // Process open rounds
   const openRoundsData = Object.entries(miningRounds?.open_mining_rounds || {}).map(([id, data]) => ({
@@ -33,9 +45,13 @@ const MiningRounds = () => {
     opensAt: data.contract.payload?.opensAt,
   }));
 
-  // Process closed rounds (limit to last 5) with safe access
-  const closedRoundsData = closedRounds?.rounds?.slice(0, 5)
-    .filter(round => round?.contract?.contract_id) // Filter out invalid entries
+  // Use DSO info as fallback for latest mining round
+  const latestMiningRound = dsoInfo?.latest_mining_round;
+  const hasLatestRoundData = latestMiningRound && !miningRoundsError;
+
+  // Process closed rounds (limit to last 10)
+  const closedRoundsData = closedRounds?.rounds?.slice(0, 10)
+    .filter(round => round?.contract?.contract_id)
     .map((round) => ({
       contractId: round.contract.contract_id,
       roundNumber: round.contract.payload?.round?.number || "N/A",
@@ -52,6 +68,32 @@ const MiningRounds = () => {
           </p>
         </div>
 
+        {/* Current Round Info */}
+        <Card className="glass-card">
+          <div className="p-6">
+            <h3 className="text-xl font-bold mb-4 flex items-center">
+              <Clock className="h-5 w-5 mr-2 text-primary" />
+              Current Round
+            </h3>
+            {dsoLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : latestRound ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-lg bg-primary/10">
+                  <p className="text-sm text-muted-foreground mb-1">Round Number</p>
+                  <p className="text-3xl font-bold text-primary">{latestRound.round.toLocaleString()}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/30">
+                  <p className="text-sm text-muted-foreground mb-1">Effective At</p>
+                  <p className="text-lg font-semibold">{new Date(latestRound.effectiveAt).toLocaleString()}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center">Unable to load current round data</p>
+            )}
+          </div>
+        </Card>
+
         {/* Open Rounds */}
         <div>
           <h3 className="text-xl font-bold mb-4 flex items-center">
@@ -60,6 +102,10 @@ const MiningRounds = () => {
           </h3>
           {miningRoundsLoading ? (
             <Skeleton className="h-48 w-full" />
+          ) : miningRoundsError ? (
+            <Card className="glass-card p-6">
+              <p className="text-muted-foreground text-center">API endpoint unavailable. Check DSO info for latest round.</p>
+            </Card>
           ) : openRoundsData.length === 0 ? (
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">No open rounds at the moment</p>
@@ -104,6 +150,10 @@ const MiningRounds = () => {
           </h3>
           {miningRoundsLoading ? (
             <Skeleton className="h-48 w-full" />
+          ) : miningRoundsError ? (
+            <Card className="glass-card p-6">
+              <p className="text-muted-foreground text-center">API endpoint unavailable. Check DSO info for latest round.</p>
+            </Card>
           ) : issuingRoundsData.length === 0 ? (
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">No issuing rounds at the moment</p>
