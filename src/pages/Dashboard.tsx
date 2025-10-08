@@ -2,41 +2,42 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { scanApi } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Dashboard = () => {
-  // Mock data - in a real app, this would come from the API
+  // Fetch real data from Canton Scan API
+  const { data: latestRound } = useQuery({
+    queryKey: ["latestRound"],
+    queryFn: () => scanApi.fetchLatestRound(),
+  });
+
+  const { data: totalBalance } = useQuery({
+    queryKey: ["totalBalance"],
+    queryFn: () => scanApi.fetchTotalBalance(),
+  });
+
+  const { data: topValidators } = useQuery({
+    queryKey: ["topValidators"],
+    queryFn: () => scanApi.fetchTopValidators(),
+  });
+
+  const { data: transactions } = useQuery({
+    queryKey: ["recentTransactions"],
+    queryFn: () => scanApi.fetchTransactions({ page_size: 5, sort_order: "desc" }),
+  });
+
   const stats = {
-    totalBalance: "1,234,567.89",
-    activeValidators: "42",
-    currentRound: "15,234",
-    recentTransactions: "1,234",
-    totalRewards: "45,678.90",
+    totalBalance: totalBalance?.total_balance 
+      ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
+      : "Loading...",
+    activeValidators: topValidators?.validatorsAndRewards.length.toString() || "Loading...",
+    currentRound: latestRound?.round.toLocaleString() || "Loading...",
+    recentTransactions: transactions?.transactions.length.toString() || "Loading...",
+    totalRewards: "Loading...",
     networkHealth: "99.9%",
   };
-
-  const recentActivity = [
-    {
-      type: "Transfer",
-      from: "party::alice::123...",
-      to: "party::bob::456...",
-      amount: "100.50 CC",
-      time: "2 min ago",
-    },
-    {
-      type: "Mint",
-      from: "Validator Node 3",
-      to: "party::charlie::789...",
-      amount: "50.25 CC",
-      time: "5 min ago",
-    },
-    {
-      type: "Reward",
-      from: "DSO",
-      to: "Validator Node 1",
-      amount: "25.00 CC",
-      time: "8 min ago",
-    },
-  ];
 
   return (
     <DashboardLayout>
@@ -95,30 +96,49 @@ const Dashboard = () => {
         <Card className="glass-card">
           <div className="p-6">
             <h3 className="text-2xl font-bold mb-6">Recent Activity</h3>
-            <div className="space-y-4">
-              {recentActivity.map((activity, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="gradient-accent p-2 rounded-lg">
-                      <Activity className="h-4 w-4 text-accent-foreground" />
+            {!transactions ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-20 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {transactions.transactions.slice(0, 3).map((activity, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="gradient-accent p-2 rounded-lg">
+                        <Activity className="h-4 w-4 text-accent-foreground" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground capitalize">{activity.transaction_type}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Round {activity.round || "N/A"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-foreground">{activity.type}</p>
+                    <div className="text-right">
+                      {activity.transfer && (
+                        <p className="font-mono font-semibold text-primary">
+                          {parseFloat(activity.transfer.sender.sender_change_amount).toFixed(2)} CC
+                        </p>
+                      )}
+                      {activity.mint && (
+                        <p className="font-mono font-semibold text-primary">
+                          {parseFloat(activity.mint.amulet_amount).toFixed(2)} CC
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground">
-                        {activity.from} → {activity.to}
+                        {new Date(activity.date).toLocaleTimeString()}
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-mono font-semibold text-primary">{activity.amount}</p>
-                    <p className="text-sm text-muted-foreground">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
       </div>

@@ -2,44 +2,15 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { scanApi } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Transactions = () => {
-  // Mock transaction data
-  const transactions = [
-    {
-      id: "tx-001234567890",
-      type: "transfer",
-      from: "party::alice::123abc",
-      to: "party::bob::456def",
-      amount: "250.75",
-      fee: "0.25",
-      timestamp: "2025-10-08 14:32:15",
-      round: 15234,
-      status: "confirmed",
-    },
-    {
-      id: "tx-001234567891",
-      type: "mint",
-      from: "validator::node-3",
-      to: "party::charlie::789ghi",
-      amount: "100.00",
-      fee: "0.10",
-      timestamp: "2025-10-08 14:30:42",
-      round: 15234,
-      status: "confirmed",
-    },
-    {
-      id: "tx-001234567892",
-      type: "transfer",
-      from: "party::dave::321jkl",
-      to: "party::eve::654mno",
-      amount: "500.00",
-      fee: "0.50",
-      timestamp: "2025-10-08 14:28:19",
-      round: 15233,
-      status: "confirmed",
-    },
-  ];
+  const { data: transactions, isLoading } = useQuery({
+    queryKey: ["transactions"],
+    queryFn: () => scanApi.fetchTransactions({ page_size: 20, sort_order: "desc" }),
+  });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -65,6 +36,14 @@ const Transactions = () => {
     }
   };
 
+  const formatPartyId = (partyId: string) => {
+    if (!partyId) return "N/A";
+    const parts = partyId.split("::");
+    const name = parts[0] || partyId;
+    const hash = parts[1] || "";
+    return `${name}::${hash.substring(0, 8)}...`;
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -79,59 +58,95 @@ const Transactions = () => {
 
         <Card className="glass-card">
           <div className="p-6">
-            <div className="space-y-4">
-              {transactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center space-x-3">
-                      <Badge className={getTypeColor(tx.type)}>{tx.type}</Badge>
-                      <Badge className={getStatusColor(tx.status)}>{tx.status}</Badge>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Round</p>
-                      <p className="font-mono font-semibold">{tx.round}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Transaction ID</p>
-                      <div className="flex items-center space-x-2">
-                        <p className="font-mono text-sm truncate">{tx.id}</p>
-                        <ExternalLink className="h-3 w-3 text-muted-foreground cursor-pointer hover:text-primary transition-smooth" />
+            {isLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-48 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {transactions?.transactions.map((tx) => (
+                  <div
+                    key={tx.event_id}
+                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <Badge className={getTypeColor(tx.transaction_type)}>
+                          {tx.transaction_type}
+                        </Badge>
+                        <Badge className={getStatusColor("confirmed")}>confirmed</Badge>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">Round</p>
+                        <p className="font-mono font-semibold">{tx.round || "N/A"}</p>
                       </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                      <p className="font-mono font-bold text-primary text-lg">{tx.amount} CC</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">Fee</p>
-                      <p className="font-mono text-sm">{tx.fee} CC</p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center space-x-3 p-4 rounded-lg bg-background/50">
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground mb-1">From</p>
-                      <p className="font-mono text-sm truncate">{tx.from}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Event ID</p>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-mono text-sm truncate">{tx.event_id.substring(0, 20)}...</p>
+                          <ExternalLink className="h-3 w-3 text-muted-foreground cursor-pointer hover:text-primary transition-smooth" />
+                        </div>
+                      </div>
+                      {tx.transfer && (
+                        <>
+                          <div>
+                            <p className="text-sm text-muted-foreground mb-1">Amount</p>
+                            <p className="font-mono font-bold text-primary text-lg">
+                              {parseFloat(tx.transfer.sender.sender_change_amount).toFixed(2)} CC
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground mb-1">Fee</p>
+                            <p className="font-mono text-sm">
+                              {parseFloat(tx.transfer.sender.sender_fee).toFixed(4)} CC
+                            </p>
+                          </div>
+                        </>
+                      )}
+                      {tx.mint && (
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">Minted Amount</p>
+                          <p className="font-mono font-bold text-primary text-lg">
+                            {parseFloat(tx.mint.amulet_amount).toFixed(2)} CC
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground mb-1">To</p>
-                      <p className="font-mono text-sm truncate">{tx.to}</p>
-                    </div>
-                  </div>
 
-                  <div className="mt-4 pt-4 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground">{tx.timestamp}</p>
+                    {tx.transfer && (
+                      <div className="flex items-center space-x-3 p-4 rounded-lg bg-background/50">
+                        <div className="flex-1">
+                          <p className="text-xs text-muted-foreground mb-1">From</p>
+                          <p className="font-mono text-sm truncate">
+                            {formatPartyId(tx.transfer.sender.party)}
+                          </p>
+                        </div>
+                        <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-xs text-muted-foreground mb-1">To</p>
+                          <p className="font-mono text-sm truncate">
+                            {tx.transfer.receivers.length > 0
+                              ? formatPartyId(tx.transfer.receivers[0].party)
+                              : "N/A"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-4 pt-4 border-t border-border/50">
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(tx.date).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
       </div>
