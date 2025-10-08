@@ -253,10 +253,167 @@ export interface DsoInfoResponse {
   sv_party_id: string;
   dso_party_id: string;
   voting_threshold: number;
-  latest_mining_round: any;
-  amulet_rules: any;
-  dso_rules: any;
-  sv_node_states: any[];
+  latest_mining_round: ContractWithState;
+  amulet_rules: ContractWithState;
+  dso_rules: ContractWithState;
+  sv_node_states: ContractWithState[];
+  initial_round?: string;
+}
+
+export interface ScansResponse {
+  scans: ScanGroup[];
+}
+
+export interface ScanGroup {
+  domainId: string;
+  scans: ScanInfo[];
+}
+
+export interface ScanInfo {
+  publicUrl: string;
+  svName: string;
+}
+
+export interface ValidatorLicensesResponse {
+  validator_licenses: Contract[];
+  next_page_token?: number;
+}
+
+export interface DsoSequencersResponse {
+  domainSequencers: DomainSequencerGroup[];
+}
+
+export interface DomainSequencerGroup {
+  domainId: string;
+  sequencers: SequencerInfo[];
+}
+
+export interface SequencerInfo {
+  migrationId: number;
+  id: string;
+  url: string;
+  svName: string;
+  availableAfter: string;
+}
+
+export interface ParticipantIdResponse {
+  participant_id: string;
+}
+
+export interface TrafficStatusResponse {
+  traffic_status: {
+    actual: {
+      total_consumed: number;
+      total_limit: number;
+    };
+    target: {
+      total_purchased: number;
+    };
+  };
+}
+
+export interface AcsSnapshotTimestampResponse {
+  record_time: string;
+}
+
+export interface StateAcsRequest {
+  migration_id: number;
+  record_time: string;
+  after?: number;
+  page_size: number;
+  party_ids?: string[];
+  templates?: string[];
+}
+
+export interface StateAcsResponse {
+  record_time: string;
+  migration_id: number;
+  created_events: CreatedEvent[];
+  next_page_token?: number;
+}
+
+export interface HoldingsSummaryRequest {
+  migration_id: number;
+  record_time: string;
+  owner_party_ids: string[];
+  as_of_round?: number;
+}
+
+export interface HoldingsSummaryResponse {
+  record_time: string;
+  migration_id: number;
+  computed_as_of_round: number;
+  summaries: AmuletSummary[];
+}
+
+export interface AmuletSummary {
+  party_id: string;
+  total_unlocked_coin: string;
+  total_locked_coin: string;
+  total_coin_holdings: string;
+  accumulated_holding_fees_unlocked: string;
+  accumulated_holding_fees_locked: string;
+  accumulated_holding_fees_total: string;
+  total_available_coin: string;
+}
+
+export interface AnsEntriesResponse {
+  entries: AnsEntry[];
+}
+
+export interface AnsEntry {
+  contract_id: string | null;
+  user: string;
+  name: string;
+  url: string;
+  description: string;
+  expires_at: string | null;
+}
+
+export interface AnsEntryResponse {
+  entry: AnsEntry;
+}
+
+export interface DsoPartyIdResponse {
+  dso_party_id: string;
+}
+
+export interface FeaturedAppsResponse {
+  featured_apps: Contract[];
+}
+
+export interface FeaturedAppResponse {
+  featured_app_right?: Contract;
+}
+
+export interface TopValidatorsByFaucetsResponse {
+  validatorsByReceivedFaucets: ValidatorFaucetInfo[];
+}
+
+export interface TransferPreapprovalResponse {
+  transfer_preapproval: ContractWithState;
+}
+
+export interface TransferCommandCounterResponse {
+  transfer_command_counter: ContractWithState;
+}
+
+export interface TransferCommandStatusResponse {
+  transfer_commands_by_contract_id: Record<string, any>;
+}
+
+export interface MigrationScheduleResponse {
+  time: string;
+  migration_id: number;
+}
+
+export interface SpliceInstanceNamesResponse {
+  network_name: string;
+  network_favicon_url: string;
+  amulet_name: string;
+  amulet_name_acronym: string;
+  name_service_name: string;
+  name_service_name_acronym: string;
 }
 
 // API Client Functions
@@ -355,6 +512,191 @@ export const scanApi = {
       mode: 'cors',
     });
     if (!response.ok) throw new Error("Failed to fetch DSO info");
+    return response.json();
+  },
+
+  async fetchScans(): Promise<ScansResponse> {
+    const response = await fetch(`${API_BASE}/v0/scans`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch scans");
+    return response.json();
+  },
+
+  async fetchValidatorLicenses(after?: number, limit: number = 1000): Promise<ValidatorLicensesResponse> {
+    const params = new URLSearchParams();
+    if (after !== undefined) params.append('after', after.toString());
+    params.append('limit', limit.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/admin/validator/licenses?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch validator licenses");
+    return response.json();
+  },
+
+  async fetchDsoSequencers(): Promise<DsoSequencersResponse> {
+    const response = await fetch(`${API_BASE}/v0/dso-sequencers`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch DSO sequencers");
+    return response.json();
+  },
+
+  async fetchParticipantId(domainId: string, partyId: string): Promise<ParticipantIdResponse> {
+    const response = await fetch(`${API_BASE}/v0/domains/${domainId}/parties/${partyId}/participant-id`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch participant ID");
+    return response.json();
+  },
+
+  async fetchTrafficStatus(domainId: string, memberId: string): Promise<TrafficStatusResponse> {
+    const response = await fetch(`${API_BASE}/v0/domains/${domainId}/members/${memberId}/traffic-status`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch traffic status");
+    return response.json();
+  },
+
+  async fetchAcsSnapshotTimestamp(before: string, migrationId: number): Promise<AcsSnapshotTimestampResponse> {
+    const params = new URLSearchParams();
+    params.append('before', before);
+    params.append('migration_id', migrationId.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/state/acs/snapshot-timestamp?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch ACS snapshot timestamp");
+    return response.json();
+  },
+
+  async fetchStateAcs(request: StateAcsRequest): Promise<StateAcsResponse> {
+    const response = await fetch(`${API_BASE}/v0/state/acs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch state ACS");
+    return response.json();
+  },
+
+  async fetchHoldingsSummary(request: HoldingsSummaryRequest): Promise<HoldingsSummaryResponse> {
+    const response = await fetch(`${API_BASE}/v0/holdings/summary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch holdings summary");
+    return response.json();
+  },
+
+  async fetchAnsEntries(namePrefix?: string, pageSize: number = 100): Promise<AnsEntriesResponse> {
+    const params = new URLSearchParams();
+    if (namePrefix) params.append('name_prefix', namePrefix);
+    params.append('page_size', pageSize.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/ans-entries?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch ANS entries");
+    return response.json();
+  },
+
+  async fetchAnsEntryByParty(party: string): Promise<AnsEntryResponse> {
+    const response = await fetch(`${API_BASE}/v0/ans-entries/by-party/${party}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch ANS entry by party");
+    return response.json();
+  },
+
+  async fetchAnsEntryByName(name: string): Promise<AnsEntryResponse> {
+    const response = await fetch(`${API_BASE}/v0/ans-entries/by-name/${name}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch ANS entry by name");
+    return response.json();
+  },
+
+  async fetchDsoPartyId(): Promise<DsoPartyIdResponse> {
+    const response = await fetch(`${API_BASE}/v0/dso-party-id`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch DSO party ID");
+    return response.json();
+  },
+
+  async fetchFeaturedApps(): Promise<FeaturedAppsResponse> {
+    const response = await fetch(`${API_BASE}/v0/featured-apps`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch featured apps");
+    return response.json();
+  },
+
+  async fetchFeaturedApp(providerPartyId: string): Promise<FeaturedAppResponse> {
+    const response = await fetch(`${API_BASE}/v0/featured-apps/${providerPartyId}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch featured app");
+    return response.json();
+  },
+
+  async fetchTopValidatorsByFaucets(limit: number): Promise<TopValidatorsByFaucetsResponse> {
+    const params = new URLSearchParams();
+    params.append('limit', limit.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch top validators by faucets");
+    return response.json();
+  },
+
+  async fetchTransferPreapprovalByParty(party: string): Promise<TransferPreapprovalResponse> {
+    const response = await fetch(`${API_BASE}/v0/transfer-preapprovals/by-party/${party}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch transfer preapproval");
+    return response.json();
+  },
+
+  async fetchTransferCommandCounter(party: string): Promise<TransferCommandCounterResponse> {
+    const response = await fetch(`${API_BASE}/v0/transfer-command-counter/${party}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch transfer command counter");
+    return response.json();
+  },
+
+  async fetchTransferCommandStatus(sender: string, nonce: number): Promise<TransferCommandStatusResponse> {
+    const params = new URLSearchParams();
+    params.append('sender', sender);
+    params.append('nonce', nonce.toString());
+    
+    const response = await fetch(`${API_BASE}/v0/transfer-command/status?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch transfer command status");
+    return response.json();
+  },
+
+  async fetchMigrationSchedule(): Promise<MigrationScheduleResponse> {
+    const response = await fetch(`${API_BASE}/v0/migrations/schedule`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch migration schedule");
+    return response.json();
+  },
+
+  async fetchSpliceInstanceNames(): Promise<SpliceInstanceNamesResponse> {
+    const response = await fetch(`${API_BASE}/v0/splice-instance-names`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch splice instance names");
     return response.json();
   },
 };
