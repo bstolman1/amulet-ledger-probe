@@ -28,6 +28,11 @@ const Validators = () => {
   const svs = dsoRules?.svs || [];
   const offboardedSvs = dsoRules?.offboardedSvs || [];
   
+  // Debug: Log the raw data
+  console.log('Raw DSO Rules:', dsoRules);
+  console.log('SVs array:', svs);
+  console.log('SVs length:', svs.length);
+  
   // Convert SVs array to proper format
   const superValidators = svs.map(([id, data]: [string, any]) => ({
     id,
@@ -36,6 +41,8 @@ const Validators = () => {
     rewardWeight: data.svRewardWeight,
     joinedRound: data.joinedAsOfRound?.number || 0,
   })).sort((a, b) => b.rewardWeight - a.rewardWeight);
+  
+  console.log('Processed superValidators:', superValidators.length);
 
   const getRankColor = (rank: number) => {
     switch (rank) {
