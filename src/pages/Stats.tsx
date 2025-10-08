@@ -41,18 +41,19 @@ const Stats = () => {
   const oneDayAgo = currentRound - roundsPerDay;
   const oneWeekAgo = currentRound - (roundsPerDay * 7);
   const oneMonthAgo = currentRound - (roundsPerDay * 30);
+  const sixMonthsAgo = currentRound - (roundsPerDay * 180);
+  const oneYearAgo = currentRound - (roundsPerDay * 365);
 
   // Get validator liveness data
   const validatorsList = validators?.validatorsAndRewards || [];
 
-  // Filter validators by join period (using firstCollectedInRound would be better but we have numRoundsCollected)
-  // Since we don't have firstCollectedInRound in the current data, we'll estimate based on activity
+  // Filter validators by join period based on rounds collected
   const recentValidators = validatorsList.filter(v => {
     const roundsCollected = parseFloat(v.rewards);
     return roundsCollected > 0;
   });
 
-  // For demonstration, we'll categorize based on rounds collected as a proxy for join time
+  // Categorize validators by activity duration
   const newValidators = recentValidators.filter(v => parseFloat(v.rewards) < roundsPerDay);
   const weeklyValidators = recentValidators.filter(v => {
     const rounds = parseFloat(v.rewards);
@@ -62,6 +63,15 @@ const Stats = () => {
     const rounds = parseFloat(v.rewards);
     return rounds < (roundsPerDay * 30) && rounds >= (roundsPerDay * 7);
   });
+  const sixMonthValidators = recentValidators.filter(v => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < (roundsPerDay * 180) && rounds >= (roundsPerDay * 30);
+  });
+  const yearlyValidators = recentValidators.filter(v => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < (roundsPerDay * 365) && rounds >= (roundsPerDay * 180);
+  });
+  const allTimeValidators = recentValidators;
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
@@ -112,59 +122,116 @@ const Stats = () => {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <Card className="glass-card">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Last 24 Hours</h3>
-                <Calendar className="h-5 w-5 text-primary" />
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Last 24 Hours</h3>
+                <Calendar className="h-4 w-4 text-primary" />
               </div>
               {validatorsLoading ? (
-                <Skeleton className="h-12 w-24" />
+                <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-4xl font-bold text-primary mb-2">
+                  <p className="text-3xl font-bold text-primary mb-1">
                     {newValidators.length}
                   </p>
-                  <p className="text-sm text-muted-foreground">New validators</p>
+                  <p className="text-xs text-muted-foreground">New validators</p>
                 </>
               )}
             </div>
           </Card>
 
           <Card className="glass-card">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Last 7 Days</h3>
-                <TrendingUp className="h-5 w-5 text-chart-2" />
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Last 7 Days</h3>
+                <TrendingUp className="h-4 w-4 text-chart-2" />
               </div>
               {validatorsLoading ? (
-                <Skeleton className="h-12 w-24" />
+                <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-4xl font-bold text-chart-2 mb-2">
+                  <p className="text-3xl font-bold text-chart-2 mb-1">
                     {weeklyValidators.length + newValidators.length}
                   </p>
-                  <p className="text-sm text-muted-foreground">New validators</p>
+                  <p className="text-xs text-muted-foreground">New validators</p>
                 </>
               )}
             </div>
           </Card>
 
           <Card className="glass-card">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Last 30 Days</h3>
-                <Users className="h-5 w-5 text-chart-3" />
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Last 30 Days</h3>
+                <Users className="h-4 w-4 text-chart-3" />
               </div>
               {validatorsLoading ? (
-                <Skeleton className="h-12 w-24" />
+                <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-4xl font-bold text-chart-3 mb-2">
+                  <p className="text-3xl font-bold text-chart-3 mb-1">
                     {monthlyValidators.length + weeklyValidators.length + newValidators.length}
                   </p>
-                  <p className="text-sm text-muted-foreground">New validators</p>
+                  <p className="text-xs text-muted-foreground">New validators</p>
+                </>
+              )}
+            </div>
+          </Card>
+
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Last 6 Months</h3>
+                <TrendingUp className="h-4 w-4 text-chart-4" />
+              </div>
+              {validatorsLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-chart-4 mb-1">
+                    {sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground">New validators</p>
+                </>
+              )}
+            </div>
+          </Card>
+
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Last Year</h3>
+                <TrendingUp className="h-4 w-4 text-chart-5" />
+              </div>
+              {validatorsLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-chart-5 mb-1">
+                    {yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground">New validators</p>
+                </>
+              )}
+            </div>
+          </Card>
+
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">All Time</h3>
+                <Users className="h-4 w-4 text-primary" />
+              </div>
+              {validatorsLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <>
+                  <p className="text-3xl font-bold gradient-text mb-1">
+                    {allTimeValidators.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Total validators</p>
                 </>
               )}
             </div>
@@ -183,10 +250,13 @@ const Stats = () => {
               </div>
             ) : (
               <Tabs defaultValue="day" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="day">Last 24 Hours</TabsTrigger>
-                  <TabsTrigger value="week">Last 7 Days</TabsTrigger>
-                  <TabsTrigger value="month">Last 30 Days</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-6">
+                  <TabsTrigger value="day">Day</TabsTrigger>
+                  <TabsTrigger value="week">Week</TabsTrigger>
+                  <TabsTrigger value="month">Month</TabsTrigger>
+                  <TabsTrigger value="6months">6 Months</TabsTrigger>
+                  <TabsTrigger value="year">Year</TabsTrigger>
+                  <TabsTrigger value="all">All Time</TabsTrigger>
                 </TabsList>
                 <TabsContent value="day" className="mt-6">
                   <ValidatorList validators={newValidators} title="Validators with < 1 day of activity" />
@@ -203,31 +273,71 @@ const Stats = () => {
                     title="Validators with < 30 days of activity" 
                   />
                 </TabsContent>
+                <TabsContent value="6months" className="mt-6">
+                  <ValidatorList 
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators]} 
+                    title="Validators with < 6 months of activity" 
+                  />
+                </TabsContent>
+                <TabsContent value="year" className="mt-6">
+                  <ValidatorList 
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators, ...yearlyValidators]} 
+                    title="Validators with < 1 year of activity" 
+                  />
+                </TabsContent>
+                <TabsContent value="all" className="mt-6">
+                  <ValidatorList 
+                    validators={allTimeValidators} 
+                    title="All active validators" 
+                  />
+                </TabsContent>
               </Tabs>
             )}
           </div>
         </Card>
 
-        {/* Total Validators */}
+        {/* Growth Chart Info */}
         <Card className="glass-card">
           <div className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-bold mb-2">Total Active Validators</h3>
-                <p className="text-muted-foreground">All validators currently on the network</p>
+            <h3 className="text-xl font-bold mb-4">Validator Growth Overview</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
+                <p className="text-xs text-muted-foreground mb-1">Daily</p>
+                <p className="text-2xl font-bold text-primary">{newValidators.length}</p>
               </div>
-              <div className="text-right">
-                {validatorsLoading ? (
-                  <Skeleton className="h-16 w-24" />
-                ) : (
-                  <p className="text-5xl font-bold gradient-text">
-                    {recentValidators.length}
-                  </p>
-                )}
+              <div className="p-4 rounded-lg bg-chart-2/5 border border-chart-2/10">
+                <p className="text-xs text-muted-foreground mb-1">Weekly</p>
+                <p className="text-2xl font-bold text-chart-2">
+                  {weeklyValidators.length + newValidators.length}
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-chart-3/5 border border-chart-3/10">
+                <p className="text-xs text-muted-foreground mb-1">Monthly</p>
+                <p className="text-2xl font-bold text-chart-3">
+                  {monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-chart-4/5 border border-chart-4/10">
+                <p className="text-xs text-muted-foreground mb-1">6 Months</p>
+                <p className="text-2xl font-bold text-chart-4">
+                  {sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-chart-5/5 border border-chart-5/10">
+                <p className="text-xs text-muted-foreground mb-1">Yearly</p>
+                <p className="text-2xl font-bold text-chart-5">
+                  {yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
+                <p className="text-xs text-muted-foreground mb-1">All Time</p>
+                <p className="text-2xl font-bold gradient-text">{allTimeValidators.length}</p>
               </div>
             </div>
           </div>
         </Card>
+
+        {/* Total Validators - Removed as it's redundant with All Time card above */}
       </div>
     </DashboardLayout>
   );
