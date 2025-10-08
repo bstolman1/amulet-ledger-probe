@@ -28,21 +28,18 @@ const Validators = () => {
   const svs = dsoRules?.svs || [];
   const offboardedSvs = dsoRules?.offboardedSvs || [];
   
-  // Debug: Log the raw data
-  console.log('Raw DSO Rules:', dsoRules);
-  console.log('SVs array:', svs);
-  console.log('SVs length:', svs.length);
-  
-  // Convert SVs array to proper format
-  const superValidators = svs.map(([id, data]: [string, any]) => ({
+  // Convert SVs array to proper format (these are the primary operators)
+  const primaryOperators = svs.map(([id, data]: [string, any]) => ({
     id,
     name: data.name,
     participantId: data.participantId,
     rewardWeight: data.svRewardWeight,
     joinedRound: data.joinedAsOfRound?.number || 0,
+    type: 'Primary Operator' as const,
   })).sort((a, b) => b.rewardWeight - a.rewardWeight);
   
-  console.log('Processed superValidators:', superValidators.length);
+  // Note: extraBeneficiaries (additional SVs) exist in network config but aren't exposed via API
+  const superValidators = primaryOperators;
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -156,13 +153,18 @@ const Validators = () => {
           <Card className="glass-card">
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-medium text-muted-foreground">Active SVs</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">Primary Operators</h3>
                 <Award className="h-4 w-4 text-primary" />
               </div>
               {dsoLoading ? (
                 <Skeleton className="h-10 w-16" />
               ) : (
-                <p className="text-3xl font-bold text-primary">{superValidators.length}</p>
+                <>
+                  <p className="text-3xl font-bold text-primary">{superValidators.length}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    + beneficiary validators
+                  </p>
+                </>
               )}
             </div>
           </Card>
@@ -170,7 +172,7 @@ const Validators = () => {
           <Card className="glass-card">
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-medium text-muted-foreground">Offboarded SVs</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">Offboarded</h3>
                 <TrendingUp className="h-4 w-4 text-chart-3" />
               </div>
               {dsoLoading ? (
@@ -198,10 +200,32 @@ const Validators = () => {
           </Card>
         </div>
 
+        {/* Info Banner */}
+        <Card className="glass-card border-primary/20 bg-primary/5">
+          <div className="p-4">
+            <div className="flex items-start gap-3">
+              <Award className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-semibold text-foreground mb-1">
+                  About Supervalidator Structure
+                </p>
+                <p className="text-muted-foreground">
+                  Showing {superValidators.length} primary operators. Each operator may have additional beneficiary 
+                  validators (extraBeneficiaries) that receive portions of their rewards. The full beneficiary 
+                  structure is defined in the network's configuration but not exposed through the public API.
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
         {/* Supervalidators List */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-xl font-bold mb-6">Active Supervalidators</h3>
+            <h3 className="text-xl font-bold mb-2">Primary Operator Supervalidators</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              Primary operators managing network consensus and rewards distribution
+            </p>
             {dsoLoading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((i) => (
