@@ -232,6 +232,33 @@ export interface GetTotalAmuletBalanceResponse {
   total_balance: string;
 }
 
+export interface ValidatorLivenessRequest {
+  validator_ids: string[];
+}
+
+export interface ValidatorLivenessResponse {
+  validatorsReceivedFaucets: ValidatorFaucetInfo[];
+}
+
+export interface ValidatorFaucetInfo {
+  validator: string;
+  numRoundsCollected: number;
+  numRoundsMissed: number;
+  firstCollectedInRound: number;
+  lastCollectedInRound: number;
+}
+
+export interface DsoInfoResponse {
+  sv_user: string;
+  sv_party_id: string;
+  dso_party_id: string;
+  voting_threshold: number;
+  latest_mining_round: any;
+  amulet_rules: any;
+  dso_rules: any;
+  sv_node_states: any[];
+}
+
 // API Client Functions
 export const scanApi = {
   async fetchUpdates(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
@@ -309,6 +336,25 @@ export const scanApi = {
       mode: 'cors',
     });
     if (!response.ok) throw new Error("Failed to fetch total balance");
+    return response.json();
+  },
+
+  async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {
+    const params = new URLSearchParams();
+    validator_ids.forEach(id => params.append('validator_ids', id));
+    
+    const response = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch validator liveness");
+    return response.json();
+  },
+
+  async fetchDsoInfo(): Promise<DsoInfoResponse> {
+    const response = await fetch(`${API_BASE}/v0/dso`, {
+      mode: 'cors',
+    });
+    if (!response.ok) throw new Error("Failed to fetch DSO info");
     return response.json();
   },
 };
