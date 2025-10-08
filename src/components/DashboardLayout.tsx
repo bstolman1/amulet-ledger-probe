@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe } from "lucide-react";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -12,6 +12,7 @@ const navigation = [
   { name: "Validators", href: "/validators", icon: Zap },
   { name: "Mining Rounds", href: "/mining-rounds", icon: Coins },
   { name: "Round Stats", href: "/round-stats", icon: Layers },
+  { name: "ANS", href: "/ans", icon: Globe },
 ];
 
 export const DashboardLayout = ({ children }: DashboardLayoutProps) => {

@@ -7,9 +7,10 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Validators = () => {
-  const { data: topValidators, isLoading } = useQuery({
+  const { data: topValidators, isLoading, isError } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
+    retry: 1,
   });
 
   const getRankColor = (rank: number) => {
@@ -50,6 +51,14 @@ const Validators = () => {
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-40 w-full" />
                 ))}
+              </div>
+            ) : isError ? (
+              <div className="text-center p-8">
+                <p className="text-muted-foreground">Unable to load validator data. The API endpoint may be unavailable.</p>
+              </div>
+            ) : !topValidators?.validatorsAndRewards?.length ? (
+              <div className="text-center p-8">
+                <p className="text-muted-foreground">No validator data available</p>
               </div>
             ) : (
               <div className="space-y-4">

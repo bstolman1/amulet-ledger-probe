@@ -33,12 +33,14 @@ const MiningRounds = () => {
     opensAt: data.contract.payload?.opensAt,
   }));
 
-  // Process closed rounds (limit to last 5)
-  const closedRoundsData = closedRounds?.rounds.slice(0, 5).map((round) => ({
-    contractId: round.contract.contract_id,
-    roundNumber: round.contract.payload?.round?.number || "N/A",
-    createdAt: round.contract.created_at,
-  })) || [];
+  // Process closed rounds (limit to last 5) with safe access
+  const closedRoundsData = closedRounds?.rounds?.slice(0, 5)
+    .filter(round => round?.contract?.contract_id) // Filter out invalid entries
+    .map((round) => ({
+      contractId: round.contract.contract_id,
+      roundNumber: round.contract.payload?.round?.number || "N/A",
+      createdAt: round.contract.created_at,
+    })) || [];
 
   return (
     <DashboardLayout>

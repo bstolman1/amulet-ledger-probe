@@ -8,6 +8,7 @@ import Transactions from "./pages/Transactions";
 import Validators from "./pages/Validators";
 import MiningRounds from "./pages/MiningRounds";
 import RoundStats from "./pages/RoundStats";
+import ANS from "./pages/ANS";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ const App = () => (
           <Route path="/validators" element={<Validators />} />
           <Route path="/mining-rounds" element={<MiningRounds />} />
           <Route path="/round-stats" element={<RoundStats />} />
+          <Route path="/ans" element={<ANS />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

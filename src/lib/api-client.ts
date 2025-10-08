@@ -255,13 +255,17 @@ export const scanApi = {
   },
 
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-rewards`);
+    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-rewards`, {
+      mode: 'cors',
+    });
     if (!response.ok) throw new Error("Failed to fetch top validators");
     return response.json();
   },
 
   async fetchTopProviders(): Promise<GetTopProvidersByAppRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards`);
+    const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards`, {
+      mode: 'cors',
+    });
     if (!response.ok) throw new Error("Failed to fetch top providers");
     return response.json();
   },
@@ -301,7 +305,9 @@ export const scanApi = {
   },
 
   async fetchTotalBalance(): Promise<GetTotalAmuletBalanceResponse> {
-    const response = await fetch(`${API_BASE}/v0/total-amulet-balance`);
+    const response = await fetch(`${API_BASE}/v0/total-amulet-balance`, {
+      mode: 'cors',
+    });
     if (!response.ok) throw new Error("Failed to fetch total balance");
     return response.json();
   },

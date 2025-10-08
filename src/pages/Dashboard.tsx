@@ -13,14 +13,22 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  const { data: totalBalance } = useQuery({
+  const { data: totalBalance, isError: balanceError } = useQuery({
     queryKey: ["totalBalance"],
     queryFn: () => scanApi.fetchTotalBalance(),
+    retry: 1,
   });
 
-  const { data: topValidators } = useQuery({
+  const { data: topValidators, isError: validatorsError } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
+    retry: 1,
+  });
+
+  const { data: topProviders } = useQuery({
+    queryKey: ["topProviders"],
+    queryFn: () => scanApi.fetchTopProviders(),
+    retry: 1,
   });
 
   const { data: transactions } = useQuery({
@@ -28,14 +36,29 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchTransactions({ page_size: 5, sort_order: "desc" }),
   });
 
+  // Calculate total rewards from validators and providers
+  const totalValidatorRewards = topValidators?.validatorsAndRewards.reduce(
+    (sum, v) => sum + parseFloat(v.rewards), 0
+  ) || 0;
+  
+  const totalProviderRewards = topProviders?.providersAndRewards.reduce(
+    (sum, p) => sum + parseFloat(p.rewards), 0
+  ) || 0;
+
   const stats = {
-    totalBalance: totalBalance?.total_balance 
-      ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
-      : "Loading...",
-    activeValidators: topValidators?.validatorsAndRewards.length.toString() || "Loading...",
+    totalBalance: balanceError 
+      ? "Unavailable" 
+      : totalBalance?.total_balance 
+        ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
+        : "Loading...",
+    activeValidators: validatorsError
+      ? "Unavailable"
+      : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
     recentTransactions: transactions?.transactions.length.toString() || "Loading...",
-    totalRewards: "Loading...",
+    totalRewards: (totalValidatorRewards + totalProviderRewards) > 0
+      ? (totalValidatorRewards + totalProviderRewards).toLocaleString(undefined, { maximumFractionDigits: 2 })
+      : "Unavailable",
     networkHealth: "99.9%",
   };
 
