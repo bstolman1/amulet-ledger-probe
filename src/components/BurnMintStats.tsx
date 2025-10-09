@@ -49,18 +49,29 @@ export const BurnMintStats = () => {
     queryFn: async () => {
       if (!latestRound) return null;
       const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-      const maxChunk = 50;
+      const maxChunk = 25;
       const entries: any[] = [];
       for (let s = start; s <= latestRound.round; s += maxChunk) {
         const e = Math.min(s + maxChunk - 1, latestRound.round);
-        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
-        if (res?.entries?.length) entries.push(...res.entries);
+        try {
+          const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+          if (res?.entries?.length) entries.push(...res.entries);
+        } catch (err) {
+          console.warn("round-party-totals chunk failed", { s, e, err });
+          await new Promise(r => setTimeout(r, 300));
+          try {
+            const res2 = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+            if (res2?.entries?.length) entries.push(...res2.entries);
+          } catch (err2) {
+            console.error("round-party-totals retry failed", { s, e, err2 });
+          }
+        }
       }
       return { entries } as { entries: typeof entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
-    retry: 1,
+    retry: 0,
   });
 
   // Calculate true 24-hour mint and burn totals
@@ -78,13 +89,20 @@ export const BurnMintStats = () => {
       const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
       if (!isNaN(spent)) dailyBurn += spent;
     }
+  } else if (last24hTotals?.entries?.length) {
+    // Fallback: derive burn from negative issuance changes in round totals
+    for (const e of last24hTotals.entries) {
+      const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
+      if (!isNaN(change) && change < 0) dailyBurn += Math.abs(change);
+    }
+    console.info("BurnMintStats: using fallback burn from round totals (negative issuance)");
   }
 
   // Get cumulative stats from current round (includes cumulative data)
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = latestPending || currentPending || totalsPending || partyPending;
+  const isLoading = latestPending || currentPending || totalsPending;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -904,14 +904,21 @@ export const scanApi = {
   },
 
   async fetchRoundPartyTotals(request: RoundPartyTotalsRequest): Promise<RoundPartyTotalsResponse> {
-    const response = await fetch(`${API_BASE}/v0/round-party-totals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      mode: 'cors',
-    });
-    if (!response.ok) throw new Error("Failed to fetch round party totals");
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/round-party-totals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        mode: 'cors',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch round party totals");
+      return response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   async fetchWalletBalance(partyId: string, asOfEndOfRound: number): Promise<WalletBalanceResponse> {

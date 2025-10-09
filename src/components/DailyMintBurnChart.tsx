@@ -42,22 +42,31 @@ export const DailyMintBurnChart = () => {
     queryKey: ["burnTotals", latestRound?.round, rangeDays],
     queryFn: async () => {
       if (!latestRound) return null;
-      const startRound = Math.max(0, latestRound.round - roundsToFetch);
-      const chunkSize = 50; // API limit for party totals
-      const ranges: Array<{ start: number; end: number }> = [];
-      for (let start = startRound; start <= latestRound.round; start += chunkSize) {
-        const end = Math.min(start + chunkSize - 1, latestRound.round);
-        ranges.push({ start, end });
+      const start = Math.max(0, latestRound.round - roundsToFetch);
+      const chunkSize = 25; // smaller chunks to avoid server limits
+      const entries: any[] = [];
+      for (let s = start; s <= latestRound.round; s += chunkSize) {
+        const e = Math.min(s + chunkSize - 1, latestRound.round);
+        try {
+          const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+          if (res?.entries?.length) entries.push(...res.entries);
+        } catch (err) {
+          console.warn("round-party-totals chunk failed", { s, e, err });
+          // light backoff then retry once
+          await new Promise(r => setTimeout(r, 300));
+          try {
+            const res2 = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+            if (res2?.entries?.length) entries.push(...res2.entries);
+          } catch (err2) {
+            console.error("round-party-totals retry failed", { s, e, err2 });
+          }
+        }
       }
-      const results = await Promise.all(
-        ranges.map(({ start, end }) => scanApi.fetchRoundPartyTotals({ start_round: start, end_round: end }))
-      );
-      const entries = results.flatMap((r) => r?.entries ?? []);
-      return { entries };
+      return { entries } as { entries: typeof entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
-    retry: 1,
+    retry: 0,
   });
 
   const chartData = (() => {
@@ -86,6 +95,20 @@ export const DailyMintBurnChart = () => {
         if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
         if (!isNaN(change) && change > 0) byDay[key].minted += change;
       }
+    }
+
+    // Fallback burn computation: derive from negative issuance changes when party totals are unavailable
+    const shouldUseFallbackBurn = !yearlyBurnTotals?.entries?.length && !!yearlyTotals?.entries?.length;
+    if (shouldUseFallbackBurn) {
+      for (const e of yearlyTotals.entries) {
+        const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
+        const d = new Date(e.closed_round_effective_at);
+        if (d.getFullYear() !== new Date().getFullYear()) continue;
+        const key = d.toISOString().slice(0, 10);
+        if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
+        if (!isNaN(change) && change < 0) byDay[key].burned += Math.abs(change);
+      }
+      console.info("DailyMintBurnChart: using fallback burn from round totals (negative issuance)");
     }
 
     // Process burn data (aggregate by round first, then by day)

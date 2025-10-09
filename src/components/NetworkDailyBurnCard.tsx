@@ -18,18 +18,29 @@ export const NetworkDailyBurnCard = () => {
     queryFn: async () => {
       if (!latestRound) return null;
       const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-      const maxChunk = 50;
+      const maxChunk = 25;
       const entries: any[] = [];
       for (let s = start; s <= latestRound.round; s += maxChunk) {
         const e = Math.min(s + maxChunk - 1, latestRound.round);
-        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
-        if (res?.entries?.length) entries.push(...res.entries);
+        try {
+          const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+          if (res?.entries?.length) entries.push(...res.entries);
+        } catch (err) {
+          console.warn("round-party-totals chunk failed", { s, e, err });
+          await new Promise(r => setTimeout(r, 300));
+          try {
+            const res2 = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+            if (res2?.entries?.length) entries.push(...res2.entries);
+          } catch (err2) {
+            console.error("round-party-totals retry failed", { s, e, err2 });
+          }
+        }
       }
       return { entries } as { entries: typeof entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
-    retry: 1,
+    retry: 0,
   });
 
   let dailyBurn = 0;
