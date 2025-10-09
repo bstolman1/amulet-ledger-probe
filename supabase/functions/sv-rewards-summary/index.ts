@@ -436,7 +436,7 @@ Deno.serve(async (req) => {
       weight,
       alreadyMintedWeight,
       gracePeriodMinutes = 60,
-      scanUrl = 'https://scan.sv.canton.network'
+      scanUrl = 'https://scan.sv-1.global.canton.network.sync.global'
     } = await req.json();
 
     console.log('Request parameters:', {

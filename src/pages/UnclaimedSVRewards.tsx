@@ -58,7 +58,7 @@ const UnclaimedSVRewards = () => {
       if (error) throw error;
       return data;
     },
-    enabled: !!configData,
+    enabled: true,
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 1,
   });
