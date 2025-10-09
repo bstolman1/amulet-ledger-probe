@@ -130,7 +130,16 @@ const Validators = () => {
     }
   };
   const svNodeStates = dsoInfo?.sv_node_states || [];
-  const totalValidators = topValidators?.validatorsAndRewards?.length || 0;
+  
+  // Get SV participant IDs to filter them out from active validators
+  const svParticipantIds = new Set(superValidators.map(sv => sv.participantId));
+  
+  // Filter out SVs from the active validators list
+  const activeValidatorsOnly = topValidators?.validatorsAndRewards?.filter(
+    validator => !svParticipantIds.has(validator.provider)
+  ) || [];
+  
+  const totalValidators = activeValidatorsOnly.length;
   const totalRewardWeight = superValidators.reduce((sum, sv) => sum + sv.rewardWeight, 0);
   const primaryOperatorsCount = operators.length;
   const totalSuperValidators = superValidators.length;
@@ -311,10 +320,10 @@ const Validators = () => {
                 {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-40 w-full" />)}
               </div> : isError ? <div className="text-center p-8">
                 <p className="text-muted-foreground">Unable to load validator data. The API endpoint may be unavailable.</p>
-              </div> : !topValidators?.validatorsAndRewards?.length ? <div className="text-center p-8">
-                <p className="text-muted-foreground">No validator data available</p>
+              </div> : !activeValidatorsOnly.length ? <div className="text-center p-8">
+                <p className="text-muted-foreground">No non-SV validator data available</p>
               </div> : <div className="space-y-4">
-                {topValidators?.validatorsAndRewards.map((validator, index) => {
+                {activeValidatorsOnly.map((validator, index) => {
               const rank = index + 1;
               return <div key={validator.provider} className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50">
                       <div className="flex items-start justify-between mb-4">
