@@ -9,87 +9,48 @@ export const DailyMintBurnChart = () => {
   const { data: latestRound } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
+    staleTime: 60_000,
   });
 
-  const roundsPerDay = 144; // Approximately 144 rounds per day (10 min per round)
-  const daysThisYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / (1000 * 60 * 60 * 24));
-  const roundsThisYear = daysThisYear * roundsPerDay;
+  const roundsPerDay = 144; // ~10 minutes per round
+  const startOfYear = new Date(new Date().getFullYear(), 0, 1);
+  const daysThisYear = Math.floor((Date.now() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
+  const roundsThisYear = Math.max(1, daysThisYear * roundsPerDay);
 
-  // Fetch all round party totals for this year
-  const { data: yearlyData, isLoading } = useQuery({
-    queryKey: ["yearlyMintBurn", latestRound?.round],
+  // Fetch per-round totals for this year
+  const { data: yearlyTotals, isLoading } = useQuery({
+    queryKey: ["yearlyMintBurnTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       const startRound = Math.max(0, latestRound.round - roundsThisYear);
-      return scanApi.fetchRoundPartyTotals({
-        start_round: startRound,
-        end_round: latestRound.round,
-      });
+      return scanApi.fetchRoundTotals({ start_round: startRound, end_round: latestRound.round });
     },
     enabled: !!latestRound,
+    staleTime: 60_000,
   });
 
-  // Process data into daily buckets
-  const getDailyChartData = () => {
-    if (!yearlyData?.entries?.length || !latestRound) return [];
+  const chartData = (() => {
+    if (!yearlyTotals?.entries?.length) return [];
 
-    const dailyData: { [date: string]: { mint: number; burn: number } } = {};
-    const startRound = Math.max(0, latestRound.round - roundsThisYear);
-    
-    // Group entries by day
-    for (let day = 0; day <= daysThisYear; day++) {
-      const dayStartRound = startRound + (day * roundsPerDay);
-      const dayEndRound = startRound + ((day + 1) * roundsPerDay);
-      const date = new Date(new Date().getFullYear(), 0, 1);
-      date.setDate(date.getDate() + day);
-      const dateKey = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-      const partyDeltas = new Map<string, { start: number; end: number }>();
-
-      // Find start and end cumulative values for each party on this day
-      for (const entry of yearlyData.entries) {
-        if (entry.closed_round >= dayStartRound && entry.closed_round <= dayEndRound) {
-          const cum = parseFloat(entry.cumulative_change_to_initial_amount_as_of_round_zero);
-          
-          if (!partyDeltas.has(entry.party)) {
-            partyDeltas.set(entry.party, { start: cum, end: cum });
-          }
-          
-          const partyData = partyDeltas.get(entry.party)!;
-          if (entry.closed_round <= dayStartRound) {
-            partyData.start = cum;
-          }
-          if (entry.closed_round >= entry.closed_round) {
-            partyData.end = cum;
-          }
-        }
-      }
-
-      let dayMint = 0;
-      let dayBurn = 0;
-
-      partyDeltas.forEach((data) => {
-        const delta = data.end - data.start;
-        if (delta > 0) {
-          dayMint += delta;
-        } else if (delta < 0) {
-          dayBurn += Math.abs(delta);
-        }
-      });
-
-      if (dayMint > 0 || dayBurn > 0) {
-        dailyData[dateKey] = { mint: dayMint, burn: dayBurn };
-      }
+    const byDay: Record<string, { minted: number; burned: number; date: Date }> = {};
+    for (const e of yearlyTotals.entries) {
+      const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
+      const d = new Date(e.closed_round_effective_at);
+      if (d.getFullYear() !== new Date().getFullYear()) continue; // ensure current year only
+      const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+      if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
+      if (change > 0) byDay[key].minted += change;
+      else if (change < 0) byDay[key].burned += Math.abs(change);
     }
 
-    return Object.entries(dailyData).map(([date, data]) => ({
-      date,
-      minted: Math.round(data.mint),
-      burned: Math.round(data.burn),
-    }));
-  };
-
-  const chartData = getDailyChartData();
+    return Object.values(byDay)
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .map((d) => ({
+        date: d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        minted: Math.round(d.minted),
+        burned: Math.round(d.burned),
+      }));
+  })();
 
   return (
     <Card className="glass-card">

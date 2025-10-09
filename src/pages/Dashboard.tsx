@@ -3,6 +3,7 @@ import { StatCard } from "@/components/StatCard";
 import { BurnMintStats } from "@/components/BurnMintStats";
 import { DailyMintBurnChart } from "@/components/DailyMintBurnChart";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
+import { SearchBar } from "@/components/SearchBar";
 import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
@@ -77,10 +78,18 @@ const Dashboard = () => {
         <div className="relative">
           <div className="absolute inset-0 gradient-primary rounded-2xl blur-3xl opacity-20" />
           <div className="relative glass-card p-8">
-            <h2 className="text-4xl font-bold mb-2">Welcome to SCANTON</h2>
-            <p className="text-lg text-muted-foreground">
-              Explore transactions, validators, and network statistics
-            </p>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-4xl font-bold mb-2">Welcome to SCANTON</h2>
+                <p className="text-lg text-muted-foreground">
+                  Explore transactions, validators, and network statistics
+                </p>
+              </div>
+              <div className="w-full md:w-[420px]">
+                {/* Local search beside hero title */}
+                <SearchBar />
+              </div>
+            </div>
           </div>
         </div>
 
