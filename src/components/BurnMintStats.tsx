@@ -5,7 +5,7 @@ import { Flame, Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const BurnMintStats = () => {
-  const { data: latestRound } = useQuery({
+  const { data: latestRound, isPending: latestPending } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
     staleTime: 60_000,
@@ -15,7 +15,7 @@ export const BurnMintStats = () => {
   const roundsPerDay = 144;
 
   // Fetch last 24 hours of round totals for true daily stats
-  const { data: last24hTotals } = useQuery({
+  const { data: last24hTotals, isPending: totalsPending, isError: totalsError } = useQuery({
     queryKey: ["roundTotals24h", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
@@ -24,10 +24,11 @@ export const BurnMintStats = () => {
     },
     enabled: !!latestRound,
     staleTime: 60_000,
+    retry: 1,
   });
 
   // Fetch current round for cumulative stats
-  const { data: currentRound } = useQuery({
+  const { data: currentRound, isPending: currentPending, isError: currentError } = useQuery({
     queryKey: ["currentRound", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
@@ -38,6 +39,7 @@ export const BurnMintStats = () => {
     },
     enabled: !!latestRound,
     staleTime: 60_000,
+    retry: 1,
   });
 
   // Calculate true 24-hour mint and burn totals from per-round net changes
@@ -55,7 +57,7 @@ export const BurnMintStats = () => {
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = !latestRound || !currentRound || !last24hTotals;
+  const isLoading = latestPending || currentPending || totalsPending;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

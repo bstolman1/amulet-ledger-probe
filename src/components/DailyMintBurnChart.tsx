@@ -18,15 +18,24 @@ export const DailyMintBurnChart = () => {
   const roundsThisYear = Math.max(1, daysThisYear * roundsPerDay);
 
   // Fetch per-round totals for this year
-  const { data: yearlyTotals, isLoading } = useQuery({
+  const { data: yearlyTotals, isPending: isLoading } = useQuery({
     queryKey: ["yearlyMintBurnTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       const startRound = Math.max(0, latestRound.round - roundsThisYear);
-      return scanApi.fetchRoundTotals({ start_round: startRound, end_round: latestRound.round });
+      const chunkSize = 200;
+      const promises: Promise<{ entries: any[] }>[] = [];
+      for (let start = startRound; start <= latestRound.round; start += chunkSize) {
+        const end = Math.min(start + chunkSize - 1, latestRound.round);
+        promises.push(scanApi.fetchRoundTotals({ start_round: start, end_round: end }));
+      }
+      const results = await Promise.all(promises);
+      const entries = results.flatMap((r) => r?.entries ?? []);
+      return { entries } as { entries: typeof results[number]["entries"] };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
+    retry: 1,
   });
 
   const chartData = (() => {

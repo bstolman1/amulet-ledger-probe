@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote } from "lucide-react";
-import { SearchBar } from "./SearchBar";
+
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -44,7 +44,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               </div>
             </Link>
 
-            <SearchBar />
+            
           </div>
 
           {/* Bottom row: Navigation tabs with wrapping */}
