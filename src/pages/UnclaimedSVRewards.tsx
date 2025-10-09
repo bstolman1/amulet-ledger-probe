@@ -51,6 +51,7 @@ const UnclaimedSVRewards = () => {
           weight: 1200000,
           alreadyMintedWeight: 0,
           gracePeriodMinutes: 60,
+          scanUrl: "https://scan.sv-1.global.canton.network.sync.global",
         },
       });
 
