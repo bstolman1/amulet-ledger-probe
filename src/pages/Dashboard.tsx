@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { fetchConfigData } from "@/lib/config-sync";
 const Dashboard = () => {
   // Fetch real data from Canton Scan API
   const {
@@ -48,6 +49,13 @@ const Dashboard = () => {
       sort_order: "desc"
     })
   });
+  const {
+    data: configData
+  } = useQuery({
+    queryKey: ["sv-config"],
+    queryFn: () => fetchConfigData(),
+    staleTime: 24 * 60 * 60 * 1000
+  });
 
   // Calculate total rewards from validators (rounds collected) and providers (app rewards)
   const totalValidatorRounds = topValidators?.validatorsAndRewards.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
@@ -56,12 +64,14 @@ const Dashboard = () => {
   const marketCap = totalBalance?.total_balance && ccPrice !== undefined ? (parseFloat(totalBalance.total_balance) * ccPrice).toLocaleString(undefined, {
     maximumFractionDigits: 0
   }) : "Loading...";
+  const superValidatorCount = configData?.superValidators.length || 0;
+  
   const stats = {
     totalBalance: balanceLoading ? "Loading..." : balanceError ? "Connection Failed" : totalBalance?.total_balance ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, {
       maximumFractionDigits: 2
     }) : "Loading...",
     marketCap: balanceLoading ? "Loading..." : balanceError ? "Connection Failed" : marketCap,
-    activeValidators: validatorsError ? "Connection Failed" : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
+    superValidators: configData ? superValidatorCount.toString() : "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
     totalRewards: totalAppRewards > 0 ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, {
@@ -96,7 +106,7 @@ const Dashboard = () => {
           value: "12.5%",
           positive: true
         }} gradient />
-          <StatCard title="Super Validators" value={stats.activeValidators} icon={Zap} trend={{
+          <StatCard title="Super Validators" value={stats.superValidators} icon={Zap} trend={{
           value: "3",
           positive: true
         }} />

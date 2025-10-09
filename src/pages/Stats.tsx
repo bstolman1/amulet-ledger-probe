@@ -324,8 +324,7 @@ const Stats = () => {
           <div>
             <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
             <p className="text-muted-foreground">
-              Track validator growth and onboarding trends • {nonSvValidatorCount} total validators 
-              ({superValidatorCount} Super Validators) • {inactiveValidators.length} inactive
+              Track validator growth and onboarding trends • {nonSvValidatorCount} validators (excluding {superValidatorCount} Super Validators) • {inactiveValidators.length} inactive
             </p>
           </div>
           <Button 
