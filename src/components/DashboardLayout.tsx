@@ -11,7 +11,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
   { name: "Supply", href: "/supply", icon: Coins },
   { name: "Transactions", href: "/transactions", icon: Activity },
-  { name: "Validators", href: "/validators", icon: Zap },
+  { name: "Validators/SVs", href: "/validators", icon: Zap },
   { name: "Mining Rounds", href: "/mining-rounds", icon: TrendingUp },
   { name: "Round Stats", href: "/round-stats", icon: Layers },
   { name: "ANS", href: "/ans", icon: Globe },

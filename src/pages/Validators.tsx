@@ -139,8 +139,10 @@ const Validators = () => {
         {/* Header with Stats */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold mb-2">Supervalidators</h2>
-            
+            <h2 className="text-3xl font-bold mb-2">Overview</h2>
+            <p className="text-muted-foreground">
+              Network statistics for supervalidators and active validators
+            </p>
           </div>
           <Button onClick={exportValidatorData} disabled={dsoLoading || !superValidators.length} variant="outline" className="gap-2">
             <Download className="h-4 w-4" />
@@ -195,15 +197,21 @@ const Validators = () => {
           </Card>
         </div>
 
-        {/* Info Banner */}
-        
+        {/* Supervalidators Section Header */}
+        <div className="flex items-center justify-between mt-8">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Supervalidators</h2>
+            <p className="text-muted-foreground">
+              Network supervalidators with their reward weights and operator information
+            </p>
+          </div>
+        </div>
 
         {/* Supervalidators List */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-xl font-bold mb-2">All Supervalidators</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              All {totalSuperValidators} supervalidators with operator information and join rounds
+              {totalSuperValidators} supervalidators sorted by reward weight
             </p>
             {dsoLoading || configLoading ? <div className="space-y-4">
                 {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}
@@ -287,12 +295,12 @@ const Validators = () => {
             </div>
           </Card>}
 
-        {/* Regular Validators Section */}
-        <div className="flex items-center justify-between">
+        {/* Regular Validators Section Header */}
+        <div className="flex items-center justify-between mt-8">
           <div>
             <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
             <p className="text-muted-foreground">
-              All active validators on the Canton Network ({totalValidators} total)
+              All {totalValidators} active validators on the Canton Network
             </p>
           </div>
         </div>
