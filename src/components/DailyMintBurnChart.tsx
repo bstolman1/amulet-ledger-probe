@@ -198,9 +198,9 @@ export const DailyMintBurnChart = () => {
       }));
   })();
 
-  const isLoading = mintLoading && burnLoading;
+  const isLoading = mintLoading || burnLoading;
 
-  const hasError = mintLoading === false && burnLoading === false && !yearlyTotals && !yearlyBurnTotals;
+  const hasError = !mintLoading && !burnLoading && !yearlyTotals && !yearlyBurnTotals;
 
   return (
     <Card className="glass-card">
@@ -208,68 +208,71 @@ export const DailyMintBurnChart = () => {
         <h3 className="text-xl font-bold mb-4">Daily Mint & Burn Activity — Last 30 Days</h3>
         {isLoading ? (
           <Skeleton className="h-[400px] w-full" />
-        ) : hasError ? (
-          <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+        ) : chartData.length === 0 ? (
+          <div className="h-[400px] flex items-center justify-center">
             <div className="text-center space-y-2">
-              <p>Unable to load chart data</p>
-              <p className="text-xs">The API may be temporarily unavailable</p>
+              <p className="text-muted-foreground">No data available for the last 30 days</p>
+              <p className="text-xs text-muted-foreground">
+                Check console for debug info (mintLoading: {String(mintLoading)}, burnLoading: {String(burnLoading)})
+              </p>
             </div>
           </div>
-        ) : chartData.length === 0 ? (
-          <div className="h-[400px] flex items-center justify-center text-muted-foreground">
-            No data available for the last 30 days
-          </div>
         ) : (
-          <ChartContainer
-            config={{
-              minted: {
-                label: "Minted",
-                color: "hsl(var(--chart-2))",
-              },
-              burned: {
-                label: "Burned",
-                color: "hsl(var(--destructive))",
-              },
-            }}
-            className="h-[400px] w-full"
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis 
-                  dataKey="date" 
-                  className="text-xs"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis 
-                  className="text-xs"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickFormatter={(value) => {
-                    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-                    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-                    return value.toString();
-                  }}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Legend />
-                <Bar 
-                  dataKey="minted" 
-                  fill="hsl(var(--chart-2))"
-                  radius={[4, 4, 0, 0]}
-                  name="Minted"
-                />
-                <Bar 
-                  dataKey="burned" 
-                  fill="hsl(var(--destructive))"
-                  radius={[4, 4, 0, 0]}
-                  name="Burned"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartContainer>
+          <div>
+            <div className="mb-2 text-xs text-muted-foreground">
+              Showing {chartData.length} days of data
+            </div>
+            <ChartContainer
+              config={{
+                minted: {
+                  label: "Minted",
+                  color: "hsl(var(--chart-2))",
+                },
+                burned: {
+                  label: "Burned",
+                  color: "hsl(var(--destructive))",
+                },
+              }}
+              className="h-[400px] w-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="date" 
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                      if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                      return value.toString();
+                    }}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Legend />
+                  <Bar 
+                    dataKey="minted" 
+                    fill="hsl(var(--chart-2))"
+                    radius={[4, 4, 0, 0]}
+                    name="Minted"
+                  />
+                  <Bar 
+                    dataKey="burned" 
+                    fill="hsl(var(--destructive))"
+                    radius={[4, 4, 0, 0]}
+                    name="Burned"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </div>
         )}
       </div>
     </Card>
