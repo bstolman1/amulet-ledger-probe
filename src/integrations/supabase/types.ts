@@ -91,43 +91,79 @@ export type Database = {
           },
         ]
       }
+      featured_app_committee_votes: {
+        Row: {
+          contact: string
+          created_at: string
+          email: string
+          featured_app_id: string
+          id: string
+          member_name: string
+          updated_at: string
+          vote: string | null
+          weight: number
+        }
+        Insert: {
+          contact: string
+          created_at?: string
+          email: string
+          featured_app_id: string
+          id?: string
+          member_name: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Update: {
+          contact?: string
+          created_at?: string
+          email?: string
+          featured_app_id?: string
+          id?: string
+          member_name?: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "featured_app_committee_votes_featured_app_id_fkey"
+            columns: ["featured_app_id"]
+            isOneToOne: false
+            referencedRelation: "featured_app_votes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       featured_app_votes: {
         Row: {
           app_name: string
-          cip_id: string
           created_at: string
           description: string | null
           id: string
+          status: string
           updated_at: string
           vote_count: number
         }
         Insert: {
           app_name: string
-          cip_id: string
           created_at?: string
           description?: string | null
           id?: string
+          status?: string
           updated_at?: string
           vote_count?: number
         }
         Update: {
           app_name?: string
-          cip_id?: string
           created_at?: string
           description?: string | null
           id?: string
+          status?: string
           updated_at?: string
           vote_count?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "featured_app_votes_cip_id_fkey"
-            columns: ["cip_id"]
-            isOneToOne: false
-            referencedRelation: "cips"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       sv_votes: {
         Row: {

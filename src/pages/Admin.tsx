@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Trash2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SVVote {
   organization: string;
@@ -25,14 +26,18 @@ interface CommitteeVote {
   vote: "yes" | "no" | "abstain" | "";
 }
 
-interface FeaturedAppVote {
-  appName: string;
-  description: string;
-  voteCount: number;
+interface FeaturedAppCommitteeVote {
+  member: string;
+  email: string;
+  contact: string;
+  weight: number;
+  vote: "yes" | "no" | "abstain" | "";
 }
 
 const Admin = () => {
   const { toast } = useToast();
+  
+  // CIP-related state
   const [cipNumber, setCipNumber] = useState("");
   const [cipTitle, setCipTitle] = useState("");
   const [voteStart, setVoteStart] = useState("");
@@ -47,8 +52,13 @@ const Admin = () => {
     { member: "", email: "", contact: "", weight: 1, vote: "" }
   ]);
 
-  const [featuredAppVotes, setFeaturedAppVotes] = useState<FeaturedAppVote[]>([
-    { appName: "", description: "", voteCount: 0 }
+  // Featured App-related state
+  const [featuredAppName, setFeaturedAppName] = useState("");
+  const [featuredAppDescription, setFeaturedAppDescription] = useState("");
+  const [currentFeaturedAppId, setCurrentFeaturedAppId] = useState<string | null>(null);
+  
+  const [featuredAppCommitteeVotes, setFeaturedAppCommitteeVotes] = useState<FeaturedAppCommitteeVote[]>([
+    { member: "", email: "", contact: "", weight: 1, vote: "" }
   ]);
 
   const addSvRow = () => {
@@ -79,18 +89,18 @@ const Admin = () => {
     setCommitteeVotes(updated);
   };
 
-  const addFeaturedAppRow = () => {
-    setFeaturedAppVotes([...featuredAppVotes, { appName: "", description: "", voteCount: 0 }]);
+  const addFeaturedAppCommitteeRow = () => {
+    setFeaturedAppCommitteeVotes([...featuredAppCommitteeVotes, { member: "", email: "", contact: "", weight: 1, vote: "" }]);
   };
 
-  const removeFeaturedAppRow = (index: number) => {
-    setFeaturedAppVotes(featuredAppVotes.filter((_, i) => i !== index));
+  const removeFeaturedAppCommitteeRow = (index: number) => {
+    setFeaturedAppCommitteeVotes(featuredAppCommitteeVotes.filter((_, i) => i !== index));
   };
 
-  const updateFeaturedAppVote = (index: number, field: keyof FeaturedAppVote, value: string | number) => {
-    const updated = [...featuredAppVotes];
+  const updateFeaturedAppCommitteeVote = (index: number, field: keyof FeaturedAppCommitteeVote, value: string | number) => {
+    const updated = [...featuredAppCommitteeVotes];
     updated[index] = { ...updated[index], [field]: value };
-    setFeaturedAppVotes(updated);
+    setFeaturedAppCommitteeVotes(updated);
   };
 
   const calculateSVResult = () => {
@@ -117,14 +127,64 @@ const Admin = () => {
     return { totalWeight, yesWeight, noWeight, abstainWeight, yesPercentage, passed };
   };
 
+  const calculateFeaturedAppCommitteeResult = () => {
+    const totalWeight = featuredAppCommitteeVotes.reduce((sum, v) => sum + (v.weight || 0), 0);
+    const yesWeight = featuredAppCommitteeVotes.filter(v => v.vote === "yes").reduce((sum, v) => sum + (v.weight || 0), 0);
+    const noWeight = featuredAppCommitteeVotes.filter(v => v.vote === "no").reduce((sum, v) => sum + (v.weight || 0), 0);
+    const abstainWeight = featuredAppCommitteeVotes.filter(v => v.vote === "abstain").reduce((sum, v) => sum + (v.weight || 0), 0);
+    
+    const yesPercentage = totalWeight > 0 ? (yesWeight / totalWeight) * 100 : 0;
+    const passed = yesPercentage >= 66.67;
+    
+    return { totalWeight, yesWeight, noWeight, abstainWeight, yesPercentage, passed };
+  };
+
   const svResult = calculateSVResult();
   const committeeResult = calculateCommitteeResult();
+  const featuredAppCommitteeResult = calculateFeaturedAppCommitteeResult();
 
-  const handleSaveFeaturedAppVotes = async () => {
-    if (!currentCipId) {
+  const handleSaveFeaturedApp = async () => {
+    if (!featuredAppName) {
       toast({
         title: "Error",
-        description: "Please save CIP details first",
+        description: "Please enter a featured app name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('featured_app_votes')
+        .insert({
+          app_name: featuredAppName,
+          description: featuredAppDescription,
+          vote_count: 0,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setCurrentFeaturedAppId(data.id);
+      toast({
+        title: "Success",
+        description: "Featured app created. You can now add committee votes.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create featured app",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSaveFeaturedAppCommitteeVotes = async () => {
+    if (!currentFeaturedAppId) {
+      toast({
+        title: "Error",
+        description: "Please save featured app details first",
         variant: "destructive",
       });
       return;
@@ -132,13 +192,15 @@ const Admin = () => {
 
     try {
       const { error } = await supabase
-        .from('featured_app_votes')
+        .from('featured_app_committee_votes')
         .insert(
-          featuredAppVotes.map(vote => ({
-            cip_id: currentCipId,
-            app_name: vote.appName,
-            description: vote.description,
-            vote_count: vote.voteCount,
+          featuredAppCommitteeVotes.map(vote => ({
+            featured_app_id: currentFeaturedAppId,
+            member_name: vote.member,
+            email: vote.email,
+            contact: vote.contact,
+            weight: vote.weight,
+            vote: vote.vote,
           }))
         );
 
@@ -146,12 +208,12 @@ const Admin = () => {
 
       toast({
         title: "Success",
-        description: "Featured app votes saved successfully",
+        description: "Featured app committee votes saved successfully",
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to save featured app votes",
+        description: "Failed to save committee votes",
         variant: "destructive",
       });
     }
@@ -281,7 +343,6 @@ const Admin = () => {
     setCurrentCipId(null);
     setSvVotes([{ organization: "", email: "", contact: "", weight: 0, vote: "" }]);
     setCommitteeVotes([{ member: "", email: "", contact: "", weight: 1, vote: "" }]);
-    setFeaturedAppVotes([{ appName: "", description: "", voteCount: 0 }]);
     
     toast({
       title: "New CIP",
@@ -289,19 +350,41 @@ const Admin = () => {
     });
   };
 
+  const handleNewFeaturedApp = () => {
+    setFeaturedAppName("");
+    setFeaturedAppDescription("");
+    setCurrentFeaturedAppId(null);
+    setFeaturedAppCommitteeVotes([{ member: "", email: "", contact: "", weight: 1, vote: "" }]);
+    
+    toast({
+      title: "New Featured App",
+      description: "Ready to create a new featured app vote",
+    });
+  };
+
   return (
     <DashboardLayout>
       <main className="space-y-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Admin</h1>
-          <Button onClick={handleNewCIP} variant="outline" className="gap-2">
-            <Plus className="h-4 w-4" />
-            New CIP
-          </Button>
-        </div>
+        <h1 className="text-3xl font-bold mb-6">Admin</h1>
 
-        {/* CIP Details */}
-        <Card className="glass-card">
+        <Tabs defaultValue="cip-votes" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="cip-votes">CIP Votes</TabsTrigger>
+            <TabsTrigger value="featured-apps">Featured App Votes</TabsTrigger>
+          </TabsList>
+
+          {/* CIP Votes Tab */}
+          <TabsContent value="cip-votes" className="space-y-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">CIP Voting</h2>
+              <Button onClick={handleNewCIP} variant="outline" className="gap-2">
+                <Plus className="h-4 w-4" />
+                New CIP
+              </Button>
+            </div>
+
+            {/* CIP Details */}
+            <Card className="glass-card">
           <CardHeader>
             <CardTitle>CIP Details</CardTitle>
             <CardDescription>Enter the basic information for the CIP vote</CardDescription>
@@ -348,75 +431,6 @@ const Admin = () => {
             <Button onClick={handleSaveCIP} disabled={!!currentCipId}>
               {currentCipId ? "CIP Saved" : "Save CIP"}
             </Button>
-          </CardContent>
-        </Card>
-
-        {/* Featured App Votes */}
-        <Card className="glass-card">
-          <CardHeader>
-            <CardTitle>Featured App Votes</CardTitle>
-            <CardDescription>Track votes for featured applications</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>App Name</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="w-32">Vote Count</TableHead>
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {featuredAppVotes.map((vote, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <Input
-                          value={vote.appName}
-                          onChange={(e) => updateFeaturedAppVote(index, "appName", e.target.value)}
-                          placeholder="App name"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          value={vote.description}
-                          onChange={(e) => updateFeaturedAppVote(index, "description", e.target.value)}
-                          placeholder="Description"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          value={vote.voteCount || ""}
-                          onChange={(e) => updateFeaturedAppVote(index, "voteCount", parseInt(e.target.value) || 0)}
-                          placeholder="0"
-                          type="number"
-                          min="0"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeFeaturedAppRow(index)}
-                          disabled={featuredAppVotes.length === 1}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={addFeaturedAppRow} variant="outline">
-                Add App
-              </Button>
-              <Button onClick={handleSaveFeaturedAppVotes} disabled={!currentCipId}>
-                Submit Featured App Votes
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
@@ -657,6 +671,168 @@ const Admin = () => {
             </div>
           </CardContent>
         </Card>
+          </TabsContent>
+
+          {/* Featured App Votes Tab */}
+          <TabsContent value="featured-apps" className="space-y-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">Featured App Voting</h2>
+              <Button onClick={handleNewFeaturedApp} variant="outline" className="gap-2">
+                <Plus className="h-4 w-4" />
+                New Featured App
+              </Button>
+            </div>
+
+            {/* Featured App Details */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle>Featured App Details</CardTitle>
+                <CardDescription>Enter the app information for committee voting</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="featuredAppName">App Name</Label>
+                    <Input
+                      id="featuredAppName"
+                      value={featuredAppName}
+                      onChange={(e) => setFeaturedAppName(e.target.value)}
+                      placeholder="Enter app name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="featuredAppDescription">Description</Label>
+                    <Input
+                      id="featuredAppDescription"
+                      value={featuredAppDescription}
+                      onChange={(e) => setFeaturedAppDescription(e.target.value)}
+                      placeholder="Brief description of the app"
+                    />
+                  </div>
+                </div>
+                <Button onClick={handleSaveFeaturedApp} disabled={!!currentFeaturedAppId}>
+                  {currentFeaturedAppId ? "App Saved" : "Save Featured App"}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Featured App Committee Votes */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Committee Vote</span>
+                  <span className={`text-sm px-3 py-1 rounded-full ${featuredAppCommitteeResult.passed ? 'bg-success text-success-foreground' : 'bg-destructive text-destructive-foreground'}`}>
+                    {featuredAppCommitteeResult.yesPercentage.toFixed(1)}% - {featuredAppCommitteeResult.passed ? 'PASSED' : 'FAILED'}
+                  </span>
+                </CardTitle>
+                <CardDescription>
+                  Committee votes (requires 2/3 majority by weight)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Member Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead className="w-24">Weight</TableHead>
+                        <TableHead className="w-32">Vote</TableHead>
+                        <TableHead className="w-12"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {featuredAppCommitteeVotes.map((vote, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <Input
+                              value={vote.member}
+                              onChange={(e) => updateFeaturedAppCommitteeVote(index, "member", e.target.value)}
+                              placeholder="Member name"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={vote.email}
+                              onChange={(e) => updateFeaturedAppCommitteeVote(index, "email", e.target.value)}
+                              placeholder="email@example.com"
+                              type="email"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={vote.contact}
+                              onChange={(e) => updateFeaturedAppCommitteeVote(index, "contact", e.target.value)}
+                              placeholder="Contact name"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={vote.weight || ""}
+                              onChange={(e) => updateFeaturedAppCommitteeVote(index, "weight", parseInt(e.target.value) || 1)}
+                              placeholder="1"
+                              type="number"
+                              min="1"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <select
+                              value={vote.vote}
+                              onChange={(e) => updateFeaturedAppCommitteeVote(index, "vote", e.target.value as any)}
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                              <option value="">-</option>
+                              <option value="yes">Yes</option>
+                              <option value="no">No</option>
+                              <option value="abstain">Abstain</option>
+                            </select>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeFeaturedAppCommitteeRow(index)}
+                              disabled={featuredAppCommitteeVotes.length === 1}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={addFeaturedAppCommitteeRow} variant="outline">
+                    Add Committee Member
+                  </Button>
+                  <Button onClick={handleSaveFeaturedAppCommitteeVotes} disabled={!currentFeaturedAppId}>
+                    Submit Committee Votes
+                  </Button>
+                </div>
+                <div className="grid grid-cols-4 gap-4 pt-4 border-t border-border">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Weight</p>
+                    <p className="text-2xl font-bold">{featuredAppCommitteeResult.totalWeight}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Yes</p>
+                    <p className="text-2xl font-bold text-success">{featuredAppCommitteeResult.yesWeight}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">No</p>
+                    <p className="text-2xl font-bold text-destructive">{featuredAppCommitteeResult.noWeight}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Abstain</p>
+                    <p className="text-2xl font-bold text-muted-foreground">{featuredAppCommitteeResult.abstainWeight}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
     </DashboardLayout>
   );
