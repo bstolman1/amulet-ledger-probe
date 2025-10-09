@@ -507,19 +507,31 @@ export const scanApi = {
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
-    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
-      mode: 'cors',
-    });
-    if (!response.ok) throw new Error("Failed to fetch top validators");
-    const data: TopValidatorsByFaucetsResponse = await response.json();
-    
-    // Transform the response to match expected format
-    return {
-      validatorsAndRewards: data.validatorsByReceivedFaucets.map(v => ({
-        provider: v.validator,
-        rewards: v.numRoundsCollected.toString(),
-      })),
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
+        mode: 'cors',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch top validators");
+      const data: TopValidatorsByFaucetsResponse = await response.json();
+      
+      // Transform the response to match expected format
+      return {
+        validatorsAndRewards: data.validatorsByReceivedFaucets.map(v => ({
+          provider: v.validator,
+          rewards: v.numRoundsCollected.toString(),
+        })),
+      };
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   // Get provider rewards from recent round totals
@@ -543,13 +555,25 @@ export const scanApi = {
   },
 
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
-    const response = await fetch(`${API_BASE}/v0/round-totals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) throw new Error("Failed to fetch round totals");
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/round-totals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch round totals");
+      return await response.json();
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   async fetchOpenAndIssuingRounds(
@@ -571,9 +595,22 @@ export const scanApi = {
   },
 
   async fetchLatestRound(): Promise<GetRoundOfLatestDataResponse> {
-    const response = await fetch(`${API_BASE}/v0/round-of-latest-data`);
-    if (!response.ok) throw new Error("Failed to fetch latest round");
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/round-of-latest-data`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch latest round");
+      return await response.json();
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   // Get total balance from latest round totals instead of deprecated endpoint
@@ -602,11 +639,23 @@ export const scanApi = {
   },
 
   async fetchDsoInfo(): Promise<DsoInfoResponse> {
-    const response = await fetch(`${API_BASE}/v0/dso`, {
-      mode: 'cors',
-    });
-    if (!response.ok) throw new Error("Failed to fetch DSO info");
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/dso`, {
+        mode: 'cors',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch DSO info");
+      return await response.json();
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   async fetchScans(): Promise<ScansResponse> {
