@@ -44,12 +44,15 @@ export const DailyMintBurnChart = () => {
       if (!latestRound) return null;
       const startRound = Math.max(0, latestRound.round - roundsToFetch);
       const chunkSize = 50; // API limit for party totals
-      const entries: any[] = [];
+      const ranges: Array<{ start: number; end: number }> = [];
       for (let start = startRound; start <= latestRound.round; start += chunkSize) {
         const end = Math.min(start + chunkSize - 1, latestRound.round);
-        const res = await scanApi.fetchRoundPartyTotals({ start_round: start, end_round: end });
-        if (res?.entries?.length) entries.push(...res.entries);
+        ranges.push({ start, end });
       }
+      const results = await Promise.all(
+        ranges.map(({ start, end }) => scanApi.fetchRoundPartyTotals({ start_round: start, end_round: end }))
+      );
+      const entries = results.flatMap((r) => r?.entries ?? []);
       return { entries };
     },
     enabled: !!latestRound,
@@ -115,7 +118,7 @@ export const DailyMintBurnChart = () => {
       }));
   })();
 
-  const isLoading = mintLoading || burnLoading;
+  const isLoading = mintLoading && burnLoading;
 
   return (
     <Card className="glass-card">
