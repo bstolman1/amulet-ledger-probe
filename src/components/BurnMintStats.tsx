@@ -112,6 +112,11 @@ export const BurnMintStats = () => {
         </div>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
+        ) : partyError ? (
+          <>
+            <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
+            <p className="text-xs text-destructive">API temporarily unavailable</p>
+          </>
         ) : (
           <>
             <p className="text-3xl font-bold text-destructive mb-1">
@@ -129,6 +134,11 @@ export const BurnMintStats = () => {
         </div>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
+        ) : (totalsError || partyError) ? (
+          <>
+            <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
+            <p className="text-xs text-destructive">API temporarily unavailable</p>
+          </>
         ) : (
           <>
             <p className={`text-3xl font-bold mb-1 ${dailyMintAmount - dailyBurn >= 0 ? 'text-chart-2' : 'text-destructive'}`}>

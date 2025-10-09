@@ -33,34 +33,40 @@ const UnclaimedSVRewards = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // Calculate date range: past year from today
+  // Calculate date range: past 90 days from today (reduced for performance)
   const today = new Date();
-  const oneYearAgo = new Date(today);
-  oneYearAgo.setFullYear(today.getFullYear() - 1);
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(today.getDate() - 90);
 
   // Fetch real SV rewards data from edge function
   const { data: rewardData, isLoading: rewardLoading, error: rewardError } = useQuery({
-    queryKey: ["sv-rewards-summary"],
+    queryKey: ["sv-rewards-summary", ninetyDaysAgo.toISOString(), today.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
-        body: {
-          beneficiary: "DSO::1220c2ddcc4c2d8d48fe5147e85de9bc0d23f9ca8fb4c3aa851d8d73e8f564c90e0c",
-          beginRecordTime: oneYearAgo.toISOString(),
-          endRecordTime: today.toISOString(),
-          beginMigrationId: 0,
-          weight: 1200000,
-          alreadyMintedWeight: 0,
-          gracePeriodMinutes: 60,
-          scanUrl: "https://scan.sv-1.global.canton.network.sync.global",
-        },
-      });
+      try {
+        const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
+          body: {
+            beneficiary: "DSO::1220c2ddcc4c2d8d48fe5147e85de9bc0d23f9ca8fb4c3aa851d8d73e8f564c90e0c",
+            beginRecordTime: ninetyDaysAgo.toISOString(),
+            endRecordTime: today.toISOString(),
+            beginMigrationId: 0,
+            weight: 1200000,
+            alreadyMintedWeight: 0,
+            gracePeriodMinutes: 60,
+            scanUrl: "https://scan.sv-1.global.canton.network.sync.global",
+          },
+        });
 
-      if (error) throw error;
-      return data;
+        if (error) throw error;
+        return data;
+      } catch (err) {
+        console.error('SV Rewards fetch error:', err);
+        throw err;
+      }
     },
     enabled: true,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    retry: 1,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    retry: 2,
+    retryDelay: 1000,
   });
 
   const formatAmount = (amount: string) => {
@@ -88,7 +94,7 @@ const UnclaimedSVRewards = () => {
     expiredAmount: "0.00",
     unclaimedCount: 0,
     estimatedUnclaimedAmount: "0.00",
-    timeRangeStart: oneYearAgo.toISOString(),
+    timeRangeStart: ninetyDaysAgo.toISOString(),
     timeRangeEnd: today.toISOString(),
   };
 
@@ -116,10 +122,11 @@ const UnclaimedSVRewards = () => {
         {/* Warning Alert */}
         <Alert className="border-warning/50 bg-warning/10">
           <AlertCircle className="h-4 w-4 text-warning" />
-          <AlertTitle className="text-warning">Analysis Period</AlertTitle>
+          <AlertTitle className="text-warning">Analysis Period (Last 90 Days)</AlertTitle>
           <AlertDescription className="text-muted-foreground">
             Showing reward data from {new Date(rewardsData.timeRangeStart).toLocaleDateString()} to{" "}
             {new Date(rewardsData.timeRangeEnd).toLocaleDateString()}. Current round: {latestRound?.round || "Loading..."}
+            {rewardLoading && " • Loading data..."}
           </AlertDescription>
         </Alert>
 

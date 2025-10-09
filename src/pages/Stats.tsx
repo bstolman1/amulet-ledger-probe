@@ -235,7 +235,10 @@ const Stats = () => {
       ) : (
         <div className="space-y-2">
           {validators.slice(0, 10).map((validator, index) => {
-            const isSuperValidator = index < superValidatorCount;
+            // Check if validator is actually a Super Validator by matching address
+            const isSuperValidator = configData?.superValidators.some(
+              sv => sv.address === validator.provider
+            ) || false;
             const healthData = validatorHealthMap.get(validator.provider);
             const uptime = healthData ? healthData.uptime : null;
             const healthColor = uptime !== null 
