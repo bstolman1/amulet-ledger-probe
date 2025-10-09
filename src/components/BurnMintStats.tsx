@@ -10,48 +10,33 @@ export const BurnMintStats = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  const { data: recentRounds } = useQuery({
-    queryKey: ["recentRounds", latestRound?.round],
+  // Fetch just the latest round for current data
+  const { data: currentRound } = useQuery({
+    queryKey: ["currentRound", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       return scanApi.fetchRoundTotals({
-        start_round: Math.max(0, latestRound.round - 1),
+        start_round: latestRound.round,
         end_round: latestRound.round,
       });
     },
     enabled: !!latestRound,
   });
 
-  const { data: allRounds } = useQuery({
-    queryKey: ["allRounds", latestRound?.round],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      return scanApi.fetchRoundTotals({
-        start_round: 0,
-        end_round: latestRound.round,
-      });
-    },
-    enabled: !!latestRound,
-  });
-
-  // Calculate daily mint from recent round change
-  const currentRoundData = recentRounds?.entries[recentRounds.entries.length - 1];
-  const previousRoundData = recentRounds?.entries[0];
+  // Get current round data
+  const currentRoundData = currentRound?.entries[0];
   
-  // Daily change is the difference between current and previous round
-  const currentChange = currentRoundData ? parseFloat(currentRoundData.change_to_initial_amount_as_of_round_zero) : 0;
-  const previousChange = previousRoundData ? parseFloat(previousRoundData.change_to_initial_amount_as_of_round_zero) : 0;
-  const roundChange = currentChange;
+  // Extract daily change - positive for mint, negative for burn
+  const roundChange = currentRoundData ? parseFloat(currentRoundData.change_to_initial_amount_as_of_round_zero) : 0;
   
   // Separate positive (mint) and negative (burn) changes
   const dailyMintAmount = roundChange > 0 ? roundChange : 0;
   const dailyBurn = roundChange < 0 ? Math.abs(roundChange) : 0;
 
-  // Get cumulative stats from all rounds
-  const latestRoundData = allRounds?.entries[allRounds.entries.length - 1];
-  const cumulativeIssued = latestRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
+  // Get cumulative stats from current round (it includes cumulative data)
+  const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = !latestRound || !recentRounds || !allRounds;
+  const isLoading = !latestRound || !currentRound;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

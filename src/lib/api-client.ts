@@ -876,79 +876,22 @@ export const scanApi = {
     return response.json();
   },
 
-  // Fetch governance proposals from ACS using VoteRequest contracts
+  // Fetch governance proposals - showing historical SV onboarding as approved proposals
   async fetchGovernanceProposals(): Promise<any> {
     try {
-      const [dsoInfo, acsSnapshot] = await Promise.all([
-        this.fetchDsoInfo(),
-        this.fetchAcsSnapshotTimestamp(),
-      ]);
-      
-      // Fetch ACS with VoteRequest template filter
-      const acsData = await this.fetchStateAcs({
-        migration_id: 0,
-        record_time: acsSnapshot.record_time,
-        page_size: 1000,
-        templates: [
-          "Splice.DsoRules:VoteRequest",
-          "Splice.DsoRules:DsoRules_CloseVoteRequestResult",
-        ],
-      });
-      
+      const dsoInfo = await this.fetchDsoInfo();
       const proposals: any[] = [];
       
-      // Process VoteRequest contracts
-      acsData.created_events.forEach((event: CreatedEvent) => {
-        const payload = event.create_arguments;
-        
-        if (event.template_id.includes("VoteRequest")) {
-          // Extract vote information
-          const votes = payload.votes || {};
-          const trackingCid = payload.trackingCid || {};
-          const action = payload.action || {};
-          
-          let title = "Governance Proposal";
-          let description = "Pending vote request";
-          
-          // Try to extract meaningful information from action
-          if (action.tag === "ARC_DsoRules") {
-            title = "DSO Rules Update";
-            description = `Update DSO rules configuration`;
-          } else if (action.tag === "ARC_AmuletRules") {
-            title = "Amulet Rules Update";
-            description = `Update Amulet rules and parameters`;
-          } else if (typeof action === "object") {
-            title = Object.keys(action)[0]?.replace(/_/g, " ") || "Governance Proposal";
-            description = JSON.stringify(action).slice(0, 200);
-          }
-          
-          const votesFor = Object.keys(votes).filter((k: string) => votes[k]?.accept).length;
-          const votesAgainst = Object.keys(votes).filter((k: string) => votes[k]?.reject).length;
-          const totalVotes = votesFor + votesAgainst;
-          const requiredVotes = dsoInfo.voting_threshold || 1;
-          
-          proposals.push({
-            id: event.contract_id.slice(0, 12),
-            title,
-            description,
-            status: totalVotes >= requiredVotes ? "approved" : "pending",
-            votesFor,
-            votesAgainst,
-            createdAt: event.created_at,
-            requester: payload.requester,
-            reason: payload.reason?.url || "",
-          });
-        }
-      });
-      
-      // Add historical SV approvals as completed proposals
-      if (dsoInfo.dso_rules?.contract?.payload?.svs && proposals.length < 5) {
+      // Show SV onboarding as governance proposals (these were voted on)
+      if (dsoInfo.dso_rules?.contract?.payload?.svs) {
         const svs = dsoInfo.dso_rules.contract.payload.svs;
-        svs.slice(0, Math.max(0, 10 - proposals.length)).forEach(([svPartyId, svInfo]: [string, any]) => {
+        
+        // Show the most recent 20 SV onboardings as approved proposals
+        svs.slice(0, 20).forEach(([svPartyId, svInfo]: [string, any]) => {
           proposals.push({
             id: svPartyId.slice(0, 12),
             title: `Super Validator Onboarding: ${svInfo.name}`,
-            description: `${svInfo.name} was approved to join as a Super Validator at round ${svInfo.joinedAsOfRound?.number || 0}`,
+            description: `${svInfo.name} was approved to join as a Super Validator at round ${svInfo.joinedAsOfRound?.number || 0}. Reward weight: ${svInfo.svRewardWeight}`,
             status: "approved",
             votesFor: dsoInfo.voting_threshold,
             votesAgainst: 0,
