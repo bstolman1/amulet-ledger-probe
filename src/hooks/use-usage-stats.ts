@@ -104,41 +104,69 @@ export function useUsageStats(days: number = 90) {
 
       let pageEnd: string | undefined = undefined;
       let pagesFetched = 0;
-      const maxPages = 20; // Reduced from 40 for better reliability
+      const maxPages = 100; // Increased to fetch more historical data
+      let totalTransactions = 0;
+
+      console.log(`Starting to fetch transactions for ${days} days (from ${start.toISOString()} to ${end.toISOString()})`);
 
       while (pagesFetched < maxPages) {
-        const res = await scanApi.fetchTransactions({
-          page_end_event_id: pageEnd,
-          sort_order: "desc",
-          page_size: 500,
-        });
-        const txs = res.transactions || [];
-        if (txs.length === 0) break;
-
-        let reachedCutoff = false;
-        for (const tx of txs) {
-          const d = new Date(tx.date);
-          if (d < start) {
-            reachedCutoff = true;
-            continue;
+        try {
+          const res = await scanApi.fetchTransactions({
+            page_end_event_id: pageEnd,
+            sort_order: "desc",
+            page_size: 1000, // Increased page size from 500 to 1000
+          });
+          const txs = res.transactions || [];
+          if (txs.length === 0) {
+            console.log(`No more transactions found after ${pagesFetched} pages`);
+            break;
           }
-          const key = toDateKey(tx.date);
-          if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
-          perDay[key].txCount += 1;
-          extractParties(tx).forEach((p) => perDay[key].partySet.add(p));
-        }
 
-        pageEnd = txs[txs.length - 1].event_id;
-        pagesFetched++;
-        
-        console.log(`Fetched page ${pagesFetched}/${maxPages}, processed ${Object.keys(perDay).length} days of data`);
-        
-        if (reachedCutoff) break;
+          let reachedCutoff = false;
+          let txProcessedThisPage = 0;
+          
+          for (const tx of txs) {
+            const d = new Date(tx.date);
+            if (d < start) {
+              reachedCutoff = true;
+              break; // Stop processing this page once we reach the cutoff
+            }
+            const key = toDateKey(tx.date);
+            if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+            perDay[key].txCount += 1;
+            extractParties(tx).forEach((p) => perDay[key].partySet.add(p));
+            txProcessedThisPage++;
+            totalTransactions++;
+          }
+
+          pageEnd = txs[txs.length - 1].event_id;
+          pagesFetched++;
+          
+          console.log(
+            `Page ${pagesFetched}/${maxPages}: Processed ${txProcessedThisPage} txs, ` +
+            `Total: ${totalTransactions} txs across ${Object.keys(perDay).length} days, ` +
+            `Oldest date: ${txs[txs.length - 1]?.date || 'N/A'}`
+          );
+          
+          if (reachedCutoff) {
+            console.log(`Reached date cutoff at page ${pagesFetched}`);
+            break;
+          }
+        } catch (error) {
+          console.error(`Error fetching page ${pagesFetched}:`, error);
+          break;
+        }
+      }
+
+      console.log(`Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days`);
+      
+      if (totalTransactions === 0) {
+        throw new Error("No transactions fetched");
       }
 
       return buildSeriesFromDaily(perDay, start, end);
     },
     staleTime: 5 * 60 * 1000,
-    retry: 2,
+    retry: 1,
   });
 }
