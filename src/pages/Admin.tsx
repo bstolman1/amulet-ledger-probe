@@ -68,9 +68,15 @@ const Admin = () => {
     { member: "", email: "", contact: "", weight: 1, vote: "" }
   ]);
 
+  // History state
+  const [cipHistory, setCipHistory] = useState<any[]>([]);
+  const [featuredAppHistory, setFeaturedAppHistory] = useState<any[]>([]);
+
   // Fetch CIP types on mount
   useEffect(() => {
     fetchCipTypes();
+    fetchCipHistory();
+    fetchFeaturedAppHistory();
   }, []);
 
   const fetchCipTypes = async () => {
@@ -84,6 +90,71 @@ const Admin = () => {
       setCipTypes(data || []);
     } catch (error) {
       console.error('Error fetching CIP types:', error);
+    }
+  };
+
+  const fetchCipHistory = async () => {
+    try {
+      const { data: cips, error: cipsError } = await supabase
+        .from('cips')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (cipsError) throw cipsError;
+
+      const history = await Promise.all(
+        (cips || []).map(async (cip) => {
+          const [committeeVotesRes, svVotesRes] = await Promise.all([
+            supabase
+              .from('committee_votes')
+              .select('*')
+              .eq('cip_id', cip.id),
+            supabase
+              .from('sv_votes')
+              .select('*')
+              .eq('cip_id', cip.id)
+          ]);
+
+          return {
+            ...cip,
+            committeeVotes: committeeVotesRes.data || [],
+            svVotes: svVotesRes.data || []
+          };
+        })
+      );
+
+      setCipHistory(history);
+    } catch (error) {
+      console.error('Error fetching CIP history:', error);
+    }
+  };
+
+  const fetchFeaturedAppHistory = async () => {
+    try {
+      const { data: apps, error: appsError } = await supabase
+        .from('featured_app_votes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (appsError) throw appsError;
+
+      const history = await Promise.all(
+        (apps || []).map(async (app) => {
+          const { data: votes } = await supabase
+            .from('featured_app_committee_votes')
+            .select('*')
+            .eq('featured_app_id', app.id);
+
+          return {
+            ...app,
+            votes: votes || []
+          };
+        })
+      );
+
+      setFeaturedAppHistory(history);
+    } catch (error) {
+      console.error('Error fetching featured app history:', error);
     }
   };
 
@@ -434,9 +505,11 @@ const Admin = () => {
         <h1 className="text-3xl font-bold mb-6">Admin</h1>
 
         <Tabs defaultValue="cip-votes" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-4xl grid-cols-4 gap-1">
             <TabsTrigger value="cip-votes">CIP Votes</TabsTrigger>
             <TabsTrigger value="featured-apps">Featured App Votes</TabsTrigger>
+            <TabsTrigger value="cip-history">CIP Vote History</TabsTrigger>
+            <TabsTrigger value="app-history">App Vote History</TabsTrigger>
           </TabsList>
 
           {/* CIP Votes Tab */}
@@ -965,6 +1038,252 @@ const Admin = () => {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* CIP Vote History Tab */}
+          <TabsContent value="cip-history" className="space-y-6">
+            <h2 className="text-2xl font-semibold">CIP Vote History</h2>
+            
+            {cipHistory.length === 0 ? (
+              <Card className="glass-card">
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No CIP vote history available yet.
+                </CardContent>
+              </Card>
+            ) : (
+              cipHistory.map((cip) => {
+                const committeeTotal = cip.committeeVotes.reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const committeeYes = cip.committeeVotes.filter((v: any) => v.vote === "yes").reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const committeePercent = committeeTotal > 0 ? (committeeYes / committeeTotal) * 100 : 0;
+                const committeePassed = committeePercent >= 66.67;
+
+                const svTotal = cip.svVotes.reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const svYes = cip.svVotes.filter((v: any) => v.vote === "yes").reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const svPercent = svTotal > 0 ? (svYes / svTotal) * 100 : 0;
+                const svPassed = svPercent >= 66.67;
+
+                return (
+                  <Card key={cip.id} className="glass-card overflow-hidden">
+                    <CardHeader className="border-b border-border/50 bg-muted/20">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <CardTitle className="text-xl">{cip.cip_number}: {cip.title}</CardTitle>
+                          <CardDescription className="flex flex-wrap gap-3 mt-2">
+                            {cip.cip_type && (
+                              <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                                {cip.cip_type}
+                              </span>
+                            )}
+                            {cip.requires_onchain_vote && (
+                              <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-500">
+                                Onchain Vote Required
+                              </span>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              Status: <span className="capitalize">{cip.status}</span>
+                            </span>
+                          </CardDescription>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${committeePassed ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
+                            Committee: {committeePassed ? 'PASSED' : 'FAILED'}
+                          </span>
+                          <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${svPassed ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
+                            SV: {svPassed ? 'PASSED' : 'FAILED'}
+                          </span>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-6">
+                      {cip.github_link && (
+                        <div className="mb-4 pb-4 border-b border-border/50">
+                          <a href={cip.github_link} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">
+                            View on GitHub →
+                          </a>
+                        </div>
+                      )}
+
+                      {/* Committee Votes Section */}
+                      <div className="mb-6">
+                        <h4 className="font-semibold mb-3 flex items-center gap-2">
+                          Committee Votes
+                          <span className="text-sm font-normal text-muted-foreground">
+                            ({committeePercent.toFixed(1)}% approval)
+                          </span>
+                        </h4>
+                        {cip.committeeVotes.length > 0 ? (
+                          <div className="overflow-x-auto rounded-lg border border-border/50">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/30">
+                                  <TableHead className="font-semibold">Member</TableHead>
+                                  <TableHead className="font-semibold">Contact</TableHead>
+                                  <TableHead className="font-semibold text-center">Weight</TableHead>
+                                  <TableHead className="font-semibold text-center">Vote</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {cip.committeeVotes.map((vote: any, idx: number) => (
+                                  <TableRow key={idx} className="hover:bg-muted/10">
+                                    <TableCell className="font-medium">{vote.member_name}</TableCell>
+                                    <TableCell className="text-muted-foreground">{vote.contact}</TableCell>
+                                    <TableCell className="text-center">{vote.weight}</TableCell>
+                                    <TableCell className="text-center">
+                                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
+                                        vote.vote === 'yes' ? 'bg-success/20 text-success' :
+                                        vote.vote === 'no' ? 'bg-destructive/20 text-destructive' :
+                                        'bg-muted text-muted-foreground'
+                                      }`}>
+                                        {vote.vote || '-'}
+                                      </span>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">No committee votes recorded</p>
+                        )}
+                      </div>
+
+                      {/* SV Votes Section */}
+                      <div>
+                        <h4 className="font-semibold mb-3 flex items-center gap-2">
+                          Super Validator Votes
+                          <span className="text-sm font-normal text-muted-foreground">
+                            ({svPercent.toFixed(1)}% approval)
+                          </span>
+                        </h4>
+                        {cip.svVotes.length > 0 ? (
+                          <div className="overflow-x-auto rounded-lg border border-border/50">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/30">
+                                  <TableHead className="font-semibold">Organization</TableHead>
+                                  <TableHead className="font-semibold">Contact</TableHead>
+                                  <TableHead className="font-semibold text-center">Weight</TableHead>
+                                  <TableHead className="font-semibold text-center">Vote</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {cip.svVotes.map((vote: any, idx: number) => (
+                                  <TableRow key={idx} className="hover:bg-muted/10">
+                                    <TableCell className="font-medium">{vote.organization}</TableCell>
+                                    <TableCell className="text-muted-foreground">{vote.contact}</TableCell>
+                                    <TableCell className="text-center">{vote.weight}</TableCell>
+                                    <TableCell className="text-center">
+                                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
+                                        vote.vote === 'yes' ? 'bg-success/20 text-success' :
+                                        vote.vote === 'no' ? 'bg-destructive/20 text-destructive' :
+                                        'bg-muted text-muted-foreground'
+                                      }`}>
+                                        {vote.vote || '-'}
+                                      </span>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">No SV votes recorded</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+          </TabsContent>
+
+          {/* Featured App Vote History Tab */}
+          <TabsContent value="app-history" className="space-y-6">
+            <h2 className="text-2xl font-semibold">Featured App Vote History</h2>
+            
+            {featuredAppHistory.length === 0 ? (
+              <Card className="glass-card">
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No featured app vote history available yet.
+                </CardContent>
+              </Card>
+            ) : (
+              featuredAppHistory.map((app) => {
+                const totalWeight = app.votes.reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const yesWeight = app.votes.filter((v: any) => v.vote === "yes").reduce((sum: number, v: any) => sum + (v.weight || 0), 0);
+                const yesPercent = totalWeight > 0 ? (yesWeight / totalWeight) * 100 : 0;
+                const passed = yesPercent >= 66.67;
+
+                return (
+                  <Card key={app.id} className="glass-card overflow-hidden">
+                    <CardHeader className="border-b border-border/50 bg-muted/20">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1 flex-1">
+                          <CardTitle className="text-xl">{app.app_name}</CardTitle>
+                          {app.description && (
+                            <CardDescription className="mt-1">{app.description}</CardDescription>
+                          )}
+                          <div className="flex gap-3 mt-2">
+                            <span className={`text-xs px-3 py-1 rounded-full capitalize font-medium ${
+                              app.status === 'approved' ? 'bg-success/20 text-success' :
+                              app.status === 'rejected' ? 'bg-destructive/20 text-destructive' :
+                              'bg-muted/50 text-muted-foreground'
+                            }`}>
+                              {app.status}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${passed ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
+                          {passed ? 'PASSED' : 'FAILED'} ({yesPercent.toFixed(1)}%)
+                        </span>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-6">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        Committee Votes
+                        <span className="text-sm font-normal text-muted-foreground">
+                          (Total Weight: {totalWeight})
+                        </span>
+                      </h4>
+                      {app.votes.length > 0 ? (
+                        <div className="overflow-x-auto rounded-lg border border-border/50">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/30">
+                                <TableHead className="font-semibold">Member</TableHead>
+                                <TableHead className="font-semibold">Contact</TableHead>
+                                <TableHead className="font-semibold text-center">Weight</TableHead>
+                                <TableHead className="font-semibold text-center">Vote</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {app.votes.map((vote: any, idx: number) => (
+                                <TableRow key={idx} className="hover:bg-muted/10">
+                                  <TableCell className="font-medium">{vote.member_name}</TableCell>
+                                  <TableCell className="text-muted-foreground">{vote.contact}</TableCell>
+                                  <TableCell className="text-center">{vote.weight}</TableCell>
+                                  <TableCell className="text-center">
+                                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
+                                      vote.vote === 'yes' ? 'bg-success/20 text-success' :
+                                      vote.vote === 'no' ? 'bg-destructive/20 text-destructive' :
+                                      'bg-muted text-muted-foreground'
+                                    }`}>
+                                      {vote.vote || '-'}
+                                    </span>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">No votes recorded</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
           </TabsContent>
         </Tabs>
       </main>
