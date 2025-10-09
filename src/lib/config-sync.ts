@@ -89,38 +89,30 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 
 async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperValidator[]> {
   try {
-    // Fetch closed rounds data
-    const closedRounds = await scanApi.fetchClosedRounds();
-    const rounds = closedRounds.rounds || [];
+    // Get all validator IDs
+    const validatorIds = validators.map(v => v.address);
     
-    console.log(`Checking ${rounds.length} rounds for validator join times...`);
+    console.log(`Fetching join rounds for ${validatorIds.length} validators...`);
     
-    // For each validator, find the first round they appear in
+    // Fetch validator liveness data which includes firstCollectedInRound
+    const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+    
+    // Create a map of validator ID to first collected round
+    const validatorJoinRounds = new Map<string, number>();
+    livenessData.validatorsReceivedFaucets.forEach(info => {
+      validatorJoinRounds.set(info.validator, info.firstCollectedInRound);
+    });
+    
+    // Update validators with join round information
     const validatorsWithRounds = validators.map((validator) => {
-      // Extract the address hash from the full address
-      const addressHash = validator.address.split('::')[1];
+      const joinRound = validatorJoinRounds.get(validator.address);
       
-      if (!addressHash) {
-        return validator;
-      }
-      
-      // Check each round for this validator
-      for (const round of rounds) {
-        const payload = round.contract?.payload;
-        if (!payload) continue;
-        
-        // Check if validator appears in this round's opensAt or targetClosesAt
-        const roundNumber = payload.round?.number;
-        
-        // Check if validator hash appears in the round data
-        const roundStr = JSON.stringify(payload);
-        if (roundStr.includes(addressHash)) {
-          console.log(`Found validator ${validator.name} in round ${roundNumber}`);
-          return {
-            ...validator,
-            joinRound: roundNumber
-          };
-        }
+      if (joinRound) {
+        console.log(`Found validator ${validator.name} joined in round ${joinRound}`);
+        return {
+          ...validator,
+          joinRound
+        };
       }
       
       return validator;
