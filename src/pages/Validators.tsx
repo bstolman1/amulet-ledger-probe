@@ -329,7 +329,7 @@ const Validators = () => {
                         <div className="p-4 rounded-lg bg-background/50">
                           <p className="text-sm text-muted-foreground mb-1">Joined Round</p>
                           <p className="text-2xl font-bold text-chart-3">
-                            {sv.joinedRound.toLocaleString()}
+                            {sv.joinedRound ? sv.joinedRound.toLocaleString() : 'Unknown'}
                           </p>
                         </div>
                       </div>
