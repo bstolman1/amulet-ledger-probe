@@ -17,9 +17,9 @@ export const DailyMintBurnChart = () => {
   const daysThisYear = Math.floor((Date.now() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
   const roundsThisYear = Math.max(1, daysThisYear * roundsPerDay);
 
-  // Fetch per-round totals for this year
-  const { data: yearlyTotals, isPending: isLoading } = useQuery({
-    queryKey: ["yearlyMintBurnTotals", latestRound?.round],
+  // Fetch per-round totals for minting data
+  const { data: yearlyTotals, isPending: mintLoading } = useQuery({
+    queryKey: ["yearlyMintTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       const startRound = Math.max(0, latestRound.round - roundsThisYear);
@@ -31,7 +31,27 @@ export const DailyMintBurnChart = () => {
       }
       const results = await Promise.all(promises);
       const entries = results.flatMap((r) => r?.entries ?? []);
-      return { entries } as { entries: typeof results[number]["entries"] };
+      return { entries };
+    },
+    enabled: !!latestRound,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  // Fetch per-round party totals for burn data
+  const { data: yearlyBurnTotals, isPending: burnLoading } = useQuery({
+    queryKey: ["yearlyBurnTotals", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const startRound = Math.max(0, latestRound.round - roundsThisYear);
+      const chunkSize = 50; // API limit for party totals
+      const entries: any[] = [];
+      for (let start = startRound; start <= latestRound.round; start += chunkSize) {
+        const end = Math.min(start + chunkSize - 1, latestRound.round);
+        const res = await scanApi.fetchRoundPartyTotals({ start_round: start, end_round: end });
+        if (res?.entries?.length) entries.push(...res.entries);
+      }
+      return { entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
@@ -39,17 +59,52 @@ export const DailyMintBurnChart = () => {
   });
 
   const chartData = (() => {
-    if (!yearlyTotals?.entries?.length) return [];
+    if (!yearlyTotals?.entries?.length && !yearlyBurnTotals?.entries?.length) return [];
 
     const byDay: Record<string, { minted: number; burned: number; date: Date }> = {};
-    for (const e of yearlyTotals.entries) {
-      const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-      const d = new Date(e.closed_round_effective_at);
-      if (d.getFullYear() !== new Date().getFullYear()) continue; // ensure current year only
-      const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
-      if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
-      if (change > 0) byDay[key].minted += change;
-      else if (change < 0) byDay[key].burned += Math.abs(change);
+    
+    // Build round-to-date mapping from yearlyTotals
+    const roundToDate: Record<number, string> = {};
+    if (yearlyTotals?.entries?.length) {
+      for (const e of yearlyTotals.entries) {
+        const d = new Date(e.closed_round_effective_at);
+        if (d.getFullYear() === new Date().getFullYear()) {
+          roundToDate[e.closed_round] = d.toISOString().slice(0, 10);
+        }
+      }
+    }
+
+    // Process minting data
+    if (yearlyTotals?.entries?.length) {
+      for (const e of yearlyTotals.entries) {
+        const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
+        const d = new Date(e.closed_round_effective_at);
+        if (d.getFullYear() !== new Date().getFullYear()) continue;
+        const key = d.toISOString().slice(0, 10);
+        if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
+        if (!isNaN(change) && change > 0) byDay[key].minted += change;
+      }
+    }
+
+    // Process burn data (aggregate by round first, then by day)
+    if (yearlyBurnTotals?.entries?.length) {
+      const burnByRound: Record<number, number> = {};
+      for (const e of yearlyBurnTotals.entries) {
+        const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+        if (isNaN(spent)) continue;
+        if (!burnByRound[e.closed_round]) burnByRound[e.closed_round] = 0;
+        burnByRound[e.closed_round] += spent;
+      }
+
+      // Map rounds to days
+      for (const [roundStr, burnAmount] of Object.entries(burnByRound)) {
+        const round = parseInt(roundStr);
+        const dateKey = roundToDate[round];
+        if (dateKey) {
+          if (!byDay[dateKey]) byDay[dateKey] = { minted: 0, burned: 0, date: new Date(dateKey) };
+          byDay[dateKey].burned += burnAmount;
+        }
+      }
     }
 
     return Object.values(byDay)
@@ -60,6 +115,8 @@ export const DailyMintBurnChart = () => {
         burned: Math.round(d.burned),
       }));
   })();
+
+  const isLoading = mintLoading || burnLoading;
 
   return (
     <Card className="glass-card">
@@ -99,6 +156,11 @@ export const DailyMintBurnChart = () => {
                 <YAxis 
                   className="text-xs"
                   tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                    return value.toString();
+                  }}
                 />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Legend />
