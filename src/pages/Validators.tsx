@@ -196,9 +196,7 @@ const Validators = () => {
         </div>
 
         {/* Info Banner */}
-        <Card className="glass-card border-primary/20 bg-primary/5">
-          
-        </Card>
+        
 
         {/* Supervalidators List */}
         <Card className="glass-card">
