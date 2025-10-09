@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { useMemo } from "react";
+import { useUsageStats } from "@/hooks/use-usage-stats";
+
 
 
 const Stats = () => {
@@ -38,140 +39,8 @@ const Stats = () => {
     enabled: !!latestRound,
   });
 
-  // Fetch usage statistics data - reduced to 90 days for better performance
-  const { data: usageData, isLoading: usageLoading, error: usageError } = useQuery({
-    queryKey: ["usageStatistics", latestRound?.round],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      
-      // Fetch party totals for last 90 days worth of rounds (more reliable than full year)
-      const roundsPerDay = 144; // Approximate
-      const totalRounds = roundsPerDay * 90;
-      const startRound = Math.max(0, latestRound.round - totalRounds);
-      
-      console.log('Fetching usage data from round', startRound, 'to', latestRound.round);
-      
-      const partyTotals = await scanApi.fetchRoundPartyTotals({
-        start_round: startRound,
-        end_round: latestRound.round,
-      });
-      
-      console.log('Usage data received:', partyTotals);
-      
-      return partyTotals;
-    },
-    enabled: !!latestRound,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-    retry: 2,
-  });
-
-  // Process usage data for charts
-  const usageChartData = useMemo(() => {
-    if (!usageData || !usageData.entries || usageData.entries.length === 0 || !latestRound) {
-      console.log('No usage data available:', { usageData, latestRound });
-      return {
-        cumulativeParties: [],
-        dailyActiveUsers: [],
-        dailyTransactions: [],
-        totalParties: 0,
-        totalDailyUsers: 0,
-        totalTransactions: 0,
-      };
-    }
-
-    console.log('Processing', usageData.entries.length, 'usage data entries');
-
-    const roundsPerDay = 144;
-    const uniquePartiesSet = new Set<string>();
-    const dailyData: Record<string, { parties: Set<string>; txCount: number; roundCount: number }> = {};
-    
-    // Group data by day and track cumulative unique parties
-    usageData.entries.forEach((entry) => {
-      uniquePartiesSet.add(entry.party);
-      
-      // Calculate date from round number (approximate)
-      const roundsAgo = latestRound.round - entry.closed_round;
-      const daysAgo = Math.floor(roundsAgo / roundsPerDay);
-      const date = new Date();
-      date.setDate(date.getDate() - daysAgo);
-      const dateKey = date.toISOString().split('T')[0];
-      
-      if (!dailyData[dateKey]) {
-        dailyData[dateKey] = { parties: new Set(), txCount: 0, roundCount: 0 };
-      }
-      
-      dailyData[dateKey].parties.add(entry.party);
-      dailyData[dateKey].roundCount++;
-      
-      // Estimate transactions from traffic purchases
-      if (entry.traffic_num_purchases > 0) {
-        dailyData[dateKey].txCount += entry.traffic_num_purchases;
-      }
-    });
-
-    // Create cumulative parties chart data
-    const sortedDates = Object.keys(dailyData).sort();
-    const cumulativeParties: Array<{ date: string; parties: number }> = [];
-    let cumulativeCount = 0;
-    const seenParties = new Set<string>();
-    
-    sortedDates.forEach((date) => {
-      dailyData[date].parties.forEach(p => seenParties.add(p));
-      cumulativeCount = seenParties.size;
-      cumulativeParties.push({
-        date,
-        parties: cumulativeCount,
-      });
-    });
-
-    // Create daily active users chart data with 7-day average
-    const dailyActiveUsers: Array<{ date: string; daily: number; avg7d: number }> = [];
-    sortedDates.forEach((date, index) => {
-      const daily = dailyData[date].parties.size;
-      
-      // Calculate 7-day average
-      const start = Math.max(0, index - 6);
-      const window = sortedDates.slice(start, index + 1);
-      const avg7d = Math.round(
-        window.reduce((sum, d) => sum + dailyData[d].parties.size, 0) / window.length
-      );
-      
-      dailyActiveUsers.push({ date, daily, avg7d });
-    });
-
-    // Create daily transactions chart data with 7-day average
-    const dailyTransactions: Array<{ date: string; daily: number; avg7d: number }> = [];
-    sortedDates.forEach((date, index) => {
-      const daily = dailyData[date].txCount;
-      
-      // Calculate 7-day average
-      const start = Math.max(0, index - 6);
-      const window = sortedDates.slice(start, index + 1);
-      const avg7d = Math.round(
-        window.reduce((sum, d) => sum + dailyData[d].txCount, 0) / window.length
-      );
-      
-      dailyTransactions.push({ date, daily, avg7d });
-    });
-
-    // Sample data to reduce chart points (every 7 days for better performance)
-    const sampleData = <T,>(data: T[], interval: number = 7): T[] => {
-      return data.filter((_, index) => index % interval === 0 || index === data.length - 1);
-    };
-
-    const finalData = {
-      cumulativeParties: sampleData(cumulativeParties),
-      dailyActiveUsers: sampleData(dailyActiveUsers),
-      dailyTransactions: sampleData(dailyTransactions),
-      totalParties: seenParties.size,
-      totalDailyUsers: dailyActiveUsers.length > 0 ? dailyActiveUsers[dailyActiveUsers.length - 1].avg7d : 0,
-      totalTransactions: dailyTransactions.reduce((sum, d) => sum + d.daily, 0),
-    };
-
-    console.log('Processed usage chart data:', finalData);
-    
-    return finalData;
-  }, [usageData, latestRound]);
+  // Usage statistics via transactions API
+  const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
 
   // Calculate rounds per day based on recent data
   const roundsPerDay = roundTotals?.entries.length 
