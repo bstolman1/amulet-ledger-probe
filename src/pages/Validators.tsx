@@ -45,17 +45,20 @@ const Validators = () => {
   const configSuperValidators = configData?.superValidators || [];
   const operators = configData?.operators || [];
   
-  // Convert SVs to display format
-  const superValidators = configSuperValidators.map((sv) => ({
-    id: sv.address,
-    name: sv.name,
-    participantId: sv.address,
-    rewardWeight: sv.weight,
-    joinedRound: sv.joinRound,
-    type: 'Supervalidator' as const,
-    svProvider: sv.operatorName,
-    isGhost: sv.isGhost,
-  })).sort((a, b) => b.rewardWeight - a.rewardWeight);
+  // Convert SVs to display format and filter out those with rewardWeight < 36
+  const superValidators = configSuperValidators
+    .filter((sv) => sv.weight >= 36)
+    .map((sv) => ({
+      id: sv.address,
+      name: sv.name,
+      participantId: sv.address,
+      rewardWeight: sv.weight,
+      joinedRound: sv.joinRound,
+      type: 'Super Validator' as const,
+      svProvider: sv.operatorName,
+      isGhost: sv.isGhost,
+    }))
+    .sort((a, b) => b.rewardWeight - a.rewardWeight);
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -85,12 +88,12 @@ const Validators = () => {
       const csvRows = [];
       
       // Header
-      csvRows.push(['Canton Network Supervalidators']);
+      csvRows.push(['Canton Network Super Validators']);
       csvRows.push(['Generated:', new Date().toISOString()]);
       csvRows.push([]);
       
       // Active SVs
-      csvRows.push(['Active Supervalidators']);
+      csvRows.push(['Active Super Validators']);
       csvRows.push(['Name', 'ID', 'Reward Weight (bps)', 'Reward Weight (%)', 'Joined Round']);
       
       superValidators.forEach(sv => {
@@ -104,7 +107,7 @@ const Validators = () => {
       });
       
       csvRows.push([]);
-      csvRows.push(['Offboarded Supervalidators']);
+      csvRows.push(['Offboarded Super Validators']);
       csvRows.push(['Name', 'ID']);
       
       offboardedSvs.forEach(([id, data]: [string, any]) => {
@@ -119,7 +122,7 @@ const Validators = () => {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `supervalidators-${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `super-validators-${new Date().toISOString().split('T')[0]}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -151,7 +154,7 @@ const Validators = () => {
         {/* Header with Stats */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold mb-2">Supervalidators</h2>
+            <h2 className="text-3xl font-bold mb-2">Super Validators</h2>
             <p className="text-muted-foreground">
               Decentralized network operators ({superValidators.length} active)
             </p>
@@ -191,13 +194,13 @@ const Validators = () => {
           <Card className="glass-card">
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-medium text-muted-foreground">Primary Operators</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">Live Super Validators</h3>
                 <Zap className="h-4 w-4 text-chart-2" />
               </div>
               {dsoLoading || configLoading ? (
                 <Skeleton className="h-10 w-16" />
               ) : (
-                <p className="text-3xl font-bold text-chart-2">{primaryOperatorsCount}</p>
+                <p className="text-3xl font-bold text-chart-2">{totalSuperValidators}</p>
               )}
             </div>
           </Card>
@@ -231,31 +234,12 @@ const Validators = () => {
           </Card>
         </div>
 
-        {/* Info Banner */}
-        <Card className="glass-card border-primary/20 bg-primary/5">
-          <div className="p-4">
-            <div className="flex items-start gap-3">
-              <Award className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-              <div className="text-sm">
-                <p className="font-semibold text-foreground mb-1">
-                  Complete Supervalidator Network
-                </p>
-                <p className="text-muted-foreground">
-                  Displaying all {totalSuperValidators} supervalidators managed by {primaryOperatorsCount} primary operators. 
-                  Data is synced daily from the GSF config file. Join rounds are determined by cross-referencing validator 
-                  addresses with historical round data.
-                </p>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Supervalidators List */}
+        {/* Super Validators List */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-xl font-bold mb-2">All Supervalidators</h3>
+            <h3 className="text-xl font-bold mb-2">All Super Validators</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              All {totalSuperValidators} supervalidators with operator information and join rounds
+              All {totalSuperValidators} super validators with operator information and join rounds
             </p>
             {dsoLoading || configLoading ? (
               <div className="space-y-4">
@@ -265,7 +249,7 @@ const Validators = () => {
               </div>
             ) : !superValidators.length ? (
               <div className="text-center p-8">
-                <p className="text-muted-foreground">No supervalidator data available</p>
+                <p className="text-muted-foreground">No super validator data available</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -305,7 +289,7 @@ const Validators = () => {
                         </div>
                         <Badge className="bg-primary/20 text-primary border-primary/30">
                           <Zap className="h-3 w-3 mr-1" />
-                          Supervalidator
+                          Super Validator
                         </Badge>
                       </div>
 
@@ -345,7 +329,7 @@ const Validators = () => {
         {offboardedSvs.length > 0 && (
           <Card className="glass-card">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-6">Offboarded Supervalidators</h3>
+              <h3 className="text-xl font-bold mb-6">Offboarded Super Validators</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {offboardedSvs.map(([id, data]: [string, any]) => (
                   <div
