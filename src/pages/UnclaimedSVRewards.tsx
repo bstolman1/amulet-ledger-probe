@@ -39,7 +39,7 @@ const UnclaimedSVRewards = () => {
   oneYearAgo.setFullYear(today.getFullYear() - 1);
 
   // Fetch real SV rewards data from edge function
-  const { data: rewardData, isLoading: rewardLoading } = useQuery({
+  const { data: rewardData, isLoading: rewardLoading, error: rewardError } = useQuery({
     queryKey: ["sv-rewards-summary"],
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
@@ -122,6 +122,16 @@ const UnclaimedSVRewards = () => {
             {new Date(rewardsData.timeRangeEnd).toLocaleDateString()}. Current round: {latestRound?.round || "Loading..."}
           </AlertDescription>
         </Alert>
+
+        {rewardError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error loading SV Rewards</AlertTitle>
+            <AlertDescription className="break-words">
+              {rewardError instanceof Error ? rewardError.message : 'Unknown error'}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -256,7 +266,7 @@ const UnclaimedSVRewards = () => {
               <div className="space-y-3">
                 {superValidators.map((validator, index) => (
                   <div
-                    key={validator.address}
+                    key={`${validator.address}-${index}`}
                     className="p-4 rounded-lg bg-muted/30 border border-border flex items-center justify-between hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-4 flex-1 min-w-0">

@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award, Shield } from "lucide-react";
 
 
 interface DashboardLayoutProps {
@@ -19,6 +19,7 @@ const navigation = [
   { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
+  { name: "Admin", href: "/admin", icon: Shield },
 ];
 
 export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
@@ -76,14 +77,6 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">{children}</main>
 
-      {/* Footer */}
-      <footer className="border-t border-border/50 mt-20">
-        <div className="container mx-auto px-6 py-6">
-          <p className="text-center text-sm text-muted-foreground">
-            SCANTON Explorer • Powered by Canton Network
-          </p>
-        </div>
-      </footer>
     </div>
   );
 };
