@@ -19,6 +19,11 @@ const UnclaimedSVRewards = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
+  // Calculate date range: past year from today
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
+
   // Mock data for SV rewards - in production, this would come from an API endpoint
   // that implements the Python script logic
   const mockRewardData = {
@@ -30,8 +35,8 @@ const UnclaimedSVRewards = () => {
     expiredAmount: "2,143.7891234567",
     unclaimedCount: 256,
     estimatedUnclaimedAmount: "8,976.4321098765",
-    timeRangeStart: "2024-01-01T00:00:00Z",
-    timeRangeEnd: "2025-01-01T00:00:00Z",
+    timeRangeStart: oneYearAgo.toISOString(),
+    timeRangeEnd: today.toISOString(),
   };
 
   const formatPartyId = (partyId: string) => {
