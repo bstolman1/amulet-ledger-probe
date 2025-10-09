@@ -8,6 +8,8 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const Stats = () => {
   const { data: validators, isLoading: validatorsLoading } = useQuery({
@@ -74,6 +76,42 @@ const Stats = () => {
     return rounds < (roundsPerDay * 365) && rounds >= (roundsPerDay * 180);
   });
   const allTimeValidators = recentValidators;
+
+  // Calculate monthly join data for the last 12 months
+  const getMonthlyJoinData = () => {
+    const monthlyData: { [key: string]: number } = {};
+    const now = new Date();
+    
+    // Initialize last 12 months with 0
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      monthlyData[monthKey] = 0;
+    }
+
+    // Calculate join dates for validators
+    recentValidators.forEach(validator => {
+      const roundsCollected = parseFloat(validator.rewards);
+      const joinRound = currentRound - roundsCollected;
+      const daysAgo = roundsCollected / roundsPerDay;
+      const joinDate = new Date(now.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
+      
+      // Only count validators from the last year
+      if (daysAgo <= 365) {
+        const monthKey = joinDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        if (monthlyData.hasOwnProperty(monthKey)) {
+          monthlyData[monthKey]++;
+        }
+      }
+    });
+
+    return Object.entries(monthlyData).map(([month, count]) => ({
+      month,
+      validators: count
+    }));
+  };
+
+  const monthlyChartData = getMonthlyJoinData();
 
   const { toast } = useToast();
 
@@ -315,6 +353,47 @@ const Stats = () => {
             </div>
           </Card>
         </div>
+
+        {/* Monthly Validator Joins Chart */}
+        <Card className="glass-card">
+          <div className="p-6">
+            <h3 className="text-xl font-bold mb-4">Validator Joins by Month (Last Year)</h3>
+            {validatorsLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : (
+              <ChartContainer
+                config={{
+                  validators: {
+                    label: "Validators",
+                    color: "hsl(var(--primary))",
+                  },
+                }}
+                className="h-[300px] w-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis 
+                      dataKey="month" 
+                      className="text-xs"
+                      tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    />
+                    <YAxis 
+                      className="text-xs"
+                      tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="validators" 
+                      fill="hsl(var(--primary))"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            )}
+          </div>
+        </Card>
 
         {/* Detailed Lists */}
         <Card className="glass-card">
