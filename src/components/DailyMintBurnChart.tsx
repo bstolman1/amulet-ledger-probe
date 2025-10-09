@@ -120,12 +120,21 @@ export const DailyMintBurnChart = () => {
 
   const isLoading = mintLoading && burnLoading;
 
+  const hasError = mintLoading === false && burnLoading === false && !yearlyTotals && !yearlyBurnTotals;
+
   return (
     <Card className="glass-card">
       <div className="p-6">
         <h3 className="text-xl font-bold mb-4">Daily Mint & Burn Activity — Last 14 Days</h3>
         {isLoading ? (
           <Skeleton className="h-[400px] w-full" />
+        ) : hasError ? (
+          <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center space-y-2">
+              <p>Unable to load chart data</p>
+              <p className="text-xs">The API may be temporarily unavailable</p>
+            </div>
+          </div>
         ) : chartData.length === 0 ? (
           <div className="h-[400px] flex items-center justify-center text-muted-foreground">
             No data available for the last 14 days
