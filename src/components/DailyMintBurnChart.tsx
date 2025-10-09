@@ -13,16 +13,15 @@ export const DailyMintBurnChart = () => {
   });
 
   const roundsPerDay = 144; // ~10 minutes per round
-  const startOfYear = new Date(new Date().getFullYear(), 0, 1);
-  const daysThisYear = Math.floor((Date.now() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
-  const roundsThisYear = Math.max(1, daysThisYear * roundsPerDay);
+  const rangeDays = 14; // limit for performance
+  const roundsToFetch = Math.max(1, rangeDays * roundsPerDay);
 
   // Fetch per-round totals for minting data
   const { data: yearlyTotals, isPending: mintLoading } = useQuery({
-    queryKey: ["yearlyMintTotals", latestRound?.round],
+    queryKey: ["mintTotals", latestRound?.round, rangeDays],
     queryFn: async () => {
       if (!latestRound) return null;
-      const startRound = Math.max(0, latestRound.round - roundsThisYear);
+      const startRound = Math.max(0, latestRound.round - roundsToFetch);
       const chunkSize = 200;
       const promises: Promise<{ entries: any[] }>[] = [];
       for (let start = startRound; start <= latestRound.round; start += chunkSize) {
@@ -40,10 +39,10 @@ export const DailyMintBurnChart = () => {
 
   // Fetch per-round party totals for burn data
   const { data: yearlyBurnTotals, isPending: burnLoading } = useQuery({
-    queryKey: ["yearlyBurnTotals", latestRound?.round],
+    queryKey: ["burnTotals", latestRound?.round, rangeDays],
     queryFn: async () => {
       if (!latestRound) return null;
-      const startRound = Math.max(0, latestRound.round - roundsThisYear);
+      const startRound = Math.max(0, latestRound.round - roundsToFetch);
       const chunkSize = 50; // API limit for party totals
       const entries: any[] = [];
       for (let start = startRound; start <= latestRound.round; start += chunkSize) {
@@ -121,12 +120,12 @@ export const DailyMintBurnChart = () => {
   return (
     <Card className="glass-card">
       <div className="p-6">
-        <h3 className="text-xl font-bold mb-4">Daily Mint & Burn Activity ({new Date().getFullYear()})</h3>
+        <h3 className="text-xl font-bold mb-4">Daily Mint & Burn Activity — Last 14 Days</h3>
         {isLoading ? (
           <Skeleton className="h-[400px] w-full" />
         ) : chartData.length === 0 ? (
           <div className="h-[400px] flex items-center justify-center text-muted-foreground">
-            No data available for this year
+            No data available for the last 14 days
           </div>
         ) : (
           <ChartContainer
