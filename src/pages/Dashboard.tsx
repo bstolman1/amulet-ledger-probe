@@ -103,14 +103,14 @@ const Dashboard = () => {
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <StatCard title="Total Amulet Balance" value={stats.totalBalance} icon={Coins} gradient />
-          <StatCard title="Super Validators" value={stats.superValidators} icon={Zap} />
-          <StatCard title="Current Round" value={stats.currentRound} icon={Package} />
           <StatCard title="Canton Coin Price (USD)" value={stats.coinPrice} icon={Activity} trend={{
           value: "",
           positive: true
         }} />
-          <StatCard title="Cumulative App Rewards" value={stats.totalRewards} icon={TrendingUp} gradient />
           <StatCard title="Market Cap (USD)" value={`$${stats.marketCap}`} icon={Users} />
+          <StatCard title="Current Round" value={stats.currentRound} icon={Package} />
+          <StatCard title="Super Validators" value={stats.superValidators} icon={Zap} />
+          <StatCard title="Cumulative App Rewards" value={stats.totalRewards} icon={TrendingUp} gradient />
         </div>
 
         {/* Canton Coin Price */}
