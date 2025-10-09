@@ -42,6 +42,7 @@ const UnclaimedSVRewards = () => {
   const { data: rewardData, isLoading: rewardLoading, error: rewardError } = useQuery({
     queryKey: ["sv-rewards-summary", ninetyDaysAgo.toISOString(), today.toISOString()],
     queryFn: async () => {
+      console.log('Starting SV rewards fetch...');
       try {
         const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
           body: {
@@ -56,17 +57,25 @@ const UnclaimedSVRewards = () => {
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error('SV Rewards API error:', error);
+          throw new Error(error.message || 'Failed to fetch rewards data from edge function');
+        }
+        
+        console.log('SV rewards data received:', data);
         return data;
       } catch (err) {
         console.error('SV Rewards fetch error:', err);
-        throw err;
+        if (err instanceof Error) {
+          throw new Error(`API Error: ${err.message}`);
+        }
+        throw new Error('Failed to fetch SV rewards data. The Canton Network Scan API may be unavailable.');
       }
     },
     enabled: true,
     staleTime: 10 * 60 * 1000, // 10 minutes
-    retry: 2,
-    retryDelay: 1000,
+    retry: 1,
+    retryDelay: 2000,
   });
 
   const formatAmount = (amount: string) => {
@@ -133,9 +142,15 @@ const UnclaimedSVRewards = () => {
         {rewardError && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error loading SV Rewards</AlertTitle>
+            <AlertTitle>Canton Network Scan API Unavailable</AlertTitle>
             <AlertDescription className="break-words">
-              {rewardError instanceof Error ? rewardError.message : 'Unknown error'}
+              <div className="space-y-2">
+                <p>The external Canton Network Scan API is currently unreachable or experiencing issues.</p>
+                <p className="text-sm font-mono bg-destructive/10 p-2 rounded">
+                  {rewardError instanceof Error ? rewardError.message : 'Unknown error occurred'}
+                </p>
+                <p className="text-sm">This data source is required to calculate SV reward statistics. Please check back later when the API is available.</p>
+              </div>
             </AlertDescription>
           </Alert>
         )}

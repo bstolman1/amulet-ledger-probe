@@ -89,18 +89,32 @@ async function fetchTransactions(
     };
   }
 
-  const response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000); // 25 second timeout
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+  try {
+    const response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.transactions || [];
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout: Scan API did not respond within 25 seconds');
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  return data.transactions || [];
 }
 
 function parseTemplateId(templateId: string): { packageId: string; qualifiedName: string } {
