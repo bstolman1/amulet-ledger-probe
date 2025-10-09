@@ -8,6 +8,7 @@ import { scanApi } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 const UnclaimedSVRewards = () => {
   // Schedule daily sync for config data
@@ -37,20 +38,60 @@ const UnclaimedSVRewards = () => {
   const oneYearAgo = new Date(today);
   oneYearAgo.setFullYear(today.getFullYear() - 1);
 
-  // Mock data for SV rewards - in production, this would come from an API endpoint
-  // that implements the Python script logic
-  const mockRewardData = {
+  // Fetch real SV rewards data from edge function
+  const { data: rewardData, isLoading: rewardLoading } = useQuery({
+    queryKey: ["sv-rewards-summary"],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
+        body: {
+          beneficiary: "DSO::1220c2ddcc4c2d8d48fe5147e85de9bc0d23f9ca8fb4c3aa851d8d73e8f564c90e0c",
+          beginRecordTime: oneYearAgo.toISOString(),
+          endRecordTime: today.toISOString(),
+          beginMigrationId: 0,
+          weight: 1200000,
+          alreadyMintedWeight: 0,
+          gracePeriodMinutes: 60,
+        },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!configData,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1,
+  });
+
+  const formatAmount = (amount: string) => {
+    const num = parseFloat(amount);
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  };
+
+  const rewardsData = rewardData ? {
     totalSuperValidators: configData?.superValidators.length || 0,
-    totalRewardCoupons: 1547,
-    claimedCount: 1204,
-    claimedAmount: "45,287.3456789123",
-    expiredCount: 87,
-    expiredAmount: "2,143.7891234567",
-    unclaimedCount: 256,
-    estimatedUnclaimedAmount: "8,976.4321098765",
+    totalRewardCoupons: rewardData.totalRewardCoupons,
+    claimedCount: rewardData.claimedCount,
+    claimedAmount: formatAmount(rewardData.claimedAmount),
+    expiredCount: rewardData.expiredCount,
+    expiredAmount: formatAmount(rewardData.expiredAmount),
+    unclaimedCount: rewardData.unclaimedCount,
+    estimatedUnclaimedAmount: formatAmount(rewardData.estimatedUnclaimedAmount),
+    timeRangeStart: rewardData.timeRangeStart,
+    timeRangeEnd: rewardData.timeRangeEnd,
+  } : {
+    totalSuperValidators: configData?.superValidators.length || 0,
+    totalRewardCoupons: 0,
+    claimedCount: 0,
+    claimedAmount: "0.00",
+    expiredCount: 0,
+    expiredAmount: "0.00",
+    unclaimedCount: 0,
+    estimatedUnclaimedAmount: "0.00",
     timeRangeStart: oneYearAgo.toISOString(),
     timeRangeEnd: today.toISOString(),
   };
+
+  const isLoading = configLoading || validatorsLoading || rewardLoading;
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
@@ -76,8 +117,8 @@ const UnclaimedSVRewards = () => {
           <AlertCircle className="h-4 w-4 text-warning" />
           <AlertTitle className="text-warning">Analysis Period</AlertTitle>
           <AlertDescription className="text-muted-foreground">
-            Showing reward data from {new Date(mockRewardData.timeRangeStart).toLocaleDateString()} to{" "}
-            {new Date(mockRewardData.timeRangeEnd).toLocaleDateString()}. Current round: {latestRound?.round || "Loading..."}
+            Showing reward data from {new Date(rewardsData.timeRangeStart).toLocaleDateString()} to{" "}
+            {new Date(rewardsData.timeRangeEnd).toLocaleDateString()}. Current round: {latestRound?.round || "Loading..."}
           </AlertDescription>
         </Alert>
 
@@ -88,9 +129,9 @@ const UnclaimedSVRewards = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total SV Coupons</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-foreground">{mockRewardData.totalRewardCoupons}</div>
+              <div className="text-3xl font-bold text-foreground">{rewardsData.totalRewardCoupons}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Across {mockRewardData.totalSuperValidators} Super Validators
+                Across {rewardsData.totalSuperValidators} Super Validators
               </p>
             </CardContent>
           </Card>
@@ -103,9 +144,9 @@ const UnclaimedSVRewards = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-success">{mockRewardData.claimedCount}</div>
+              <div className="text-3xl font-bold text-success">{rewardsData.claimedCount}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {mockRewardData.claimedAmount} CC
+                {rewardsData.claimedAmount} CC
               </p>
             </CardContent>
           </Card>
@@ -118,9 +159,9 @@ const UnclaimedSVRewards = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-destructive">{mockRewardData.expiredCount}</div>
+              <div className="text-3xl font-bold text-destructive">{rewardsData.expiredCount}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {mockRewardData.expiredAmount} CC lost
+                {rewardsData.expiredAmount} CC lost
               </p>
             </CardContent>
           </Card>
@@ -133,9 +174,9 @@ const UnclaimedSVRewards = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-warning">{mockRewardData.unclaimedCount}</div>
+              <div className="text-3xl font-bold text-warning">{rewardsData.unclaimedCount}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                ≈ {mockRewardData.estimatedUnclaimedAmount} CC
+                ≈ {rewardsData.estimatedUnclaimedAmount} CC
               </p>
             </CardContent>
           </Card>
@@ -153,13 +194,13 @@ const UnclaimedSVRewards = () => {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Claimed</span>
                   <span className="font-medium">
-                    {mockRewardData.claimedCount} ({((mockRewardData.claimedCount / mockRewardData.totalRewardCoupons) * 100).toFixed(1)}%)
+                    {rewardsData.claimedCount} ({((rewardsData.claimedCount / rewardsData.totalRewardCoupons) * 100).toFixed(1)}%)
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <div
                     className="h-full bg-success"
-                    style={{ width: `${(mockRewardData.claimedCount / mockRewardData.totalRewardCoupons) * 100}%` }}
+                    style={{ width: `${(rewardsData.claimedCount / rewardsData.totalRewardCoupons) * 100}%` }}
                   />
                 </div>
               </div>
@@ -168,13 +209,13 @@ const UnclaimedSVRewards = () => {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Unclaimed</span>
                   <span className="font-medium">
-                    {mockRewardData.unclaimedCount} ({((mockRewardData.unclaimedCount / mockRewardData.totalRewardCoupons) * 100).toFixed(1)}%)
+                    {rewardsData.unclaimedCount} ({((rewardsData.unclaimedCount / rewardsData.totalRewardCoupons) * 100).toFixed(1)}%)
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <div
                     className="h-full bg-warning"
-                    style={{ width: `${(mockRewardData.unclaimedCount / mockRewardData.totalRewardCoupons) * 100}%` }}
+                    style={{ width: `${(rewardsData.unclaimedCount / rewardsData.totalRewardCoupons) * 100}%` }}
                   />
                 </div>
               </div>
@@ -183,13 +224,13 @@ const UnclaimedSVRewards = () => {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Expired</span>
                   <span className="font-medium">
-                    {mockRewardData.expiredCount} ({((mockRewardData.expiredCount / mockRewardData.totalRewardCoupons) * 100).toFixed(1)}%)
+                    {rewardsData.expiredCount} ({((rewardsData.expiredCount / rewardsData.totalRewardCoupons) * 100).toFixed(1)}%)
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <div
                     className="h-full bg-destructive"
-                    style={{ width: `${(mockRewardData.expiredCount / mockRewardData.totalRewardCoupons) * 100}%` }}
+                    style={{ width: `${(rewardsData.expiredCount / rewardsData.totalRewardCoupons) * 100}%` }}
                   />
                 </div>
               </div>
@@ -204,7 +245,7 @@ const UnclaimedSVRewards = () => {
             <CardDescription>Validators eligible for SV reward coupons</CardDescription>
           </CardHeader>
           <CardContent>
-            {configLoading || validatorsLoading ? (
+            {configLoading || validatorsLoading || rewardLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <Skeleton key={i} className="h-16 w-full" />
