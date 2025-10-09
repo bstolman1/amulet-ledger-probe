@@ -76,23 +76,6 @@ export const BurnMintStats = () => {
 
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
-          <TrendingUp className="h-5 w-5 text-primary" />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          <>
-            <p className="text-3xl font-bold text-primary mb-1">
-              {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </p>
-            <p className="text-xs text-muted-foreground">Total CC issued</p>
-          </>
-        )}
-      </Card>
-
-      <Card className="glass-card p-6">
-        <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change</h3>
           <TrendingDown className="h-5 w-5 text-chart-3" />
         </div>
@@ -104,6 +87,23 @@ export const BurnMintStats = () => {
               {(dailyMintAmount - dailyBurn >= 0 ? '+' : '')}{(dailyMintAmount - dailyBurn).toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </p>
             <p className="text-xs text-muted-foreground">Net change today</p>
+          </>
+        )}
+      </Card>
+
+      <Card className="glass-card p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
+          <TrendingUp className="h-5 w-5 text-primary" />
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : (
+          <>
+            <p className="text-3xl font-bold text-primary mb-1">
+              {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p className="text-xs text-muted-foreground">Total CC issued</p>
           </>
         )}
       </Card>

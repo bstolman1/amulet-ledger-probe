@@ -876,29 +876,89 @@ export const scanApi = {
     return response.json();
   },
 
-  // Fetch governance proposals - showing historical SV onboarding as approved proposals
+  // Fetch governance proposals from transaction updates with VoteRequest template
   async fetchGovernanceProposals(): Promise<any> {
     try {
-      const dsoInfo = await this.fetchDsoInfo();
-      const proposals: any[] = [];
+      // Fetch recent updates to find vote requests
+      const updates = await this.fetchUpdates({
+        page_size: 500,
+        daml_value_encoding: "compact_json",
+      });
       
-      // Show SV onboarding as governance proposals (these were voted on)
-      if (dsoInfo.dso_rules?.contract?.payload?.svs) {
-        const svs = dsoInfo.dso_rules.contract.payload.svs;
-        
-        // Show the most recent 20 SV onboardings as approved proposals
-        svs.slice(0, 20).forEach(([svPartyId, svInfo]: [string, any]) => {
-          proposals.push({
-            id: svPartyId.slice(0, 12),
-            title: `Super Validator Onboarding: ${svInfo.name}`,
-            description: `${svInfo.name} was approved to join as a Super Validator at round ${svInfo.joinedAsOfRound?.number || 0}. Reward weight: ${svInfo.svRewardWeight}`,
-            status: "approved",
-            votesFor: dsoInfo.voting_threshold,
-            votesAgainst: 0,
-            createdAt: dsoInfo.dso_rules.contract.created_at,
+      const proposals: any[] = [];
+      const seenProposals = new Set<string>();
+      
+      // Search through all transactions for VoteRequest events
+      updates.transactions.forEach((tx: any) => {
+        if (tx.events_by_id) {
+          Object.values(tx.events_by_id).forEach((event: any) => {
+            const templateId = event.template_id || "";
+            
+            // Look for VoteRequest contracts
+            if (templateId.includes("VoteRequest") || templateId.includes("DsoRules_CloseVoteRequestResult")) {
+              const contractId = event.contract_id || "";
+              
+              // Avoid duplicates
+              if (seenProposals.has(contractId)) return;
+              seenProposals.add(contractId);
+              
+              const payload = event.create_arguments || {};
+              const isCreated = event.event_type === "created_event";
+              const isClosed = templateId.includes("CloseVoteRequestResult");
+              
+              let status = "pending";
+              let votesFor = 0;
+              let votesAgainst = 0;
+              
+              if (isClosed) {
+                status = payload.completedAt ? "executed" : "rejected";
+                const outcome = payload.outcome || {};
+                if (outcome.VRO_Accepted) status = "executed";
+                if (outcome.VRO_Rejected) status = "rejected";
+                if (outcome.VRO_Expired) status = "expired";
+              } else if (isCreated) {
+                // For active VoteRequests
+                const votes = payload.votes || {};
+                Object.values(votes).forEach((vote: any) => {
+                  if (vote && typeof vote === 'object') {
+                    if (vote.accept || vote.Accept) votesFor++;
+                    if (vote.reject || vote.Reject) votesAgainst++;
+                  }
+                });
+              }
+              
+              // Extract action/title
+              const action = payload.action || {};
+              let title = "Governance Proposal";
+              let description = "Vote request";
+              
+              if (action.ARC_DsoRules || action.tag === "ARC_DsoRules") {
+                title = "DSO Rules Configuration";
+                description = "Update DSO governance rules and parameters";
+              } else if (action.ARC_AmuletRules || action.tag === "ARC_AmuletRules") {
+                title = "Amulet Rules Update";
+                description = "Update Canton Coin rules and issuance parameters";
+              } else if (action.ARC_AddFutureAmuletConfigSchedule) {
+                title = "Amulet Config Schedule Update";
+                description = "Add future configuration schedule for Canton Coin";
+              } else if (typeof action === 'object' && Object.keys(action).length > 0) {
+                const actionKey = Object.keys(action)[0];
+                title = actionKey.replace(/ARC_|_/g, " ").trim();
+              }
+              
+              proposals.push({
+                id: contractId.slice(0, 12),
+                title,
+                description,
+                status,
+                votesFor,
+                votesAgainst,
+                createdAt: event.created_at || tx.record_time,
+              });
+            }
           });
-        });
-      }
+        }
+      });
       
       return proposals.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
