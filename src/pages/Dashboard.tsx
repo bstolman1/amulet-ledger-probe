@@ -1,6 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
 import { BurnMintStats } from "@/components/BurnMintStats";
+import { DailyMintBurnChart } from "@/components/DailyMintBurnChart";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
@@ -85,6 +86,9 @@ const Dashboard = () => {
 
         {/* Burn/Mint Stats */}
         <BurnMintStats />
+
+        {/* Daily Mint/Burn Chart */}
+        <DailyMintBurnChart />
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

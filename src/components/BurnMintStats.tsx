@@ -10,7 +10,24 @@ export const BurnMintStats = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // Fetch just the latest round for current data
+  // Calculate rounds per day (assuming 10 minutes per round = 144 rounds/day)
+  const roundsPerDay = 144;
+
+  // Fetch last 24 hours of round data for true daily stats
+  const { data: last24HoursData } = useQuery({
+    queryKey: ["last24Hours", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const startRound = Math.max(0, latestRound.round - roundsPerDay);
+      return scanApi.fetchRoundPartyTotals({
+        start_round: startRound,
+        end_round: latestRound.round,
+      });
+    },
+    enabled: !!latestRound,
+  });
+
+  // Fetch current round for cumulative stats
   const { data: currentRound } = useQuery({
     queryKey: ["currentRound", latestRound?.round],
     queryFn: async () => {
@@ -23,54 +40,49 @@ export const BurnMintStats = () => {
     enabled: !!latestRound,
   });
 
-  // Fetch per-party totals for the current round to split mint vs burn
-  const { data: partyTotals } = useQuery({
-    queryKey: ["roundPartyTotals", latestRound?.round],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      return scanApi.fetchRoundPartyTotals({
-        start_round: Math.max(0, latestRound.round - 1),
-        end_round: latestRound.round,
-      });
-    },
-    enabled: !!latestRound,
-  });
-
-  // Get current round data
-  const currentRoundData = currentRound?.entries[0];
-  
-  // Extract daily change - positive for mint, negative for burn (net)
-  const roundChange = currentRoundData ? parseFloat(currentRoundData.change_to_initial_amount_as_of_round_zero) : 0;
-
-  // Compute mint and burn split using per-party cumulative deltas between previous and current round when available
+  // Calculate true 24-hour mint and burn totals
   let dailyMintAmount = 0;
   let dailyBurn = 0;
-  if (partyTotals?.entries?.length && latestRound) {
-    const prevRound = Math.max(0, latestRound.round - 1);
-    const currRound = latestRound.round;
-    const prevMap = new Map<string, number>();
-    const currMap = new Map<string, number>();
-    for (const e of partyTotals.entries) {
-      const cum = parseFloat(e.cumulative_change_to_initial_amount_as_of_round_zero);
-      if (e.closed_round === currRound) currMap.set(e.party, cum);
-      else if (e.closed_round === prevRound) prevMap.set(e.party, cum);
+
+  if (last24HoursData?.entries?.length && latestRound) {
+    const startRound = Math.max(0, latestRound.round - roundsPerDay);
+    const endRound = latestRound.round;
+    
+    // Group by party to get their delta over 24 hours
+    const partyDeltas = new Map<string, { start: number; end: number }>();
+    
+    for (const entry of last24HoursData.entries) {
+      const cum = parseFloat(entry.cumulative_change_to_initial_amount_as_of_round_zero);
+      
+      if (!partyDeltas.has(entry.party)) {
+        partyDeltas.set(entry.party, { start: 0, end: 0 });
+      }
+      
+      const partyData = partyDeltas.get(entry.party)!;
+      if (entry.closed_round === startRound) {
+        partyData.start = cum;
+      }
+      if (entry.closed_round === endRound) {
+        partyData.end = cum;
+      }
     }
-    const parties = new Set<string>([...currMap.keys(), ...prevMap.keys()]);
-    parties.forEach((p) => {
-      const delta = (currMap.get(p) ?? 0) - (prevMap.get(p) ?? 0);
-      if (delta > 0) dailyMintAmount += delta;
-      if (delta < 0) dailyBurn += Math.abs(delta);
+    
+    // Calculate mint and burn from party deltas
+    partyDeltas.forEach((data) => {
+      const delta = data.end - data.start;
+      if (delta > 0) {
+        dailyMintAmount += delta;
+      } else if (delta < 0) {
+        dailyBurn += Math.abs(delta);
+      }
     });
-  } else {
-    // Fallback to net change split if per-party totals are unavailable
-    dailyMintAmount = roundChange > 0 ? roundChange : 0;
-    dailyBurn = roundChange < 0 ? Math.abs(roundChange) : 0;
   }
 
-  // Get cumulative stats from current round (it includes cumulative data)
+  // Get cumulative stats from current round
+  const currentRoundData = currentRound?.entries[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = !latestRound || !currentRound;
+  const isLoading = !latestRound || !currentRound || !last24HoursData;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
