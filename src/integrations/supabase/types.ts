@@ -14,11 +14,32 @@ export type Database = {
   }
   public: {
     Tables: {
+      cip_types: {
+        Row: {
+          created_at: string
+          id: string
+          type_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          type_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          type_name?: string
+        }
+        Relationships: []
+      }
       cips: {
         Row: {
           cip_number: string
+          cip_type: string | null
           created_at: string
+          github_link: string | null
           id: string
+          requires_onchain_vote: boolean
           status: string
           title: string
           updated_at: string
@@ -27,8 +48,11 @@ export type Database = {
         }
         Insert: {
           cip_number: string
+          cip_type?: string | null
           created_at?: string
+          github_link?: string | null
           id?: string
+          requires_onchain_vote?: boolean
           status?: string
           title: string
           updated_at?: string
@@ -37,8 +61,11 @@ export type Database = {
         }
         Update: {
           cip_number?: string
+          cip_type?: string | null
           created_at?: string
+          github_link?: string | null
           id?: string
+          requires_onchain_vote?: boolean
           status?: string
           title?: string
           updated_at?: string

@@ -3,12 +3,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Trash2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 interface SVVote {
   organization: string;
@@ -42,6 +43,12 @@ const Admin = () => {
   const [cipTitle, setCipTitle] = useState("");
   const [voteStart, setVoteStart] = useState("");
   const [voteClose, setVoteClose] = useState("");
+  const [githubLink, setGithubLink] = useState("");
+  const [requiresOnchainVote, setRequiresOnchainVote] = useState(false);
+  const [cipType, setCipType] = useState("");
+  const [cipTypes, setCipTypes] = useState<{ id: string; type_name: string }[]>([]);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [isAddTypeDialogOpen, setIsAddTypeDialogOpen] = useState(false);
   const [currentCipId, setCurrentCipId] = useState<string | null>(null);
   
   const [svVotes, setSvVotes] = useState<SVVote[]>([
@@ -60,6 +67,59 @@ const Admin = () => {
   const [featuredAppCommitteeVotes, setFeaturedAppCommitteeVotes] = useState<FeaturedAppCommitteeVote[]>([
     { member: "", email: "", contact: "", weight: 1, vote: "" }
   ]);
+
+  // Fetch CIP types on mount
+  useEffect(() => {
+    fetchCipTypes();
+  }, []);
+
+  const fetchCipTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cip_types')
+        .select('*')
+        .order('type_name');
+
+      if (error) throw error;
+      setCipTypes(data || []);
+    } catch (error) {
+      console.error('Error fetching CIP types:', error);
+    }
+  };
+
+  const handleAddNewType = async () => {
+    if (!newTypeName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a type name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('cip_types')
+        .insert({ type_name: newTypeName.trim() });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "New CIP type added successfully",
+      });
+
+      setNewTypeName("");
+      setIsAddTypeDialogOpen(false);
+      fetchCipTypes();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add new CIP type",
+        variant: "destructive",
+      });
+    }
+  };
 
   const addSvRow = () => {
     setSvVotes([...svVotes, { organization: "", email: "", contact: "", weight: 0, vote: "" }]);
@@ -298,10 +358,10 @@ const Admin = () => {
   };
 
   const handleSaveCIP = async () => {
-    if (!cipNumber || !cipTitle) {
+    if (!cipNumber || !cipTitle || !githubLink || !cipType) {
       toast({
         title: "Error",
-        description: "Please fill in CIP number and title",
+        description: "Please fill in all required CIP fields",
         variant: "destructive",
       });
       return;
@@ -315,6 +375,9 @@ const Admin = () => {
           title: cipTitle,
           vote_start_date: voteStart || null,
           vote_close_date: voteClose || null,
+          github_link: githubLink,
+          requires_onchain_vote: requiresOnchainVote,
+          cip_type: cipType,
         })
         .select()
         .single();
@@ -340,6 +403,9 @@ const Admin = () => {
     setCipTitle("");
     setVoteStart("");
     setVoteClose("");
+    setGithubLink("");
+    setRequiresOnchainVote(false);
+    setCipType("");
     setCurrentCipId(null);
     setSvVotes([{ organization: "", email: "", contact: "", weight: 0, vote: "" }]);
     setCommitteeVotes([{ member: "", email: "", contact: "", weight: 1, vote: "" }]);
@@ -392,7 +458,7 @@ const Admin = () => {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="cipNumber">CIP Number</Label>
+                <Label htmlFor="cipNumber">CIP Number *</Label>
                 <Input
                   id="cipNumber"
                   value={cipNumber}
@@ -401,13 +467,81 @@ const Admin = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cipTitle">CIP Title</Label>
+                <Label htmlFor="cipTitle">CIP Title *</Label>
                 <Input
                   id="cipTitle"
                   value={cipTitle}
                   onChange={(e) => setCipTitle(e.target.value)}
                   placeholder="Title of the proposal"
                 />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="githubLink">GitHub CIP Link *</Label>
+                <Input
+                  id="githubLink"
+                  value={githubLink}
+                  onChange={(e) => setGithubLink(e.target.value)}
+                  placeholder="https://github.com/global-synchronizer-foundation/cips/..."
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cipType">Type of CIP *</Label>
+                <div className="flex gap-2">
+                  <select
+                    id="cipType"
+                    value={cipType}
+                    onChange={(e) => setCipType(e.target.value)}
+                    className="flex-1 h-10 rounded-md border border-input bg-card px-3 py-2 text-sm z-50"
+                  >
+                    <option value="">Select type...</option>
+                    {cipTypes.map((type) => (
+                      <option key={type.id} value={type.type_name}>
+                        {type.type_name}
+                      </option>
+                    ))}
+                  </select>
+                  <Dialog open={isAddTypeDialogOpen} onOpenChange={setIsAddTypeDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-card z-50">
+                      <DialogHeader>
+                        <DialogTitle>Add New CIP Type</DialogTitle>
+                        <DialogDescription>
+                          Enter the name of the new CIP type
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="newTypeName">Type Name</Label>
+                          <Input
+                            id="newTypeName"
+                            value={newTypeName}
+                            onChange={(e) => setNewTypeName(e.target.value)}
+                            placeholder="e.g., Process"
+                          />
+                        </div>
+                        <Button onClick={handleAddNewType} className="w-full">
+                          Add Type
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="requiresOnchainVote">Requires Onchain Vote *</Label>
+                <select
+                  id="requiresOnchainVote"
+                  value={requiresOnchainVote ? "yes" : "no"}
+                  onChange={(e) => setRequiresOnchainVote(e.target.value === "yes")}
+                  className="w-full h-10 rounded-md border border-input bg-card px-3 py-2 text-sm z-50"
+                >
+                  <option value="no">Does not require onchain vote</option>
+                  <option value="yes">Requires onchain vote</option>
+                </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="voteStart">Vote Start Date</Label>
