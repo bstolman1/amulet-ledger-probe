@@ -18,11 +18,18 @@ export const NetworkDailyBurnCard = () => {
     queryFn: async () => {
       if (!latestRound) return null;
       const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-      // fits under API 200-round limit
-      return scanApi.fetchRoundPartyTotals({ start_round: start, end_round: latestRound.round });
+      const maxChunk = 50;
+      const entries: any[] = [];
+      for (let s = start; s <= latestRound.round; s += maxChunk) {
+        const e = Math.min(s + maxChunk - 1, latestRound.round);
+        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+        if (res?.entries?.length) entries.push(...res.entries);
+      }
+      return { entries } as { entries: typeof entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
+    retry: 1,
   });
 
   let dailyBurn = 0;

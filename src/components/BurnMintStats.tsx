@@ -27,18 +27,6 @@ export const BurnMintStats = () => {
     retry: 1,
   });
 
-  // Fetch last 24 hours of party totals (for burned)
-  const { data: last24hPartyTotals, isPending: partyPending, isError: partyError } = useQuery({
-    queryKey: ["roundPartyTotals24h", latestRound?.round],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-      return scanApi.fetchRoundPartyTotals({ start_round: start, end_round: latestRound.round });
-    },
-    enabled: !!latestRound,
-    staleTime: 60_000,
-    retry: 1,
-  });
 
   // Fetch current round for cumulative stats
   const { data: currentRound, isPending: currentPending, isError: currentError } = useQuery({
@@ -49,6 +37,26 @@ export const BurnMintStats = () => {
         start_round: latestRound.round,
         end_round: latestRound.round,
       });
+    },
+    enabled: !!latestRound,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  // Fetch last 24 hours of party totals (for burned)
+  const { data: last24hPartyTotals, isPending: partyPending, isError: partyError } = useQuery({
+    queryKey: ["roundPartyTotals24h", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
+      const maxChunk = 50;
+      const entries: any[] = [];
+      for (let s = start; s <= latestRound.round; s += maxChunk) {
+        const e = Math.min(s + maxChunk - 1, latestRound.round);
+        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+        if (res?.entries?.length) entries.push(...res.entries);
+      }
+      return { entries } as { entries: typeof entries };
     },
     enabled: !!latestRound,
     staleTime: 60_000,
