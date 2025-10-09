@@ -23,15 +23,49 @@ export const BurnMintStats = () => {
     enabled: !!latestRound,
   });
 
+  // Fetch per-party totals for the current round to split mint vs burn
+  const { data: partyTotals } = useQuery({
+    queryKey: ["roundPartyTotals", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      return scanApi.fetchRoundPartyTotals({
+        start_round: Math.max(0, latestRound.round - 1),
+        end_round: latestRound.round,
+      });
+    },
+    enabled: !!latestRound,
+  });
+
   // Get current round data
   const currentRoundData = currentRound?.entries[0];
   
-  // Extract daily change - positive for mint, negative for burn
+  // Extract daily change - positive for mint, negative for burn (net)
   const roundChange = currentRoundData ? parseFloat(currentRoundData.change_to_initial_amount_as_of_round_zero) : 0;
-  
-  // Separate positive (mint) and negative (burn) changes
-  const dailyMintAmount = roundChange > 0 ? roundChange : 0;
-  const dailyBurn = roundChange < 0 ? Math.abs(roundChange) : 0;
+
+  // Compute mint and burn split using per-party cumulative deltas between previous and current round when available
+  let dailyMintAmount = 0;
+  let dailyBurn = 0;
+  if (partyTotals?.entries?.length && latestRound) {
+    const prevRound = Math.max(0, latestRound.round - 1);
+    const currRound = latestRound.round;
+    const prevMap = new Map<string, number>();
+    const currMap = new Map<string, number>();
+    for (const e of partyTotals.entries) {
+      const cum = parseFloat(e.cumulative_change_to_initial_amount_as_of_round_zero);
+      if (e.closed_round === currRound) currMap.set(e.party, cum);
+      else if (e.closed_round === prevRound) prevMap.set(e.party, cum);
+    }
+    const parties = new Set<string>([...currMap.keys(), ...prevMap.keys()]);
+    parties.forEach((p) => {
+      const delta = (currMap.get(p) ?? 0) - (prevMap.get(p) ?? 0);
+      if (delta > 0) dailyMintAmount += delta;
+      if (delta < 0) dailyBurn += Math.abs(delta);
+    });
+  } else {
+    // Fallback to net change split if per-party totals are unavailable
+    dailyMintAmount = roundChange > 0 ? roundChange : 0;
+    dailyBurn = roundChange < 0 ? Math.abs(roundChange) : 0;
+  }
 
   // Get cumulative stats from current round (it includes cumulative data)
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
