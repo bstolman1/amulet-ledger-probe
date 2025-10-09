@@ -6,8 +6,21 @@ import { AlertCircle, Award, TrendingDown, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
+import { useEffect } from "react";
 
 const UnclaimedSVRewards = () => {
+  // Schedule daily sync for config data
+  useEffect(() => {
+    scheduleDailySync();
+  }, []);
+
+  // Fetch real Super Validator configuration
+  const { data: configData, isLoading: configLoading } = useQuery({
+    queryKey: ["sv-config"],
+    queryFn: () => fetchConfigData(),
+    staleTime: 24 * 60 * 60 * 1000, // 24 hours
+  });
   const { data: validators, isLoading: validatorsLoading } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
@@ -27,7 +40,7 @@ const UnclaimedSVRewards = () => {
   // Mock data for SV rewards - in production, this would come from an API endpoint
   // that implements the Python script logic
   const mockRewardData = {
-    totalSuperValidators: 13,
+    totalSuperValidators: configData?.superValidators.length || 0,
     totalRewardCoupons: 1547,
     claimedCount: 1204,
     claimedAmount: "45,287.3456789123",
@@ -44,8 +57,8 @@ const UnclaimedSVRewards = () => {
     return parts[0] || partyId;
   };
 
-  // Filter validators to identify super validators (those with licenses)
-  const superValidators = validators?.validatorsAndRewards.slice(0, mockRewardData.totalSuperValidators) || [];
+  // Use real Super Validators from config
+  const superValidators = configData?.superValidators || [];
 
   return (
     <DashboardLayout>
@@ -191,7 +204,7 @@ const UnclaimedSVRewards = () => {
             <CardDescription>Validators eligible for SV reward coupons</CardDescription>
           </CardHeader>
           <CardContent>
-            {validatorsLoading ? (
+            {configLoading || validatorsLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <Skeleton key={i} className="h-16 w-full" />
@@ -201,7 +214,7 @@ const UnclaimedSVRewards = () => {
               <div className="space-y-3">
                 {superValidators.map((validator, index) => (
                   <div
-                    key={validator.provider}
+                    key={validator.address}
                     className="p-4 rounded-lg bg-muted/30 border border-border flex items-center justify-between hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -210,13 +223,16 @@ const UnclaimedSVRewards = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="font-semibold truncate">{formatPartyId(validator.provider)}</p>
+                          <p className="font-semibold truncate">{validator.name}</p>
                           <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
                             Super Validator
                           </Badge>
                         </div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Operator: {validator.operatorName}
+                        </p>
                         <p className="text-xs text-muted-foreground font-mono truncate">
-                          {validator.provider}
+                          {validator.address}
                         </p>
                       </div>
                     </div>

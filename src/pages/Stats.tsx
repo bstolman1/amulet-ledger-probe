@@ -11,10 +11,21 @@ import { useToast } from "@/hooks/use-toast";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { useUsageStats } from "@/hooks/use-usage-stats";
-
-
+import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
+import { useEffect } from "react";
 
 const Stats = () => {
+  // Schedule daily sync for config data
+  useEffect(() => {
+    scheduleDailySync();
+  }, []);
+
+  // Fetch real Super Validator configuration
+  const { data: configData } = useQuery({
+    queryKey: ["sv-config"],
+    queryFn: () => fetchConfigData(),
+    staleTime: 24 * 60 * 60 * 1000, // 24 hours
+  });
   const { data: validators, isLoading: validatorsLoading } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
@@ -145,8 +156,8 @@ const Stats = () => {
     ])
   );
 
-  // Top validators are considered super validators (top 13)
-  const superValidatorCount = 13;
+  // Get real Super Validator count from config
+  const superValidatorCount = configData?.superValidators.length || 0;
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
