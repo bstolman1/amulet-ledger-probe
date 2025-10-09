@@ -89,32 +89,45 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 
 async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperValidator[]> {
   try {
-    // Get all validator IDs
-    const validatorIds = validators.map(v => v.address);
+    console.log(`Fetching join rounds for ${validators.length} supervalidators...`);
     
-    console.log(`Fetching join rounds for ${validatorIds.length} validators...`);
-    
-    // Fetch validator liveness data which includes firstCollectedInRound
-    const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+    // Fetch all top validators by faucets (which includes supervalidators)
+    const topValidators = await scanApi.fetchTopValidatorsByFaucets(1000);
     
     // Create a map of validator ID to first collected round
     const validatorJoinRounds = new Map<string, number>();
-    livenessData.validatorsReceivedFaucets.forEach(info => {
+    topValidators.validatorsByReceivedFaucets.forEach(info => {
       validatorJoinRounds.set(info.validator, info.firstCollectedInRound);
     });
     
     // Update validators with join round information
     const validatorsWithRounds = validators.map((validator) => {
-      const joinRound = validatorJoinRounds.get(validator.address);
+      // Try to find by exact match first
+      let joinRound = validatorJoinRounds.get(validator.address);
+      
+      // If not found, try to find by matching the address hash (party ID without prefix)
+      if (!joinRound) {
+        const addressHash = validator.address.split('::')[1];
+        if (addressHash) {
+          // Search through all validators for a match
+          for (const [validatorId, round] of validatorJoinRounds.entries()) {
+            if (validatorId.includes(addressHash)) {
+              joinRound = round;
+              break;
+            }
+          }
+        }
+      }
       
       if (joinRound) {
-        console.log(`Found validator ${validator.name} joined in round ${joinRound}`);
+        console.log(`Found supervalidator ${validator.name} joined in round ${joinRound}`);
         return {
           ...validator,
           joinRound
         };
       }
       
+      console.log(`Could not find join round for ${validator.name} (${validator.address})`);
       return validator;
     });
     
