@@ -38,37 +38,48 @@ const Stats = () => {
     enabled: !!latestRound,
   });
 
-  // Fetch usage statistics data
-  const { data: usageData, isLoading: usageLoading } = useQuery({
+  // Fetch usage statistics data - reduced to 90 days for better performance
+  const { data: usageData, isLoading: usageLoading, error: usageError } = useQuery({
     queryKey: ["usageStatistics", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       
-      // Fetch party totals for last 365 days worth of rounds
+      // Fetch party totals for last 90 days worth of rounds (more reliable than full year)
       const roundsPerDay = 144; // Approximate
-      const totalRounds = roundsPerDay * 365;
+      const totalRounds = roundsPerDay * 90;
       const startRound = Math.max(0, latestRound.round - totalRounds);
+      
+      console.log('Fetching usage data from round', startRound, 'to', latestRound.round);
       
       const partyTotals = await scanApi.fetchRoundPartyTotals({
         start_round: startRound,
         end_round: latestRound.round,
       });
       
+      console.log('Usage data received:', partyTotals);
+      
       return partyTotals;
     },
     enabled: !!latestRound,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    retry: 2,
   });
 
   // Process usage data for charts
   const usageChartData = useMemo(() => {
-    if (!usageData || !latestRound) {
+    if (!usageData || !usageData.entries || usageData.entries.length === 0 || !latestRound) {
+      console.log('No usage data available:', { usageData, latestRound });
       return {
         cumulativeParties: [],
         dailyActiveUsers: [],
         dailyTransactions: [],
+        totalParties: 0,
+        totalDailyUsers: 0,
+        totalTransactions: 0,
       };
     }
+
+    console.log('Processing', usageData.entries.length, 'usage data entries');
 
     const roundsPerDay = 144;
     const uniquePartiesSet = new Set<string>();
@@ -148,11 +159,18 @@ const Stats = () => {
       return data.filter((_, index) => index % interval === 0 || index === data.length - 1);
     };
 
-    return {
+    const finalData = {
       cumulativeParties: sampleData(cumulativeParties),
       dailyActiveUsers: sampleData(dailyActiveUsers),
       dailyTransactions: sampleData(dailyTransactions),
+      totalParties: seenParties.size,
+      totalDailyUsers: dailyActiveUsers.length > 0 ? dailyActiveUsers[dailyActiveUsers.length - 1].avg7d : 0,
+      totalTransactions: dailyTransactions.reduce((sum, d) => sum + d.daily, 0),
     };
+
+    console.log('Processed usage chart data:', finalData);
+    
+    return finalData;
   }, [usageData, latestRound]);
 
   // Calculate rounds per day based on recent data
@@ -624,6 +642,22 @@ const Stats = () => {
                 <h4 className="text-lg font-semibold mb-4">Cumulative Unique Parties</h4>
                 {usageLoading ? (
                   <Skeleton className="h-[250px] w-full" />
+                ) : usageError ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-destructive mb-2">Failed to load data</p>
+                      <p className="text-xs text-muted-foreground">API connection issue</p>
+                    </div>
+                  </div>
+                ) : usageChartData.cumulativeParties.length === 0 ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-2">No data available</p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Parties: {usageChartData.totalParties || 0}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <ChartContainer
                     config={{
@@ -684,6 +718,22 @@ const Stats = () => {
                 <h4 className="text-lg font-semibold mb-4">Daily Active Users</h4>
                 {usageLoading ? (
                   <Skeleton className="h-[250px] w-full" />
+                ) : usageError ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-destructive mb-2">Failed to load data</p>
+                      <p className="text-xs text-muted-foreground">API connection issue</p>
+                    </div>
+                  </div>
+                ) : usageChartData.dailyActiveUsers.length === 0 ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-2">No data available</p>
+                      <p className="text-xs text-muted-foreground">
+                        Avg Users: {usageChartData.totalDailyUsers || 0}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <ChartContainer
                     config={{
@@ -758,6 +808,22 @@ const Stats = () => {
                 <h4 className="text-lg font-semibold mb-4">Daily Transactions</h4>
                 {usageLoading ? (
                   <Skeleton className="h-[250px] w-full" />
+                ) : usageError ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-destructive mb-2">Failed to load data</p>
+                      <p className="text-xs text-muted-foreground">API connection issue</p>
+                    </div>
+                  </div>
+                ) : usageChartData.dailyTransactions.length === 0 ? (
+                  <div className="h-[250px] flex items-center justify-center">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-2">No data available</p>
+                      <p className="text-xs text-muted-foreground">
+                        Total TX: {usageChartData.totalTransactions?.toLocaleString() || 0}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <ChartContainer
                     config={{
