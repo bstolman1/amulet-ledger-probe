@@ -27,7 +27,7 @@ const UnclaimedSVRewards = () => {
   // Mock data for SV rewards - in production, this would come from an API endpoint
   // that implements the Python script logic
   const mockRewardData = {
-    totalSuperValidators: 12,
+    totalSuperValidators: 13,
     totalRewardCoupons: 1547,
     claimedCount: 1204,
     claimedAmount: "45,287.3456789123",

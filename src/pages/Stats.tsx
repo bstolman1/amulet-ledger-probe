@@ -145,8 +145,8 @@ const Stats = () => {
     ])
   );
 
-  // Top validators are considered super validators (top 20)
-  const superValidatorCount = 20;
+  // Top validators are considered super validators (top 13)
+  const superValidatorCount = 13;
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
