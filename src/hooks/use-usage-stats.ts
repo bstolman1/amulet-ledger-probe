@@ -110,7 +110,7 @@ export function useUsageStats(days: number = 90) {
           const res = await scanApi.fetchTransactions({
             page_end_event_id: pageEnd,
             sort_order: "desc",
-            page_size: 1000, // Increased page size from 500 to 1000
+            page_size: 500, // Reduced page size to improve reliability
           });
           const txs = res.transactions || [];
           if (txs.length === 0) {

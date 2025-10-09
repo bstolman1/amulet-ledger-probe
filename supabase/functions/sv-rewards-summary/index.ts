@@ -85,7 +85,7 @@ async function fetchTransactions(
     };
   }
 
-  const response = await fetch(`${scanUrl}/api/scan/v0/updates`, {
+  const response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
