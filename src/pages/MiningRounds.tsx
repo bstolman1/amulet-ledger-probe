@@ -28,14 +28,29 @@ const MiningRounds = () => {
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
-  // Process open rounds
-  const openRoundsData = Object.entries(miningRounds?.open_mining_rounds || {}).map(([id, data]) => ({
-    id,
-    contractId: data.contract.contract_id,
-    roundNumber: data.contract.payload?.round?.number || "N/A",
-    opensAt: data.contract.payload?.opensAt,
-    targetClosesAt: data.contract.payload?.targetClosesAt,
-  }));
+  // Process open rounds (prefer API; fallback to DSO latest)
+  const openRoundsData = (() => {
+    const apiOpen = Object.entries(miningRounds?.open_mining_rounds || {}).map(([id, data]) => ({
+      id,
+      contractId: data.contract.contract_id,
+      roundNumber: data.contract.payload?.round?.number || "N/A",
+      opensAt: data.contract.payload?.opensAt,
+      targetClosesAt: data.contract.payload?.targetClosesAt,
+    }));
+    if (apiOpen.length) return apiOpen;
+
+    if (dsoInfo?.latest_mining_round?.contract?.template_id?.includes(':Splice.Round:OpenMiningRound')) {
+      const data = dsoInfo.latest_mining_round;
+      return [{
+        id: data.contract.contract_id,
+        contractId: data.contract.contract_id,
+        roundNumber: data.contract.payload?.round?.number || "N/A",
+        opensAt: data.contract.payload?.opensAt,
+        targetClosesAt: data.contract.payload?.targetClosesAt,
+      }];
+    }
+    return [];
+  })();
 
   // Process issuing rounds
   const issuingRoundsData = Object.entries(miningRounds?.issuing_mining_rounds || {}).map(([id, data]) => ({
