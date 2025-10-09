@@ -89,36 +89,6 @@ function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; tx
   };
 }
 
-function buildFallback(days: number): UsageCharts {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - Math.max(1, days));
-
-  const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
-  let cumulative = 0;
-  let partyPool = 2000; // synthetic pool of parties
-
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    const key = toDateKey(cursor);
-    const usersToday = Math.max(5, Math.round((Math.sin(cursor.getTime() / 8.64e7) + 1) * 250 + Math.random() * 50));
-    const txToday = Math.max(10, usersToday * (2 + Math.random() * 3));
-
-    const set = new Set<string>();
-    const baseIndex = Math.floor(Math.random() * 1000);
-    for (let i = 0; i < usersToday; i++) {
-      // pseudo party ids
-      const id = `party-${(baseIndex + i + cumulative) % partyPool}`;
-      set.add(id);
-    }
-
-    perDay[key] = { partySet: set, txCount: Math.round(txToday) };
-    cumulative += usersToday * 0.2; // slowly increase pool membership
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return buildSeriesFromDaily(perDay, start, end);
-}
 
 export function useUsageStats(days: number = 90) {
   return useQuery<UsageCharts>({
@@ -130,47 +100,45 @@ export function useUsageStats(days: number = 90) {
       end.setHours(0, 0, 0, 0);
       start.setDate(end.getDate() - Math.max(1, days));
 
-      try {
-        const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
+      const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
 
-        let pageEnd: string | undefined = undefined;
-        let pagesFetched = 0;
-        const maxPages = 40; // safety cap
+      let pageEnd: string | undefined = undefined;
+      let pagesFetched = 0;
+      const maxPages = 20; // Reduced from 40 for better reliability
 
-        while (pagesFetched < maxPages) {
-          const res = await scanApi.fetchTransactions({
-            page_end_event_id: pageEnd,
-            sort_order: "desc",
-            page_size: 500,
-          });
-          const txs = res.transactions || [];
-          if (txs.length === 0) break;
+      while (pagesFetched < maxPages) {
+        const res = await scanApi.fetchTransactions({
+          page_end_event_id: pageEnd,
+          sort_order: "desc",
+          page_size: 500,
+        });
+        const txs = res.transactions || [];
+        if (txs.length === 0) break;
 
-          let reachedCutoff = false;
-          for (const tx of txs) {
-            const d = new Date(tx.date);
-            if (d < start) {
-              reachedCutoff = true;
-              continue;
-            }
-            const key = toDateKey(tx.date);
-            if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
-            perDay[key].txCount += 1;
-            extractParties(tx).forEach((p) => perDay[key].partySet.add(p));
+        let reachedCutoff = false;
+        for (const tx of txs) {
+          const d = new Date(tx.date);
+          if (d < start) {
+            reachedCutoff = true;
+            continue;
           }
-
-          pageEnd = txs[txs.length - 1].event_id;
-          pagesFetched++;
-          if (reachedCutoff) break;
+          const key = toDateKey(tx.date);
+          if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+          perDay[key].txCount += 1;
+          extractParties(tx).forEach((p) => perDay[key].partySet.add(p));
         }
 
-        return buildSeriesFromDaily(perDay, start, end);
-      } catch (err) {
-        console.warn("Transactions API failed, using fallback sample data", err);
-        return buildFallback(days);
+        pageEnd = txs[txs.length - 1].event_id;
+        pagesFetched++;
+        
+        console.log(`Fetched page ${pagesFetched}/${maxPages}, processed ${Object.keys(perDay).length} days of data`);
+        
+        if (reachedCutoff) break;
       }
+
+      return buildSeriesFromDaily(perDay, start, end);
     },
     staleTime: 5 * 60 * 1000,
-    retry: 1,
+    retry: 2,
   });
 }

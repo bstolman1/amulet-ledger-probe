@@ -502,7 +502,43 @@ const Stats = () => {
 
         {/* Usage Statistics Section */}
         <div className="space-y-6">
-          <h3 className="text-2xl font-bold">Usage Statistics</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-bold">Usage Statistics</h3>
+            {!usageLoading && !usageError && usageChartData && (
+              <Badge variant="outline" className="bg-success/10 text-success border-success/20">
+                ✓ Real-time data
+              </Badge>
+            )}
+            {usageLoading && (
+              <Badge variant="outline" className="bg-muted">
+                Loading...
+              </Badge>
+            )}
+            {usageError && (
+              <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">
+                ⚠ API Error
+              </Badge>
+            )}
+          </div>
+          
+          {usageError && (
+            <Card className="glass-card border-destructive/20">
+              <div className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-destructive animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-destructive mb-1">
+                      Unable to fetch usage statistics
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      The transaction API is currently unavailable or timing out. 
+                      This may be due to network connectivity or API rate limits.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Cumulative Unique Parties */}
