@@ -50,6 +50,7 @@ const Admin = () => {
   const [newTypeName, setNewTypeName] = useState("");
   const [isAddTypeDialogOpen, setIsAddTypeDialogOpen] = useState(false);
   const [currentCipId, setCurrentCipId] = useState<string | null>(null);
+  const [committeeVotesSaved, setCommitteeVotesSaved] = useState(false);
   
   const [svVotes, setSvVotes] = useState<SVVote[]>([
     { organization: "", email: "", contact: "", weight: 0, vote: "" }
@@ -274,6 +275,11 @@ const Admin = () => {
   const committeeResult = calculateCommitteeResult();
   const featuredAppCommitteeResult = calculateFeaturedAppCommitteeResult();
 
+  // Validation helpers
+  const isCipDetailsComplete = cipNumber && cipTitle && githubLink && cipType;
+  const canSubmitCommitteeVotes = currentCipId && isCipDetailsComplete;
+  const canSubmitSVVotes = currentCipId && committeeVotesSaved;
+
   const handleSaveFeaturedApp = async () => {
     if (!featuredAppName) {
       toast({
@@ -376,6 +382,7 @@ const Admin = () => {
 
       if (error) throw error;
 
+      setCommitteeVotesSaved(true);
       toast({
         title: "Success",
         description: "Committee votes saved successfully",
@@ -478,6 +485,7 @@ const Admin = () => {
     setRequiresOnchainVote(false);
     setCipType("");
     setCurrentCipId(null);
+    setCommitteeVotesSaved(false);
     setSvVotes([{ organization: "", email: "", contact: "", weight: 0, vote: "" }]);
     setCommitteeVotes([{ member: "", email: "", contact: "", weight: 1, vote: "" }]);
     
@@ -732,10 +740,21 @@ const Admin = () => {
               <Button onClick={addCommitteeRow} variant="outline">
                 Add Committee Member
               </Button>
-              <Button onClick={handleSaveCommitteeVotes} disabled={!currentCipId}>
+              <Button 
+                onClick={handleSaveCommitteeVotes} 
+                disabled={!canSubmitCommitteeVotes}
+                title={!isCipDetailsComplete ? "Please complete all required CIP fields first" : !currentCipId ? "Please save CIP details first" : ""}
+              >
                 Submit Committee Votes
               </Button>
             </div>
+            {!canSubmitCommitteeVotes && (
+              <p className="text-sm text-muted-foreground">
+                {!isCipDetailsComplete 
+                  ? "⚠️ Complete all required CIP fields (CIP Number, Title, GitHub Link, Type) to enable committee voting" 
+                  : "⚠️ Save CIP details first"}
+              </p>
+            )}
             <div className="grid grid-cols-4 gap-4 pt-4 border-t border-border">
               <div>
                 <p className="text-sm text-muted-foreground">Total Weight</p>
@@ -854,10 +873,21 @@ const Admin = () => {
               <Button onClick={addSvRow} variant="outline">
                 Add SV
               </Button>
-              <Button onClick={handleSaveSVVotes} disabled={!currentCipId}>
+              <Button 
+                onClick={handleSaveSVVotes} 
+                disabled={!canSubmitSVVotes}
+                title={!committeeVotesSaved ? "Please complete and save committee votes first" : !currentCipId ? "Please save CIP details first" : ""}
+              >
                 Submit SV Votes
               </Button>
             </div>
+            {!canSubmitSVVotes && (
+              <p className="text-sm text-muted-foreground">
+                {!committeeVotesSaved 
+                  ? "⚠️ Complete and save committee votes before submitting SV votes" 
+                  : "⚠️ Save CIP details first"}
+              </p>
+            )}
             <div className="grid grid-cols-4 gap-4 pt-4 border-t border-border">
               <div>
                 <p className="text-sm text-muted-foreground">Total Weight</p>
