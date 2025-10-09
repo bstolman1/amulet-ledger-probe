@@ -24,7 +24,49 @@ const Validators = () => {
     isError
   } = useQuery({
     queryKey: ["topValidators"],
-    queryFn: () => scanApi.fetchTopValidators(),
+    queryFn: async () => {
+      const data = await scanApi.fetchTopValidators();
+      
+      // Fetch full validator liveness data to get lastCollectedInRound
+      const validatorIds = data.validatorsAndRewards.map(v => v.provider);
+      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+      
+      // Get latest round to determine dates
+      const latestRound = await scanApi.fetchLatestRound();
+      
+      // Fetch round totals for the recent rounds to get dates
+      const startRound = Math.max(0, latestRound.round - 200);
+      const roundTotals = await scanApi.fetchRoundTotals({
+        start_round: startRound,
+        end_round: latestRound.round
+      });
+      
+      // Create a map of round number to date
+      const roundDates = new Map<number, string>();
+      roundTotals.entries.forEach(entry => {
+        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
+      });
+      
+      // Enhance validator data with last active date
+      return {
+        ...data,
+        validatorsAndRewards: data.validatorsAndRewards.map(validator => {
+          const livenessInfo = livenessData.validatorsReceivedFaucets.find(
+            v => v.validator === validator.provider
+          );
+          
+          const lastActiveDate = livenessInfo?.lastCollectedInRound 
+            ? roundDates.get(livenessInfo.lastCollectedInRound)
+            : undefined;
+          
+          return {
+            ...validator,
+            lastActiveDate,
+            lastCollectedInRound: livenessInfo?.lastCollectedInRound
+          };
+        })
+      };
+    },
     retry: 1
   });
   const {
@@ -338,10 +380,17 @@ const Validators = () => {
                             </p>
                           </div>
                         </div>
-                        <Badge className="bg-success/10 text-success border-success/20">
-                          <Zap className="h-3 w-3 mr-1" />
-                          active
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge className="bg-success/10 text-success border-success/20">
+                            <Zap className="h-3 w-3 mr-1" />
+                            active
+                          </Badge>
+                          {validator.lastActiveDate && (
+                            <span className="text-xs text-muted-foreground">
+                              Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
