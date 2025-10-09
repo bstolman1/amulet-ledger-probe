@@ -875,4 +875,59 @@ export const scanApi = {
     if (!response.ok) throw new Error("Failed to fetch amulet config for round");
     return response.json();
   },
+
+  // Extract governance proposals from DSO info
+  async fetchGovernanceProposals(): Promise<any> {
+    try {
+      // Get DSO info which contains dso_rules
+      const dsoInfo = await this.fetchDsoInfo();
+      
+      const proposals: any[] = [];
+      
+      // Extract SVs and their information as "proposals" (member additions/status)
+      if (dsoInfo.dso_rules?.contract?.payload?.svs) {
+        const svs = dsoInfo.dso_rules.contract.payload.svs;
+        
+        // Each SV represents a governance decision (to add/keep them)
+        svs.forEach(([svPartyId, svInfo]: [string, any]) => {
+          proposals.push({
+            id: svPartyId.slice(0, 12),
+            title: `Super Validator: ${svInfo.name}`,
+            description: `Joined at round ${svInfo.joinedAsOfRound?.number || 0}. Reward weight: ${svInfo.svRewardWeight}. Participant ID: ${svInfo.participantId}`,
+            status: "approved",
+            votesFor: dsoInfo.voting_threshold,
+            votesAgainst: 0,
+            createdAt: dsoInfo.dso_rules.contract.created_at,
+            svInfo,
+          });
+        });
+      }
+      
+      // Also check for VoteRequest or other governance contracts in sv_node_states
+      if (dsoInfo.sv_node_states) {
+        dsoInfo.sv_node_states.forEach((state: any) => {
+          if (state.contract?.payload) {
+            const payload = state.contract.payload;
+            // Check if this contains any vote requests or pending proposals
+            if (payload.openVoteRequests || payload.dsoRules) {
+              proposals.push({
+                id: state.contract.contract_id.slice(0, 12),
+                title: `SV Node State Update`,
+                description: JSON.stringify(payload, null, 2).slice(0, 300),
+                status: "pending",
+                votesFor: 0,
+                votesAgainst: 0,
+                createdAt: state.contract.created_at,
+              });
+            }
+          }
+        });
+      }
+      
+      return proposals;
+    } catch (error) {
+      console.error("Error fetching governance proposals:", error);
+      return [];
+    }
+  },
 };

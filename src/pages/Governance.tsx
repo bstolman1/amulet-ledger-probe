@@ -14,20 +14,15 @@ const Governance = () => {
     retry: 1,
   });
 
-  // Placeholder for proposals - the API endpoint would need to be added
+  // Fetch governance proposals from transactions
   const { data: proposals, isLoading, isError } = useQuery({
-    queryKey: ["proposals"],
-    queryFn: async () => {
-      // This would call an actual proposals endpoint when available
-      // For now, return placeholder data structure
-      return {
-        proposals: [],
-        totalProposals: 0,
-        activeProposals: 0,
-      };
-    },
+    queryKey: ["governance-proposals"],
+    queryFn: () => scanApi.fetchGovernanceProposals(),
     retry: 1,
   });
+
+  const totalProposals = proposals?.length || 0;
+  const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -96,7 +91,7 @@ const Governance = () => {
             ) : (
               <>
                 <p className="text-3xl font-bold text-chart-2 mb-1">
-                  {proposals?.totalProposals || 0}
+                  {totalProposals}
                 </p>
                 <p className="text-xs text-muted-foreground">All time</p>
               </>
@@ -113,7 +108,7 @@ const Governance = () => {
             ) : (
               <>
                 <p className="text-3xl font-bold text-warning mb-1">
-                  {proposals?.activeProposals || 0}
+                  {activeProposals}
                 </p>
                 <p className="text-xs text-muted-foreground">In voting</p>
               </>
@@ -167,7 +162,7 @@ const Governance = () => {
                   <Skeleton key={i} className="h-32 w-full" />
                 ))}
               </div>
-            ) : !proposals?.proposals?.length ? (
+            ) : !proposals?.length ? (
               <div className="text-center py-12">
                 <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground mb-2">
@@ -179,7 +174,7 @@ const Governance = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {proposals.proposals.map((proposal: any, index: number) => (
+                {proposals?.map((proposal: any, index: number) => (
                   <div
                     key={index}
                     className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
