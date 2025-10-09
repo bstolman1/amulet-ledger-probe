@@ -13,23 +13,23 @@ export const NetworkDailyBurnCard = () => {
 
   const roundsPerDay = 144; // ~10 minutes per round
 
-  const { data: last24hTotals, isPending } = useQuery({
-    queryKey: ["roundTotals24h-stats", latestRound?.round],
+  const { data: last24hPartyTotals, isPending } = useQuery({
+    queryKey: ["roundPartyTotals24h-stats", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
       // fits under API 200-round limit
-      return scanApi.fetchRoundTotals({ start_round: start, end_round: latestRound.round });
+      return scanApi.fetchRoundPartyTotals({ start_round: start, end_round: latestRound.round });
     },
     enabled: !!latestRound,
     staleTime: 60_000,
   });
 
   let dailyBurn = 0;
-  if (last24hTotals?.entries?.length) {
-    for (const e of last24hTotals.entries) {
-      const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-      if (change < 0) dailyBurn += Math.abs(change);
+  if (last24hPartyTotals?.entries?.length) {
+    for (const e of last24hPartyTotals.entries) {
+      const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+      if (!isNaN(spent)) dailyBurn += spent;
     }
   }
 
