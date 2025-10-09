@@ -1,5 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
+import { BurnMintStats } from "@/components/BurnMintStats";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
@@ -45,12 +46,18 @@ const Dashboard = () => {
     (sum, p) => sum + parseFloat(p.rewards), 0
   ) || 0;
 
+  const amuletPrice = 0.1; // CC price in USD
+  const marketCap = totalBalance?.total_balance 
+    ? (parseFloat(totalBalance.total_balance) * amuletPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : "Loading...";
+
   const stats = {
     totalBalance: balanceError 
       ? "Connection Failed" 
       : totalBalance?.total_balance 
         ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
         : "Loading...",
+    marketCap: balanceError ? "Connection Failed" : marketCap,
     activeValidators: validatorsError
       ? "Connection Failed"
       : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
@@ -75,6 +82,9 @@ const Dashboard = () => {
             </p>
           </div>
         </div>
+
+        {/* Burn/Mint Stats */}
+        <BurnMintStats />
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -109,9 +119,10 @@ const Dashboard = () => {
             gradient
           />
           <StatCard
-            title="Network Health"
-            value={stats.networkHealth}
+            title="Market Cap (USD)"
+            value={`$${stats.marketCap}`}
             icon={Users}
+            trend={{ value: "5.2%", positive: true }}
           />
         </div>
 

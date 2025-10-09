@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote } from "lucide-react";
+import { SearchBar } from "./SearchBar";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -14,6 +15,7 @@ const navigation = [
   { name: "Round Stats", href: "/round-stats", icon: Layers },
   { name: "ANS", href: "/ans", icon: Globe },
   { name: "Apps", href: "/apps", icon: Package },
+  { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: TrendingUp },
 ];
 
@@ -41,8 +43,11 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               </div>
             </Link>
 
-            <nav className="hidden md:flex space-x-1">
-              {navigation.map((item) => {
+            <div className="flex items-center gap-4">
+              <SearchBar />
+              
+              <nav className="hidden lg:flex space-x-1">
+                {navigation.map((item) => {
                 const isActive = location.pathname === item.href;
                 const Icon = item.icon;
                 return (
@@ -60,7 +65,8 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                   </Link>
                 );
               })}
-            </nav>
+              </nav>
+            </div>
           </div>
         </div>
       </header>

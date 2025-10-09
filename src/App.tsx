@@ -11,6 +11,7 @@ import RoundStats from "./pages/RoundStats";
 import ANS from "./pages/ANS";
 import Stats from "./pages/Stats";
 import Apps from "./pages/Apps";
+import Governance from "./pages/Governance";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
           <Route path="/ans" element={<ANS />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/apps" element={<Apps />} />
+          <Route path="/governance" element={<Governance />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
