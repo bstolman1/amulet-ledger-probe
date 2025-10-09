@@ -484,13 +484,25 @@ export const scanApi = {
   },
 
   async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {
-    const response = await fetch(`${API_BASE}/v0/transactions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) throw new Error("Failed to fetch transactions");
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${API_BASE}/v0/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch transactions");
+      return await response.json();
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint

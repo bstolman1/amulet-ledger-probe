@@ -7,7 +7,7 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Transactions = () => {
-  const { data: transactions, isLoading } = useQuery({
+  const { data: transactions, isLoading, isError, refetch } = useQuery({
     queryKey: ["transactions"],
     queryFn: () => scanApi.fetchTransactions({ page_size: 20, sort_order: "desc" }),
   });
@@ -64,9 +64,24 @@ const Transactions = () => {
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>
+            ) : isError ? (
+              <div className="h-48 flex flex-col items-center justify-center text-center space-y-3 text-muted-foreground">
+                <p className="font-medium">Unable to load transactions</p>
+                <p className="text-xs">The API may be temporarily unavailable. Please try again.</p>
+                <button
+                  onClick={() => refetch()}
+                  className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : !transactions?.transactions?.length ? (
+              <div className="h-48 flex items-center justify-center text-muted-foreground">
+                No recent transactions
+              </div>
             ) : (
               <div className="space-y-4">
-                {transactions?.transactions.map((tx) => (
+                {transactions.transactions.map((tx) => (
                   <div
                     key={tx.event_id}
                     className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
@@ -76,7 +91,9 @@ const Transactions = () => {
                         <Badge className={getTypeColor(tx.transaction_type)}>
                           {tx.transaction_type}
                         </Badge>
-                        <Badge className={getStatusColor("confirmed")}>confirmed</Badge>
+                        <Badge className={getStatusColor("confirmed")}>
+                          confirmed
+                        </Badge>
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Round</p>
