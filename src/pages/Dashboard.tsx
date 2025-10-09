@@ -14,10 +14,11 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  const { data: totalBalance, isError: balanceError } = useQuery({
+  const { data: totalBalance, isError: balanceError, isLoading: balanceLoading } = useQuery({
     queryKey: ["totalBalance"],
     queryFn: () => scanApi.fetchTotalBalance(),
-    retry: 1,
+    retry: 2,
+    retryDelay: 1000,
   });
 
   const { data: topValidators, isError: validatorsError } = useQuery({
@@ -52,12 +53,14 @@ const Dashboard = () => {
     : "Loading...";
 
   const stats = {
-    totalBalance: balanceError 
-      ? "Connection Failed" 
-      : totalBalance?.total_balance 
-        ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
-        : "Loading...",
-    marketCap: balanceError ? "Connection Failed" : marketCap,
+    totalBalance: balanceLoading
+      ? "Loading..."
+      : balanceError 
+        ? "Connection Failed" 
+        : totalBalance?.total_balance 
+          ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
+          : "Loading...",
+    marketCap: balanceLoading ? "Loading..." : balanceError ? "Connection Failed" : marketCap,
     activeValidators: validatorsError
       ? "Connection Failed"
       : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
