@@ -121,6 +121,33 @@ const Stats = () => {
 
   const { toast } = useToast();
 
+  // Fetch validator liveness data for health/uptime metrics
+  const { data: validatorLivenessData } = useQuery({
+    queryKey: ["validatorLiveness", validatorsList.slice(0, 50).map(v => v.provider)],
+    queryFn: async () => {
+      const validatorIds = validatorsList.slice(0, 50).map(v => v.provider);
+      if (validatorIds.length === 0) return null;
+      return scanApi.fetchValidatorLiveness(validatorIds);
+    },
+    enabled: validatorsList.length > 0,
+    retry: 1,
+  });
+
+  // Create a map of validator health data
+  const validatorHealthMap = new Map(
+    (validatorLivenessData?.validatorsReceivedFaucets || []).map(v => [
+      v.validator,
+      {
+        collected: v.numRoundsCollected,
+        missed: v.numRoundsMissed,
+        uptime: v.numRoundsCollected / (v.numRoundsCollected + v.numRoundsMissed) * 100,
+      },
+    ])
+  );
+
+  // Top validators are considered super validators (top 20)
+  const superValidatorCount = 20;
+
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
     return parts[0] || partyId;
@@ -196,22 +223,53 @@ const Stats = () => {
         <p className="text-sm text-muted-foreground italic">No validators in this period</p>
       ) : (
         <div className="space-y-2">
-          {validators.slice(0, 10).map((validator) => (
-            <div
-              key={validator.provider}
-              className="p-3 rounded-lg bg-muted/30 flex items-center justify-between"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{formatPartyId(validator.provider)}</p>
-                <p className="text-xs text-muted-foreground font-mono truncate">
-                  {validator.provider}
-                </p>
+          {validators.slice(0, 10).map((validator, index) => {
+            const isSuperValidator = index < superValidatorCount;
+            const healthData = validatorHealthMap.get(validator.provider);
+            const uptime = healthData ? healthData.uptime : null;
+            const healthColor = uptime !== null 
+              ? uptime >= 95 ? "text-success" 
+              : uptime >= 85 ? "text-warning" 
+              : "text-destructive"
+              : "text-muted-foreground";
+            
+            return (
+              <div
+                key={validator.provider}
+                className="p-3 rounded-lg bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium truncate">{formatPartyId(validator.provider)}</p>
+                    {isSuperValidator && (
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
+                        SV
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-mono truncate">
+                    {validator.provider}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 ml-4">
+                  {healthData && (
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Health</p>
+                      <p className={`text-sm font-bold ${healthColor}`}>
+                        {uptime !== null ? `${uptime.toFixed(1)}%` : 'N/A'}
+                      </p>
+                    </div>
+                  )}
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">Rounds</p>
+                    <Badge variant="outline" className="shrink-0">
+                      {parseFloat(validator.rewards).toLocaleString()}
+                    </Badge>
+                  </div>
+                </div>
               </div>
-              <Badge variant="outline" className="ml-2 shrink-0">
-                {parseFloat(validator.rewards).toLocaleString()} rounds
-              </Badge>
-            </div>
-          ))}
+            );
+          })}
           {validators.length > 10 && (
             <p className="text-sm text-muted-foreground text-center">
               +{validators.length - 10} more
@@ -229,7 +287,8 @@ const Stats = () => {
           <div>
             <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
             <p className="text-muted-foreground">
-              Track validator growth and onboarding trends
+              Track validator growth and onboarding trends • {allTimeValidators.length} total validators 
+              ({superValidatorCount} Super Validators)
             </p>
           </div>
           <Button 
