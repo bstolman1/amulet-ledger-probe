@@ -7,18 +7,21 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
+interface PaginationKey {
+  last_migration_id: number;
+  last_record_time: string;
+}
+
 interface SvRewardCoupon {
-  beneficiary: string;
-  sv: string;
-  round: number;
-  weight: number;
   contractId: string;
-  recordTime: string;
+  beneficiary: string;
+  weight: number;
+  round: number;
+  expiresAt: string;
 }
 
 interface MiningRound {
   round: number;
-  recordTime: string;
   issuancePerSvReward: string;
 }
 
@@ -35,14 +38,14 @@ interface RewardSummary {
   timeRangeEnd: string;
 }
 
-interface ScanTransaction {
-  migration_id: number;
-  record_time: string;
-  update_id: string;
-  workflow_id: string;
-  synchronizer_id: string;
-  root_event_ids: string[];
-  events_by_id: Record<string, any>;
+interface AppState {
+  activeRewards: Map<string, SvRewardCoupon>;
+  issuingRounds: Map<number, MiningRound>;
+  closedRounds: Map<number, MiningRound>;
+  expiredCount: number;
+  expiredAmount: number;
+  claimedCount: number;
+  claimedAmount: number;
 }
 
 const TEMPLATE_QUALIFIED_NAMES = {
@@ -71,34 +74,26 @@ class DamlDecimal {
   }
 }
 
+// Fetch transactions from scan API with pagination
 async function fetchTransactions(
   scanUrl: string,
-  pageSize: number,
-  afterMigrationId?: number,
-  afterRecordTime?: string
-): Promise<ScanTransaction[]> {
+  paginationKey: PaginationKey | null,
+  pageSize: number = 100
+): Promise<any[]> {
   const payload: any = { page_size: pageSize };
   
-  if (afterMigrationId !== undefined && afterRecordTime) {
+  if (paginationKey) {
     payload.after = {
-      after_migration_id: afterMigrationId,
-      after_record_time: afterRecordTime,
+      after_record_time: paginationKey.last_record_time,
+      after_migration_id: paginationKey.last_migration_id
     };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  let response: Response;
-  try {
-    response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch transactions: ${response.statusText}`);
@@ -125,198 +120,156 @@ function getLfValue(value: any, path: string[]): any {
   return current;
 }
 
-function processCreatedEvent(
+// Calculate reward amount based on weight and issuance
+function calculateRewardAmount(weight: number, issuancePerSvReward: string, alreadyMintedWeight: number): number {
+  const availableWeight = Math.max(0, weight - alreadyMintedWeight);
+  const issuance = new DamlDecimal(issuancePerSvReward);
+  const amount = new DamlDecimal(availableWeight).multiply(issuance);
+  return amount.value;
+}
+
+// Process created events for mining rounds
+function processRoundCreated(
   event: any,
-  transaction: ScanTransaction,
-  activeRewards: Map<string, SvRewardCoupon>,
-  activeIssuingRounds: Map<number, MiningRound>,
-  activeClosedRounds: Map<number, MiningRound>,
-  activeIssuingRoundsCidToNumber: Map<string, number>,
-  activeClosedRoundsCidToNumber: Map<string, number>,
+  state: AppState
+): void {
+  const { qualifiedName } = parseTemplateId(event.template_id);
+  const payload = event.create_arguments;
+
+  if (qualifiedName === TEMPLATE_QUALIFIED_NAMES.issuingMiningRound) {
+    const round = parseInt(getLfValue(payload, ['round', 'number']));
+    const issuancePerSvReward = getLfValue(payload, ['issuancePerSvRewardCoupon']);
+
+    if (round && issuancePerSvReward) {
+      state.issuingRounds.set(round, { round, issuancePerSvReward });
+    }
+  } else if (qualifiedName === TEMPLATE_QUALIFIED_NAMES.closedMiningRound) {
+    const round = parseInt(getLfValue(payload, ['round', 'number']));
+    const issuancePerSvReward = getLfValue(payload, ['issuancePerSvRewardCoupon']);
+
+    if (round && issuancePerSvReward) {
+      state.closedRounds.set(round, { round, issuancePerSvReward });
+    }
+  }
+}
+
+// Process created events for reward coupons
+function processCouponCreated(
+  event: any,
+  transaction: any,
+  state: AppState,
   beneficiary: string,
   endRecordTime: Date
 ): void {
   const { qualifiedName } = parseTemplateId(event.template_id);
+  
+  if (qualifiedName !== TEMPLATE_QUALIFIED_NAMES.svRewardCoupon) return;
+
   const recordTime = new Date(transaction.record_time);
+  if (recordTime > endRecordTime) return;
 
-  switch (qualifiedName) {
-    case TEMPLATE_QUALIFIED_NAMES.svRewardCoupon: {
-      const payload = event.create_arguments;
-      const rewardBeneficiary = getLfValue(payload, ['beneficiary']);
-      const sv = getLfValue(payload, ['sv']);
-      const round = parseInt(getLfValue(payload, ['round', 'number']));
-      const weight = parseInt(getLfValue(payload, ['weight']));
+  const payload = event.create_arguments;
+  const rewardBeneficiary = getLfValue(payload, ['beneficiary']);
+  
+  if (rewardBeneficiary !== beneficiary) return;
 
-      if (rewardBeneficiary === beneficiary && recordTime <= endRecordTime) {
-        activeRewards.set(event.contract_id, {
-          beneficiary: rewardBeneficiary,
-          sv,
-          round,
-          weight,
-          contractId: event.contract_id,
-          recordTime: transaction.record_time,
-        });
-      }
-      break;
-    }
+  const round = parseInt(getLfValue(payload, ['round', 'number']));
+  const weight = parseInt(getLfValue(payload, ['weight']));
+  const expiresAt = getLfValue(payload, ['expiresAt']);
 
-    case TEMPLATE_QUALIFIED_NAMES.issuingMiningRound: {
-      const payload = event.create_arguments;
-      const round = parseInt(getLfValue(payload, ['round', 'number']));
-      const issuancePerSvReward = getLfValue(payload, ['issuancePerSvRewardCoupon']);
-
-      activeIssuingRoundsCidToNumber.set(event.contract_id, round);
-      activeIssuingRounds.set(round, {
-        round,
-        recordTime: transaction.record_time,
-        issuancePerSvReward,
-      });
-      break;
-    }
-
-    case TEMPLATE_QUALIFIED_NAMES.closedMiningRound: {
-      const payload = event.create_arguments;
-      const round = parseInt(getLfValue(payload, ['round', 'number']));
-      const issuancePerSvReward = getLfValue(payload, ['issuancePerSvRewardCoupon']);
-
-      activeClosedRoundsCidToNumber.set(event.contract_id, round);
-      activeClosedRounds.set(round, {
-        round,
-        recordTime: transaction.record_time,
-        issuancePerSvReward,
-      });
-      break;
-    }
-  }
+  state.activeRewards.set(event.contract_id, {
+    contractId: event.contract_id,
+    beneficiary: rewardBeneficiary,
+    weight,
+    round,
+    expiresAt
+  });
 }
 
-function processExercisedEvent(
+// Process exercised events for reward coupons
+function processCouponExercised(
   event: any,
-  transaction: ScanTransaction,
-  activeRewards: Map<string, SvRewardCoupon>,
-  activeIssuingRounds: Map<number, MiningRound>,
-  activeClosedRounds: Map<number, MiningRound>,
-  activeIssuingRoundsCidToNumber: Map<string, number>,
-  activeClosedRoundsCidToNumber: Map<string, number>,
-  summary: { claimedCount: number; claimedAmount: DamlDecimal; expiredCount: number; expiredAmount: DamlDecimal },
+  state: AppState,
   weight: number,
   alreadyMintedWeight: number
 ): void {
   const { qualifiedName } = parseTemplateId(event.template_id);
+  
+  if (qualifiedName !== TEMPLATE_QUALIFIED_NAMES.svRewardCoupon) return;
 
-  switch (qualifiedName) {
-    case TEMPLATE_QUALIFIED_NAMES.svRewardCoupon: {
-      const choiceName = event.choice;
-      
-      if (choiceName === 'SvRewardCoupon_DsoExpire' || choiceName === 'SvRewardCoupon_ArchiveAsBeneficiary') {
-        const reward = activeRewards.get(event.contract_id);
-        if (reward) {
-          activeRewards.delete(event.contract_id);
+  const choiceName = event.choice;
+  const coupon = state.activeRewards.get(event.contract_id);
+  
+  if (!coupon) return;
+  if (coupon.weight !== weight) return;
 
-          const isExpired = choiceName === 'SvRewardCoupon_DsoExpire';
-          const miningRounds = isExpired ? activeClosedRounds : activeIssuingRounds;
-          const miningRound = miningRounds.get(reward.round);
+  const isExpired = choiceName === 'SvRewardCoupon_DsoExpire';
+  const isClaimed = choiceName === 'SvRewardCoupon_ArchiveAsBeneficiary';
 
-          if (miningRound) {
-            const availableWeight = Math.max(0, reward.weight - alreadyMintedWeight);
-            const effectiveWeight = Math.min(weight, availableWeight);
-            const issuance = new DamlDecimal(miningRound.issuancePerSvReward);
-            const amount = new DamlDecimal(effectiveWeight).multiply(issuance);
+  if (!isExpired && !isClaimed) return;
 
-            if (isExpired) {
-              summary.expiredCount++;
-              summary.expiredAmount = summary.expiredAmount.add(amount);
-            } else {
-              summary.claimedCount++;
-              summary.claimedAmount = summary.claimedAmount.add(amount);
-            }
-          }
-        }
-      }
-      break;
-    }
+  state.activeRewards.delete(event.contract_id);
 
-    case TEMPLATE_QUALIFIED_NAMES.issuingMiningRound: {
-      if (event.choice === 'Archive') {
-        const roundNumber = activeIssuingRoundsCidToNumber.get(event.contract_id);
-        if (roundNumber !== undefined) {
-          activeIssuingRoundsCidToNumber.delete(event.contract_id);
-          activeIssuingRounds.delete(roundNumber);
-        }
-      }
-      break;
-    }
+  const rounds = isExpired ? state.closedRounds : state.issuingRounds;
+  const miningRound = rounds.get(coupon.round);
 
-    case TEMPLATE_QUALIFIED_NAMES.closedMiningRound: {
-      if (event.choice === 'Archive') {
-        const roundNumber = activeClosedRoundsCidToNumber.get(event.contract_id);
-        if (roundNumber !== undefined) {
-          activeClosedRoundsCidToNumber.delete(event.contract_id);
-          activeClosedRounds.delete(roundNumber);
-        }
-      }
-      break;
+  if (miningRound) {
+    const amount = calculateRewardAmount(weight, miningRound.issuancePerSvReward, alreadyMintedWeight);
+
+    if (isExpired) {
+      state.expiredCount++;
+      state.expiredAmount += amount;
+    } else {
+      state.claimedCount++;
+      state.claimedAmount += amount;
     }
   }
 }
 
-function processTransaction(
-  transaction: ScanTransaction,
-  activeRewards: Map<string, SvRewardCoupon>,
-  activeIssuingRounds: Map<number, MiningRound>,
-  activeClosedRounds: Map<number, MiningRound>,
-  activeIssuingRoundsCidToNumber: Map<string, number>,
-  activeClosedRoundsCidToNumber: Map<string, number>,
-  summary: { claimedCount: number; claimedAmount: DamlDecimal; expiredCount: number; expiredAmount: DamlDecimal },
+// Process all events in a transaction recursively
+function processEvents(
+  eventIds: string[],
+  eventsById: Record<string, any>,
+  transaction: any,
+  state: AppState,
   beneficiary: string,
   endRecordTime: Date,
   weight: number,
-  alreadyMintedWeight: number
+  alreadyMintedWeight: number,
+  phase: 'rounds' | 'coupons'
 ): void {
-  const processEvents = (eventIds: string[]) => {
-    for (const eventId of eventIds) {
-      const event = transaction.events_by_id[eventId];
-      if (!event) continue;
+  for (const eventId of eventIds) {
+    const event = eventsById[eventId];
+    if (!event) continue;
 
-      if (event.create_arguments) {
-        // Created event
-        processCreatedEvent(
-          event,
-          transaction,
-          activeRewards,
-          activeIssuingRounds,
-          activeClosedRounds,
-          activeIssuingRoundsCidToNumber,
-          activeClosedRoundsCidToNumber,
-          beneficiary,
-          endRecordTime
-        );
-      } else if (event.choice) {
-        // Exercised event
-        processExercisedEvent(
-          event,
-          transaction,
-          activeRewards,
-          activeIssuingRounds,
-          activeClosedRounds,
-          activeIssuingRoundsCidToNumber,
-          activeClosedRoundsCidToNumber,
-          summary,
-          weight,
-          alreadyMintedWeight
-        );
-
-        // Process child events recursively
-        if (event.child_event_ids && event.child_event_ids.length > 0) {
-          processEvents(event.child_event_ids);
-        }
+    if (event.create_arguments) {
+      if (phase === 'rounds') {
+        processRoundCreated(event, state);
+      } else {
+        processCouponCreated(event, transaction, state, beneficiary, endRecordTime);
       }
+    } else if (event.choice && phase === 'coupons') {
+      processCouponExercised(event, state, weight, alreadyMintedWeight);
     }
-  };
 
-  processEvents(transaction.root_event_ids);
+    // Process child events recursively
+    if (event.child_event_ids && event.child_event_ids.length > 0) {
+      processEvents(
+        event.child_event_ids,
+        eventsById,
+        transaction,
+        state,
+        beneficiary,
+        endRecordTime,
+        weight,
+        alreadyMintedWeight,
+        phase
+      );
+    }
+  }
 }
 
+// Main calculation function
 async function calculateRewardsSummary(
   scanUrl: string,
   beneficiary: string,
@@ -325,104 +278,175 @@ async function calculateRewardsSummary(
   beginMigrationId: number,
   weight: number,
   alreadyMintedWeight: number,
-  gracePeriodMinutes: number = 60
+  gracePeriodMinutes: number
 ): Promise<RewardSummary> {
-  const activeRewards = new Map<string, SvRewardCoupon>();
-  const activeIssuingRounds = new Map<number, MiningRound>();
-  const activeClosedRounds = new Map<number, MiningRound>();
-  const activeIssuingRoundsCidToNumber = new Map<string, number>();
-  const activeClosedRoundsCidToNumber = new Map<string, number>();
+  console.log(`Starting reward summary calculation for beneficiary: ${beneficiary}`);
+  console.log('Request parameters:', {
+    beneficiary,
+    beginRecordTime,
+    endRecordTime,
+    beginMigrationId,
+    weight,
+    alreadyMintedWeight,
+    gracePeriodMinutes,
+    scanUrl
+  });
 
-  const summary = {
-    claimedCount: 0,
-    claimedAmount: new DamlDecimal(0),
+  const beginTime = new Date(beginRecordTime);
+  const endTime = new Date(endRecordTime);
+  const graceTime = new Date(endTime.getTime() + gracePeriodMinutes * 60 * 1000);
+
+  console.log(`Time range: ${beginTime.toISOString()} to ${endTime.toISOString()} (grace: ${graceTime.toISOString()})`);
+
+  const state: AppState = {
+    activeRewards: new Map(),
+    issuingRounds: new Map(),
+    closedRounds: new Map(),
     expiredCount: 0,
-    expiredAmount: new DamlDecimal(0),
+    expiredAmount: 0,
+    claimedCount: 0,
+    claimedAmount: 0
   };
 
-  const endDate = new Date(endRecordTime);
-  const endDateWithGrace = new Date(endDate.getTime() + gracePeriodMinutes * 60 * 1000);
-
-  let afterMigrationId: number | undefined = beginMigrationId;
-  let afterRecordTime: string | undefined = beginRecordTime;
-  const pageSize = 1000;
+  const PAGE_SIZE = 100;
   let totalProcessed = 0;
+  let batchCount = 0;
 
-  console.log(`Starting reward summary calculation for beneficiary: ${beneficiary}`);
-  console.log(`Time range: ${beginRecordTime} to ${endRecordTime} (grace: ${endDateWithGrace.toISOString()})`);
+  // Phase 1: Collect mining rounds with grace period
+  console.log('Phase 1: Collecting mining rounds...');
+  let collectingRounds = true;
+  let roundsPaginationKey: PaginationKey | null = {
+    last_migration_id: beginMigrationId,
+    last_record_time: beginRecordTime
+  };
+
+  while (collectingRounds) {
+    const batch = await fetchTransactions(scanUrl, roundsPaginationKey, PAGE_SIZE);
+    
+    if (batch.length === 0) break;
+
+    for (const tx of batch) {
+      const recordTime = new Date(tx.record_time);
+      if (recordTime > graceTime) {
+        collectingRounds = false;
+        break;
+      }
+
+      if (tx.root_event_ids) {
+        processEvents(
+          tx.root_event_ids,
+          tx.events_by_id,
+          tx,
+          state,
+          beneficiary,
+          endTime,
+          weight,
+          alreadyMintedWeight,
+          'rounds'
+        );
+      }
+    }
+
+    if (batch.length < PAGE_SIZE) break;
+    
+    const lastTx = batch[batch.length - 1];
+    roundsPaginationKey = {
+      last_migration_id: lastTx.migration_id,
+      last_record_time: lastTx.record_time
+    };
+  }
+
+  console.log(`Collected ${state.issuingRounds.size} issuing rounds and ${state.closedRounds.size} closed rounds`);
+
+  // Phase 2: Process reward coupons
+  console.log('Phase 2: Processing reward coupons...');
+  let paginationKey: PaginationKey | null = {
+    last_migration_id: beginMigrationId,
+    last_record_time: beginRecordTime
+  };
 
   while (true) {
-    const transactions = await fetchTransactions(scanUrl, pageSize, afterMigrationId, afterRecordTime);
+    batchCount++;
+    const batch = await fetchTransactions(scanUrl, paginationKey, PAGE_SIZE);
     
-    if (transactions.length === 0) {
+    if (batch.length === 0) {
       console.log('No more transactions to process');
       break;
     }
 
-    for (const transaction of transactions) {
-      const txRecordTime = new Date(transaction.record_time);
+    let shouldStop = false;
+    for (const tx of batch) {
+      const recordTime = new Date(tx.record_time);
       
-      if (txRecordTime > endDateWithGrace) {
-        console.log(`Reached end of time range at ${transaction.record_time}`);
-        return buildSummary(summary, activeRewards, beginRecordTime, endRecordTime);
+      if (recordTime > endTime) {
+        shouldStop = true;
+        break;
       }
 
-      processTransaction(
-        transaction,
-        activeRewards,
-        activeIssuingRounds,
-        activeClosedRounds,
-        activeIssuingRoundsCidToNumber,
-        activeClosedRoundsCidToNumber,
-        summary,
-        beneficiary,
-        endDate,
-        weight,
-        alreadyMintedWeight
-      );
+      if (tx.root_event_ids) {
+        processEvents(
+          tx.root_event_ids,
+          tx.events_by_id,
+          tx,
+          state,
+          beneficiary,
+          endTime,
+          weight,
+          alreadyMintedWeight,
+          'coupons'
+        );
+      }
 
       totalProcessed++;
-      if (totalProcessed % 1000 === 0) {
-        console.log(`Processed ${totalProcessed} transactions`);
-      }
     }
 
-    const lastTx = transactions[transactions.length - 1];
-    afterMigrationId = lastTx.migration_id;
-    afterRecordTime = lastTx.record_time;
+    if (batch.length > 0) {
+      const lastTx = batch[batch.length - 1];
+      paginationKey = {
+        last_migration_id: lastTx.migration_id,
+        last_record_time: lastTx.record_time
+      };
+    }
 
-    if (transactions.length < pageSize) {
-      console.log('Reached end of available transactions');
+    if (shouldStop || batch.length < PAGE_SIZE) {
+      console.log(`Stopping: shouldStop=${shouldStop}, batchSize=${batch.length}`);
       break;
+    }
+
+    // Log progress every 10 batches
+    if (batchCount % 10 === 0) {
+      console.log(`Progress: ${batchCount} batches, ${totalProcessed} transactions processed`);
     }
   }
 
-  console.log(`Finished processing ${totalProcessed} transactions`);
-  return buildSummary(summary, activeRewards, beginRecordTime, endRecordTime);
+  console.log(`Processed ${totalProcessed} transactions in ${batchCount} batches`);
+  console.log(`Active rewards: ${state.activeRewards.size}`);
+  console.log(`Claimed: ${state.claimedCount}, Expired: ${state.expiredCount}`);
+
+  return buildSummary(state, beginRecordTime, endRecordTime);
 }
 
 function buildSummary(
-  summary: { claimedCount: number; claimedAmount: DamlDecimal; expiredCount: number; expiredAmount: DamlDecimal },
-  activeRewards: Map<string, SvRewardCoupon>,
+  state: AppState,
   beginRecordTime: string,
   endRecordTime: string
 ): RewardSummary {
-  const unclaimedCount = activeRewards.size;
-  const totalCoupons = summary.claimedCount + summary.expiredCount + unclaimedCount;
+  const unclaimedCount = state.activeRewards.size;
+  const totalCoupons = state.claimedCount + state.expiredCount + unclaimedCount;
 
-  // Estimate unclaimed amount (this would need mining round data for accuracy)
-  const avgAmountPerCoupon = summary.claimedCount > 0 
-    ? summary.claimedAmount.value / summary.claimedCount 
+  // Estimate unclaimed amount
+  const avgAmountPerCoupon = state.claimedCount > 0 
+    ? state.claimedAmount / state.claimedCount 
     : 0;
-  const estimatedUnclaimedAmount = new DamlDecimal(avgAmountPerCoupon * unclaimedCount);
+  const estimatedUnclaimedAmount = avgAmountPerCoupon * unclaimedCount;
 
   return {
-    totalSuperValidators: 13, // From config
+    totalSuperValidators: 13,
     totalRewardCoupons: totalCoupons,
-    claimedCount: summary.claimedCount,
-    claimedAmount: summary.claimedAmount.toFixed(10),
-    expiredCount: summary.expiredCount,
-    expiredAmount: summary.expiredAmount.toFixed(10),
+    claimedCount: state.claimedCount,
+    claimedAmount: state.claimedAmount.toFixed(10),
+    expiredCount: state.expiredCount,
+    expiredAmount: state.expiredAmount.toFixed(10),
     unclaimedCount,
     estimatedUnclaimedAmount: estimatedUnclaimedAmount.toFixed(10),
     timeRangeStart: beginRecordTime,
@@ -431,7 +455,6 @@ function buildSummary(
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -447,17 +470,6 @@ Deno.serve(async (req) => {
       gracePeriodMinutes = 60,
       scanUrl = 'https://scan.sv-1.global.canton.network.sync.global'
     } = await req.json();
-
-    console.log('Request parameters:', {
-      beneficiary,
-      beginRecordTime,
-      endRecordTime,
-      beginMigrationId,
-      weight,
-      alreadyMintedWeight,
-      gracePeriodMinutes,
-      scanUrl
-    });
 
     if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined || weight === undefined || alreadyMintedWeight === undefined) {
       return new Response(
@@ -487,7 +499,8 @@ Deno.serve(async (req) => {
     console.error('Error calculating rewards summary:', error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error occurred' 
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        details: error instanceof Error ? error.stack : undefined
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
