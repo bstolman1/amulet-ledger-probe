@@ -14,7 +14,165 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      cips: {
+        Row: {
+          cip_number: string
+          created_at: string
+          id: string
+          status: string
+          title: string
+          updated_at: string
+          vote_close_date: string | null
+          vote_start_date: string | null
+        }
+        Insert: {
+          cip_number: string
+          created_at?: string
+          id?: string
+          status?: string
+          title: string
+          updated_at?: string
+          vote_close_date?: string | null
+          vote_start_date?: string | null
+        }
+        Update: {
+          cip_number?: string
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          vote_close_date?: string | null
+          vote_start_date?: string | null
+        }
+        Relationships: []
+      }
+      committee_votes: {
+        Row: {
+          cip_id: string
+          contact: string
+          created_at: string
+          email: string
+          id: string
+          member_name: string
+          updated_at: string
+          vote: string | null
+          weight: number
+        }
+        Insert: {
+          cip_id: string
+          contact: string
+          created_at?: string
+          email: string
+          id?: string
+          member_name: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Update: {
+          cip_id?: string
+          contact?: string
+          created_at?: string
+          email?: string
+          id?: string
+          member_name?: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "committee_votes_cip_id_fkey"
+            columns: ["cip_id"]
+            isOneToOne: false
+            referencedRelation: "cips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      featured_app_votes: {
+        Row: {
+          app_name: string
+          cip_id: string
+          created_at: string
+          description: string | null
+          id: string
+          updated_at: string
+          vote_count: number
+        }
+        Insert: {
+          app_name: string
+          cip_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          updated_at?: string
+          vote_count?: number
+        }
+        Update: {
+          app_name?: string
+          cip_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          updated_at?: string
+          vote_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "featured_app_votes_cip_id_fkey"
+            columns: ["cip_id"]
+            isOneToOne: false
+            referencedRelation: "cips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sv_votes: {
+        Row: {
+          cip_id: string
+          contact: string
+          created_at: string
+          email: string
+          id: string
+          organization: string
+          updated_at: string
+          vote: string | null
+          weight: number
+        }
+        Insert: {
+          cip_id: string
+          contact: string
+          created_at?: string
+          email: string
+          id?: string
+          organization: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Update: {
+          cip_id?: string
+          contact?: string
+          created_at?: string
+          email?: string
+          id?: string
+          organization?: string
+          updated_at?: string
+          vote?: string | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sv_votes_cip_id_fkey"
+            columns: ["cip_id"]
+            isOneToOne: false
+            referencedRelation: "cips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
