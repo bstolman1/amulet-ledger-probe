@@ -14,13 +14,26 @@ export const BurnMintStats = () => {
   // Rounds per day (10 minutes/round => 144 rounds/day)
   const roundsPerDay = 144;
 
-  // Fetch last 24 hours of round totals for true daily stats
+  // Fetch last 24 hours of round totals (for minted)
   const { data: last24hTotals, isPending: totalsPending, isError: totalsError } = useQuery({
     queryKey: ["roundTotals24h", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
       return scanApi.fetchRoundTotals({ start_round: start, end_round: latestRound.round });
+    },
+    enabled: !!latestRound,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  // Fetch last 24 hours of party totals (for burned)
+  const { data: last24hPartyTotals, isPending: partyPending, isError: partyError } = useQuery({
+    queryKey: ["roundPartyTotals24h", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
+      return scanApi.fetchRoundPartyTotals({ start_round: start, end_round: latestRound.round });
     },
     enabled: !!latestRound,
     staleTime: 60_000,
@@ -42,14 +55,20 @@ export const BurnMintStats = () => {
     retry: 1,
   });
 
-  // Calculate true 24-hour mint and burn totals from per-round net changes
+  // Calculate true 24-hour mint and burn totals
   let dailyMintAmount = 0;
-  let dailyBurn = 0;
   if (last24hTotals?.entries?.length) {
     for (const e of last24hTotals.entries) {
       const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-      if (change > 0) dailyMintAmount += change;
-      if (change < 0) dailyBurn += Math.abs(change);
+      if (!isNaN(change) && change > 0) dailyMintAmount += change;
+    }
+  }
+
+  let dailyBurn = 0;
+  if (last24hPartyTotals?.entries?.length) {
+    for (const e of last24hPartyTotals.entries) {
+      const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+      if (!isNaN(spent)) dailyBurn += spent;
     }
   }
 
@@ -57,7 +76,7 @@ export const BurnMintStats = () => {
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = latestPending || currentPending || totalsPending;
+  const isLoading = latestPending || currentPending || totalsPending || partyPending;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
