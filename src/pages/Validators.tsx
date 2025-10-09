@@ -197,21 +197,7 @@ const Validators = () => {
 
         {/* Info Banner */}
         <Card className="glass-card border-primary/20 bg-primary/5">
-          <div className="p-4">
-            <div className="flex items-start gap-3">
-              <Award className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-              <div className="text-sm">
-                <p className="font-semibold text-foreground mb-1">
-                  Complete Supervalidator Network
-                </p>
-                <p className="text-muted-foreground">
-                  Displaying all {totalSuperValidators} supervalidators managed by {primaryOperatorsCount} primary operators. 
-                  Data is synced daily from the GSF config file. Join rounds are determined by cross-referencing validator 
-                  addresses with historical round data.
-                </p>
-              </div>
-            </div>
-          </div>
+          
         </Card>
 
         {/* Supervalidators List */}
