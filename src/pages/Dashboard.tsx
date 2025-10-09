@@ -96,7 +96,7 @@ const Dashboard = () => {
           value: "12.5%",
           positive: true
         }} gradient />
-          <StatCard title="Active Validators" value={stats.activeValidators} icon={Zap} trend={{
+          <StatCard title="Super Validators" value={stats.activeValidators} icon={Zap} trend={{
           value: "3",
           positive: true
         }} />

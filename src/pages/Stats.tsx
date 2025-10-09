@@ -68,10 +68,13 @@ const Stats = () => {
   // Get validator liveness data
   const validatorsList = validators?.validatorsAndRewards || [];
 
-  // Filter validators by join period based on rounds collected
+  // Get SV participant IDs to exclude them from regular validator counts
+  const svParticipantIds = new Set(configData?.superValidators.map(sv => sv.address) || []);
+
+  // Filter validators by join period based on rounds collected (excluding SVs)
   const recentValidators = validatorsList.filter(v => {
     const roundsCollected = parseFloat(v.rewards);
-    return roundsCollected > 0;
+    return roundsCollected > 0 && !svParticipantIds.has(v.provider);
   });
 
   // Categorize validators by activity duration
@@ -158,6 +161,15 @@ const Stats = () => {
 
   // Get real Super Validator count from config
   const superValidatorCount = configData?.superValidators.length || 0;
+
+  // Calculate inactive validators (missed more than 1 round)
+  const inactiveValidators = recentValidators.filter(v => {
+    const healthData = validatorHealthMap.get(v.provider);
+    return healthData && healthData.missed > 1;
+  });
+
+  // Calculate non-SV validator count
+  const nonSvValidatorCount = recentValidators.length;
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
@@ -267,12 +279,23 @@ const Stats = () => {
                 </div>
                 <div className="flex items-center gap-3 ml-4">
                   {healthData && (
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Health</p>
-                      <p className={`text-sm font-bold ${healthColor}`}>
-                        {uptime !== null ? `${uptime.toFixed(1)}%` : 'N/A'}
-                      </p>
-                    </div>
+                    <>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Health</p>
+                        <p className={`text-sm font-bold ${healthColor}`}>
+                          {uptime !== null ? `${uptime.toFixed(1)}%` : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Missed</p>
+                        <Badge 
+                          variant="outline" 
+                          className={healthData.missed > 1 ? "bg-destructive/10 text-destructive border-destructive/20" : ""}
+                        >
+                          {healthData.missed}
+                        </Badge>
+                      </div>
+                    </>
                   )}
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground">Rounds</p>
@@ -301,8 +324,8 @@ const Stats = () => {
           <div>
             <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
             <p className="text-muted-foreground">
-              Track validator growth and onboarding trends • {allTimeValidators.length} total validators 
-              ({superValidatorCount} Super Validators)
+              Track validator growth and onboarding trends • {nonSvValidatorCount} total validators 
+              ({superValidatorCount} Super Validators) • {inactiveValidators.length} inactive
             </p>
           </div>
           <Button 
