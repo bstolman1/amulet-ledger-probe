@@ -68,10 +68,6 @@ const Stats = () => {
     const rounds = parseFloat(v.rewards);
     return rounds < (roundsPerDay * 30) && rounds >= (roundsPerDay * 7);
   });
-  const quarterValidators = recentValidators.filter(v => {
-    const rounds = parseFloat(v.rewards);
-    return rounds < (roundsPerDay * 90) && rounds >= (roundsPerDay * 30);
-  });
   const sixMonthValidators = recentValidators.filter(v => {
     const rounds = parseFloat(v.rewards);
     return rounds < (roundsPerDay * 180) && rounds >= (roundsPerDay * 30);
@@ -416,7 +412,7 @@ const Stats = () => {
                   <TabsTrigger value="day">Day</TabsTrigger>
                   <TabsTrigger value="week">Week</TabsTrigger>
                   <TabsTrigger value="month">Month</TabsTrigger>
-                  <TabsTrigger value="quarter">Quarter</TabsTrigger>
+                  <TabsTrigger value="6months">6 Months</TabsTrigger>
                   <TabsTrigger value="year">Year</TabsTrigger>
                   <TabsTrigger value="all">All Time</TabsTrigger>
                 </TabsList>
@@ -435,15 +431,15 @@ const Stats = () => {
                     title="Validators with < 30 days of activity" 
                   />
                 </TabsContent>
-                <TabsContent value="quarter" className="mt-6">
+                <TabsContent value="6months" className="mt-6">
                   <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...quarterValidators]} 
-                    title="Validators with < 3 months of activity" 
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators]} 
+                    title="Validators with < 6 months of activity" 
                   />
                 </TabsContent>
                 <TabsContent value="year" className="mt-6">
                   <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...quarterValidators, ...yearlyValidators]} 
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators, ...yearlyValidators]} 
                     title="Validators with < 1 year of activity" 
                   />
                 </TabsContent>
