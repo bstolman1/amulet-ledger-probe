@@ -4,33 +4,21 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, User, Globe } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { scanApi } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const ANS = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Mock data - will be replaced with real API calls
-  const entries = [
-    {
-      name: "alice",
-      party: "alice::122012345678901234567890123456789012345678901234567890123456789012",
-      url: "https://alice.example.com",
-      description: "Alice's Canton Network entry",
-      expiresAt: "2025-12-31T23:59:59Z",
-    },
-    {
-      name: "bob",
-      party: "bob::122098765432109876543210987654321098765432109876543210987654321098",
-      url: "https://bob.example.com",
-      description: "Bob's Canton Network entry",
-      expiresAt: "2026-01-15T23:59:59Z",
-    },
-  ];
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["ans-entries", searchQuery],
+    queryFn: () => scanApi.fetchAnsEntries(searchQuery.trim() || undefined),
+    staleTime: 60_000,
+  });
 
-  const filteredEntries = entries.filter(
-    (entry) =>
-      entry.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      entry.party.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const entries = data?.entries || [];
+  const filteredEntries = entries;
 
   return (
     <DashboardLayout>
@@ -63,13 +51,21 @@ const ANS = () => {
 
         {/* Results */}
         <div className="space-y-4">
-          {filteredEntries.length === 0 ? (
+          {isLoading ? (
+            <Card className="glass-card p-8">
+              <Skeleton className="h-24 w-full" />
+            </Card>
+          ) : error ? (
+            <Card className="glass-card p-8">
+              <p className="text-center text-destructive">Failed to load ANS entries</p>
+            </Card>
+          ) : filteredEntries.length === 0 ? (
             <Card className="glass-card p-8">
               <p className="text-center text-muted-foreground">No entries found</p>
             </Card>
           ) : (
             filteredEntries.map((entry) => (
-              <Card key={entry.name} className="glass-card">
+              <Card key={entry.contract_id || entry.name} className="glass-card">
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-3">
@@ -78,9 +74,11 @@ const ANS = () => {
                       </div>
                       <div>
                         <h3 className="text-2xl font-bold">{entry.name}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Expires: {new Date(entry.expiresAt).toLocaleDateString()}
-                        </p>
+                        {entry.expires_at && (
+                          <p className="text-sm text-muted-foreground">
+                            Expires: {new Date(entry.expires_at).toLocaleDateString()}
+                          </p>
+                        )}
                       </div>
                     </div>
                     {entry.url && (
@@ -95,8 +93,8 @@ const ANS = () => {
 
                   <div className="space-y-3">
                     <div className="p-4 rounded-lg bg-muted/30">
-                      <p className="text-sm text-muted-foreground mb-1">Party ID</p>
-                      <p className="font-mono text-xs break-all">{entry.party}</p>
+                      <p className="text-sm text-muted-foreground mb-1">User</p>
+                      <p className="font-mono text-xs break-all">{entry.user}</p>
                     </div>
                     {entry.description && (
                       <div className="p-4 rounded-lg bg-muted/30">

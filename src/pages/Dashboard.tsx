@@ -47,9 +47,11 @@ const Dashboard = () => {
     (sum, p) => sum + parseFloat(p.rewards), 0
   ) || 0;
 
-  const amuletPrice = 0.1; // CC price in USD
-  const marketCap = totalBalance?.total_balance 
-    ? (parseFloat(totalBalance.total_balance) * amuletPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
+  const ccPrice = transactions?.transactions?.[0]?.amulet_price
+    ? parseFloat(transactions.transactions[0].amulet_price)
+    : undefined;
+  const marketCap = totalBalance?.total_balance && ccPrice !== undefined
+    ? (parseFloat(totalBalance.total_balance) * ccPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
     : "Loading...";
 
   const stats = {
@@ -65,7 +67,7 @@ const Dashboard = () => {
       ? "Connection Failed"
       : topValidators?.validatorsAndRewards.length.toString() || "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
-    recentTransactions: transactions?.transactions.length.toString() || "Loading...",
+    coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
     totalRewards: totalAppRewards > 0
       ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, { maximumFractionDigits: 2 })
       : "Connection Failed",
@@ -115,10 +117,10 @@ const Dashboard = () => {
             icon={Package}
           />
           <StatCard
-            title="Recent Transactions"
-            value={stats.recentTransactions}
+            title="Canton Coin Price (USD)"
+            value={stats.coinPrice}
             icon={Activity}
-            trend={{ value: "8.2%", positive: true }}
+            trend={{ value: "", positive: true }}
           />
           <StatCard
             title="Cumulative App Rewards"
@@ -134,52 +136,24 @@ const Dashboard = () => {
           />
         </div>
 
-        {/* Recent Activity */}
+        {/* Canton Coin Price */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-2xl font-bold mb-6">Recent Activity</h3>
-            {!transactions ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full" />
-                ))}
+            <h3 className="text-2xl font-bold mb-2">Canton Coin Price</h3>
+            {ccPrice !== undefined ? (
+              <div className="flex items-center justify-between">
+                <p className="text-5xl font-bold">${ccPrice.toFixed(4)}</p>
+                <div className="text-right text-sm text-muted-foreground">
+                  <p>Source: Latest transaction</p>
+                  <p>
+                    Updated: {transactions?.transactions?.[0]?.date
+                      ? new Date(transactions.transactions[0].date).toLocaleString()
+                      : "—"}
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                {transactions.transactions.slice(0, 3).map((activity, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="gradient-accent p-2 rounded-lg">
-                        <Activity className="h-4 w-4 text-accent-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground capitalize">{activity.transaction_type}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Round {activity.round || "N/A"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {activity.transfer && (
-                        <p className="font-mono font-semibold text-primary">
-                          {parseFloat(activity.transfer.sender.sender_change_amount).toFixed(2)} CC
-                        </p>
-                      )}
-                      {activity.mint && (
-                        <p className="font-mono font-semibold text-primary">
-                          {parseFloat(activity.mint.amulet_amount).toFixed(2)} CC
-                        </p>
-                      )}
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(activity.date).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <Skeleton className="h-12 w-48" />
             )}
           </div>
         </Card>

@@ -278,25 +278,8 @@ const UnclaimedSVRewards = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-6 ml-4">
-                      <div className="text-right">
-                        <p className="text-sm text-muted-foreground">Unclaimed</p>
-                        <p className="text-lg font-bold text-warning">
-                          {Math.floor(Math.random() * 40) + 5}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-muted-foreground">Claimed</p>
-                        <p className="text-lg font-bold text-success">
-                          {Math.floor(Math.random() * 150) + 50}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-muted-foreground">Expired</p>
-                        <p className="text-lg font-bold text-destructive">
-                          {Math.floor(Math.random() * 15)}
-                        </p>
-                      </div>
+                    <div className="text-right text-xs text-muted-foreground ml-4">
+                      Eligible for SV reward coupons
                     </div>
                   </div>
                 ))}

@@ -94,27 +94,27 @@ const Stats = () => {
   });
   const allTimeValidators = recentValidators;
 
-  // Calculate monthly join data for the last 12 months
+  // Calculate monthly join data for all time since network launch
   const getMonthlyJoinData = () => {
     const monthlyData: { [key: string]: number } = {};
     const now = new Date();
-    
-    // Initialize last 12 months with 0
-    for (let i = 11; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthKey = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+    const networkStart = new Date('2024-06-01T00:00:00Z');
+
+    // Initialize months from network start to now
+    const iter = new Date(networkStart.getFullYear(), networkStart.getMonth(), 1);
+    while (iter <= now) {
+      const monthKey = iter.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
       monthlyData[monthKey] = 0;
+      iter.setMonth(iter.getMonth() + 1);
     }
 
     // Calculate join dates for validators
     recentValidators.forEach(validator => {
       const roundsCollected = parseFloat(validator.rewards);
-      const joinRound = currentRound - roundsCollected;
       const daysAgo = roundsCollected / roundsPerDay;
       const joinDate = new Date(now.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
-      
-      // Only count validators from the last year
-      if (daysAgo <= 365) {
+
+      if (joinDate >= networkStart) {
         const monthKey = joinDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
         if (monthlyData.hasOwnProperty(monthKey)) {
           monthlyData[monthKey]++;
@@ -433,7 +433,7 @@ const Stats = () => {
         {/* Monthly Validator Joins Chart */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-xl font-bold mb-4">Validator Joins by Month (Last Year)</h3>
+            <h3 className="text-xl font-bold mb-4">Validator Joins by Month (All Time)</h3>
             {validatorsLoading ? (
               <Skeleton className="h-[300px] w-full" />
             ) : (
