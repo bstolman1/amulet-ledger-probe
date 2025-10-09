@@ -22,7 +22,11 @@ export const StatCard = ({
         <div className="flex-1">
           <p className="text-sm font-medium text-muted-foreground mb-2">{title}</p>
           <p className="text-3xl font-bold text-foreground mb-1">{value}</p>
-          {trend}
+          {trend && (
+            <p className={`text-sm font-medium ${trend.positive ? 'text-green-500' : 'text-red-500'}`}>
+              {trend.positive ? '↑' : '↓'} {trend.value}
+            </p>
+          )}
         </div>
         <div className={`p-3 rounded-lg ${gradient ? "gradient-primary" : "bg-muted"}`}>
           <Icon className={`h-6 w-6 ${gradient ? "text-primary-foreground" : "text-foreground"}`} />
