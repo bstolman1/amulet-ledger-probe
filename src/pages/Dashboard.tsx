@@ -76,7 +76,7 @@ const Dashboard = () => {
         <div className="relative">
           <div className="absolute inset-0 gradient-primary rounded-2xl blur-3xl opacity-20" />
           <div className="relative glass-card p-8">
-            <h2 className="text-4xl font-bold mb-2">Welcome to Canton Scan</h2>
+            <h2 className="text-4xl font-bold mb-2">Welcome to SCANTON</h2>
             <p className="text-lg text-muted-foreground">
               Explore transactions, validators, and network statistics
             </p>

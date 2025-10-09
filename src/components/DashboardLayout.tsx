@@ -37,9 +37,9 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                  Canton Scan
+                  SCANTON
                 </h1>
-                <p className="text-xs text-muted-foreground">Blockchain Explorer</p>
+                <p className="text-xs text-muted-foreground">Canton Network Explorer</p>
               </div>
             </Link>
 
@@ -78,7 +78,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       <footer className="border-t border-border/50 mt-20">
         <div className="container mx-auto px-6 py-6">
           <p className="text-center text-sm text-muted-foreground">
-            Canton Scan Explorer • Powered by Canton Network
+            SCANTON Explorer • Powered by Canton Network
           </p>
         </div>
       </footer>

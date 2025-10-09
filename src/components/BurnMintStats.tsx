@@ -34,32 +34,24 @@ export const BurnMintStats = () => {
     enabled: !!latestRound,
   });
 
-  const { data: transactions } = useQuery({
-    queryKey: ["recentTransactionsForMint"],
-    queryFn: () => scanApi.fetchTransactions({ page_size: 100, sort_order: "desc" }),
-  });
+  // Calculate daily mint from recent round change
+  const currentRoundData = recentRounds?.entries[recentRounds.entries.length - 1];
+  const previousRoundData = recentRounds?.entries[0];
+  
+  // Daily change is the difference between current and previous round
+  const currentChange = currentRoundData ? parseFloat(currentRoundData.change_to_initial_amount_as_of_round_zero) : 0;
+  const previousChange = previousRoundData ? parseFloat(previousRoundData.change_to_initial_amount_as_of_round_zero) : 0;
+  const roundChange = currentChange;
+  
+  // Separate positive (mint) and negative (burn) changes
+  const dailyMintAmount = roundChange > 0 ? roundChange : 0;
+  const dailyBurn = roundChange < 0 ? Math.abs(roundChange) : 0;
 
-  // Calculate daily mint/burn from recent transactions
-  const dailyMints = transactions?.transactions.filter(tx => tx.transaction_type === "mint" || tx.transaction_type === "tap") || [];
-  const dailyMintAmount = dailyMints.reduce((sum, tx) => {
-    if (tx.mint) return sum + parseFloat(tx.mint.amulet_amount);
-    if (tx.tap) return sum + parseFloat(tx.tap.amulet_amount);
-    return sum;
-  }, 0);
-
-  // Get latest round data for cumulative stats
-  const latestRoundData = recentRounds?.entries[recentRounds.entries.length - 1];
+  // Get cumulative stats from all rounds
+  const latestRoundData = allRounds?.entries[allRounds.entries.length - 1];
   const cumulativeIssued = latestRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  // Calculate burn (negative changes in balance)
-  const dailyBurn = Math.abs(
-    recentRounds?.entries.reduce((sum, entry) => {
-      const change = parseFloat(entry.change_to_initial_amount_as_of_round_zero);
-      return change < 0 ? sum + change : sum;
-    }, 0) || 0
-  );
-
-  const isLoading = !latestRound || !recentRounds || !transactions;
+  const isLoading = !latestRound || !recentRounds || !allRounds;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

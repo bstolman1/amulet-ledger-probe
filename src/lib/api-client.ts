@@ -1,4 +1,4 @@
-// Canton Scan API Client
+// SCANTON API Client
 const DEFAULT_API_BASE = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
 // Get API base URL from environment or use default
@@ -876,55 +876,90 @@ export const scanApi = {
     return response.json();
   },
 
-  // Extract governance proposals from DSO info
+  // Fetch governance proposals from ACS using VoteRequest contracts
   async fetchGovernanceProposals(): Promise<any> {
     try {
-      // Get DSO info which contains dso_rules
-      const dsoInfo = await this.fetchDsoInfo();
+      const [dsoInfo, acsSnapshot] = await Promise.all([
+        this.fetchDsoInfo(),
+        this.fetchAcsSnapshotTimestamp(),
+      ]);
+      
+      // Fetch ACS with VoteRequest template filter
+      const acsData = await this.fetchStateAcs({
+        migration_id: 0,
+        record_time: acsSnapshot.record_time,
+        page_size: 1000,
+        templates: [
+          "Splice.DsoRules:VoteRequest",
+          "Splice.DsoRules:DsoRules_CloseVoteRequestResult",
+        ],
+      });
       
       const proposals: any[] = [];
       
-      // Extract SVs and their information as "proposals" (member additions/status)
-      if (dsoInfo.dso_rules?.contract?.payload?.svs) {
-        const svs = dsoInfo.dso_rules.contract.payload.svs;
+      // Process VoteRequest contracts
+      acsData.created_events.forEach((event: CreatedEvent) => {
+        const payload = event.create_arguments;
         
-        // Each SV represents a governance decision (to add/keep them)
-        svs.forEach(([svPartyId, svInfo]: [string, any]) => {
+        if (event.template_id.includes("VoteRequest")) {
+          // Extract vote information
+          const votes = payload.votes || {};
+          const trackingCid = payload.trackingCid || {};
+          const action = payload.action || {};
+          
+          let title = "Governance Proposal";
+          let description = "Pending vote request";
+          
+          // Try to extract meaningful information from action
+          if (action.tag === "ARC_DsoRules") {
+            title = "DSO Rules Update";
+            description = `Update DSO rules configuration`;
+          } else if (action.tag === "ARC_AmuletRules") {
+            title = "Amulet Rules Update";
+            description = `Update Amulet rules and parameters`;
+          } else if (typeof action === "object") {
+            title = Object.keys(action)[0]?.replace(/_/g, " ") || "Governance Proposal";
+            description = JSON.stringify(action).slice(0, 200);
+          }
+          
+          const votesFor = Object.keys(votes).filter((k: string) => votes[k]?.accept).length;
+          const votesAgainst = Object.keys(votes).filter((k: string) => votes[k]?.reject).length;
+          const totalVotes = votesFor + votesAgainst;
+          const requiredVotes = dsoInfo.voting_threshold || 1;
+          
+          proposals.push({
+            id: event.contract_id.slice(0, 12),
+            title,
+            description,
+            status: totalVotes >= requiredVotes ? "approved" : "pending",
+            votesFor,
+            votesAgainst,
+            createdAt: event.created_at,
+            requester: payload.requester,
+            reason: payload.reason?.url || "",
+          });
+        }
+      });
+      
+      // Add historical SV approvals as completed proposals
+      if (dsoInfo.dso_rules?.contract?.payload?.svs && proposals.length < 5) {
+        const svs = dsoInfo.dso_rules.contract.payload.svs;
+        svs.slice(0, Math.max(0, 10 - proposals.length)).forEach(([svPartyId, svInfo]: [string, any]) => {
           proposals.push({
             id: svPartyId.slice(0, 12),
-            title: `Super Validator: ${svInfo.name}`,
-            description: `Joined at round ${svInfo.joinedAsOfRound?.number || 0}. Reward weight: ${svInfo.svRewardWeight}. Participant ID: ${svInfo.participantId}`,
+            title: `Super Validator Onboarding: ${svInfo.name}`,
+            description: `${svInfo.name} was approved to join as a Super Validator at round ${svInfo.joinedAsOfRound?.number || 0}`,
             status: "approved",
             votesFor: dsoInfo.voting_threshold,
             votesAgainst: 0,
             createdAt: dsoInfo.dso_rules.contract.created_at,
-            svInfo,
           });
         });
       }
       
-      // Also check for VoteRequest or other governance contracts in sv_node_states
-      if (dsoInfo.sv_node_states) {
-        dsoInfo.sv_node_states.forEach((state: any) => {
-          if (state.contract?.payload) {
-            const payload = state.contract.payload;
-            // Check if this contains any vote requests or pending proposals
-            if (payload.openVoteRequests || payload.dsoRules) {
-              proposals.push({
-                id: state.contract.contract_id.slice(0, 12),
-                title: `SV Node State Update`,
-                description: JSON.stringify(payload, null, 2).slice(0, 300),
-                status: "pending",
-                votesFor: 0,
-                votesAgainst: 0,
-                createdAt: state.contract.created_at,
-              });
-            }
-          }
-        });
-      }
-      
-      return proposals;
+      return proposals.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
     } catch (error) {
       console.error("Error fetching governance proposals:", error);
       return [];
