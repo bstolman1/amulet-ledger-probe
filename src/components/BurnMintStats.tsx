@@ -98,91 +98,165 @@ export const BurnMintStats = () => {
     console.info("BurnMintStats: using fallback burn from round totals (negative issuance)");
   }
 
+  // Fetch all-time data (from round 0 to current)
+  const { data: allTimeData, isPending: allTimePending } = useQuery({
+    queryKey: ["allTimeRoundTotals", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const maxChunk = 100;
+      const entries: any[] = [];
+      for (let s = 0; s <= latestRound.round; s += maxChunk) {
+        const e = Math.min(s + maxChunk - 1, latestRound.round);
+        try {
+          const res = await scanApi.fetchRoundTotals({ start_round: s, end_round: e });
+          if (res?.entries?.length) entries.push(...res.entries);
+        } catch (err) {
+          console.warn("all-time-totals chunk failed", { s, e, err });
+        }
+      }
+      return { entries };
+    },
+    enabled: !!latestRound,
+    staleTime: 300_000, // 5 min cache since historical data doesn't change
+    retry: 1,
+  });
+
+  // Calculate all-time minted and burned
+  let allTimeMinted = 0;
+  let allTimeBurned = 0;
+  if (allTimeData?.entries?.length) {
+    for (const e of allTimeData.entries) {
+      const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
+      if (!isNaN(change)) {
+        if (change > 0) allTimeMinted += change;
+        if (change < 0) allTimeBurned += Math.abs(change);
+      }
+    }
+  }
+
   // Get cumulative stats from current round (includes cumulative data)
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = latestPending || currentPending || totalsPending;
+  const isLoading = latestPending || currentPending || totalsPending || allTimePending;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Card className="glass-card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Daily Minted (24h)</h3>
-          <Coins className="h-5 w-5 text-chart-2" />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          <>
-            <p className="text-3xl font-bold text-chart-2 mb-1">
-              {dailyMintAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-muted-foreground">CC minted in last 24h</p>
-          </>
-        )}
-      </Card>
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">All Time Minted</h3>
+            <Coins className="h-5 w-5 text-chart-2" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-chart-2 mb-1">
+                {allTimeMinted.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-xs text-muted-foreground">Total CC minted since round 0</p>
+            </>
+          )}
+        </Card>
 
-      <Card className="glass-card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Daily Burned (24h)</h3>
-          <Flame className="h-5 w-5 text-destructive" />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : partyError ? (
-          <>
-            <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
-            <p className="text-xs text-destructive">API temporarily unavailable</p>
-          </>
-        ) : (
-          <>
-            <p className="text-3xl font-bold text-destructive mb-1">
-              {dailyBurn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-muted-foreground">CC burned in last 24h</p>
-          </>
-        )}
-      </Card>
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">All Time Burned</h3>
+            <Flame className="h-5 w-5 text-destructive" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-destructive mb-1">
+                {allTimeBurned.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-xs text-muted-foreground">Total CC burned since round 0</p>
+            </>
+          )}
+        </Card>
 
-      <Card className="glass-card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change (24h)</h3>
-          <TrendingDown className="h-5 w-5 text-chart-3" />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (totalsError || partyError) ? (
-          <>
-            <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
-            <p className="text-xs text-destructive">API temporarily unavailable</p>
-          </>
-        ) : (
-          <>
-            <p className={`text-3xl font-bold mb-1 ${dailyMintAmount - dailyBurn >= 0 ? 'text-chart-2' : 'text-destructive'}`}>
-              {(dailyMintAmount - dailyBurn >= 0 ? '+' : '')}{(dailyMintAmount - dailyBurn).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-muted-foreground">Net change last 24h</p>
-          </>
-        )}
-      </Card>
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">Daily Minted (24h)</h3>
+            <Coins className="h-5 w-5 text-chart-2" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-chart-2 mb-1">
+                {dailyMintAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground">CC minted in last 24h</p>
+            </>
+          )}
+        </Card>
 
-      <Card className="glass-card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
-          <TrendingUp className="h-5 w-5 text-primary" />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          <>
-            <p className="text-3xl font-bold text-primary mb-1">
-              {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </p>
-            <p className="text-xs text-muted-foreground">Total CC issued (net since round 0)</p>
-          </>
-        )}
-      </Card>
-    </div>
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">Daily Burned (24h)</h3>
+            <Flame className="h-5 w-5 text-destructive" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : partyError ? (
+            <>
+              <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
+              <p className="text-xs text-destructive">API temporarily unavailable</p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-destructive mb-1">
+                {dailyBurn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground">CC burned in last 24h</p>
+            </>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change (24h)</h3>
+            <TrendingDown className="h-5 w-5 text-chart-3" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (totalsError || partyError) ? (
+            <>
+              <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
+              <p className="text-xs text-destructive">API temporarily unavailable</p>
+            </>
+          ) : (
+            <>
+              <p className={`text-3xl font-bold mb-1 ${dailyMintAmount - dailyBurn >= 0 ? 'text-chart-2' : 'text-destructive'}`}>
+                {(dailyMintAmount - dailyBurn >= 0 ? '+' : '')}{(dailyMintAmount - dailyBurn).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-muted-foreground">Net change last 24h</p>
+            </>
+          )}
+        </Card>
+
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
+            <TrendingUp className="h-5 w-5 text-primary" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-primary mb-1">
+                {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-xs text-muted-foreground">Total CC issued (net since round 0)</p>
+            </>
+          )}
+        </Card>
+      </div>
+    </>
   );
 };
