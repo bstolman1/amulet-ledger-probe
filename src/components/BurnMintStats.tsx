@@ -177,7 +177,7 @@ export const BurnMintStats = () => {
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <Card className="glass-card p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-muted-foreground">All Time Minted</h3>
@@ -212,6 +212,25 @@ export const BurnMintStats = () => {
           )}
         </Card>
 
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
+            <TrendingUp className="h-5 w-5 text-primary" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-primary mb-1">
+                {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-xs text-muted-foreground">Total CC issued (net since round 0)</p>
+            </>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="glass-card p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-muted-foreground">Daily Minted (24h)</h3>
@@ -250,9 +269,7 @@ export const BurnMintStats = () => {
             </>
           )}
         </Card>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="glass-card p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change (24h)</h3>
@@ -271,23 +288,6 @@ export const BurnMintStats = () => {
                 {(dailyMintAmount - dailyBurn >= 0 ? '+' : '')}{(dailyMintAmount - dailyBurn).toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </p>
               <p className="text-xs text-muted-foreground">Net change last 24h</p>
-            </>
-          )}
-        </Card>
-
-        <Card className="glass-card p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
-            <TrendingUp className="h-5 w-5 text-primary" />
-          </div>
-          {isLoading ? (
-            <Skeleton className="h-10 w-full" />
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-primary mb-1">
-                {parseFloat(cumulativeIssued.toString()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </p>
-              <p className="text-xs text-muted-foreground">Total CC issued (net since round 0)</p>
             </>
           )}
         </Card>
