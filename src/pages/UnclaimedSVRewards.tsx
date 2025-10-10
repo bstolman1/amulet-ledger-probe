@@ -2,19 +2,39 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Award, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertCircle, Award, TrendingDown, TrendingUp, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const UnclaimedSVRewards = () => {
   // Schedule daily sync for config data
   useEffect(() => {
     scheduleDailySync();
   }, []);
+
+  // Query parameters state
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(today.getDate() - 90);
+
+  const [queryParams, setQueryParams] = useState({
+    beneficiary: "Kaiko-ghost-1::1220f5cf298f609f538b46a2a0347d299028ddca7ea008aaed65e0ca862db974c5e2",
+    beginRecordTime: "2025-06-19T08:00:00+00:00",
+    endRecordTime: "2025-10-02T18:45:00+00:00",
+    beginMigrationId: 2,
+    weight: 5000,
+    alreadyMintedWeight: 0,
+    gracePeriodMinutes: 60,
+  });
+
+  const [activeQuery, setActiveQuery] = useState(queryParams);
 
   // Fetch real Super Validator configuration
   const { data: configData, isLoading: configLoading } = useQuery({
@@ -33,26 +53,21 @@ const UnclaimedSVRewards = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // Calculate date range: past 90 days from today (reduced for performance)
-  const today = new Date();
-  const ninetyDaysAgo = new Date(today);
-  ninetyDaysAgo.setDate(today.getDate() - 90);
-
   // Fetch real SV rewards data from edge function
   const { data: rewardData, isLoading: rewardLoading, error: rewardError } = useQuery({
-    queryKey: ["sv-rewards-summary", ninetyDaysAgo.toISOString(), today.toISOString()],
+    queryKey: ["sv-rewards-summary", activeQuery],
     queryFn: async () => {
-      console.log('Starting SV rewards fetch...');
+      console.log('Starting SV rewards fetch...', activeQuery);
       try {
         const { data, error } = await supabase.functions.invoke('sv-rewards-summary', {
           body: {
-            beneficiary: "DSO::1220c2ddcc4c2d8d48fe5147e85de9bc0d23f9ca8fb4c3aa851d8d73e8f564c90e0c",
-            beginRecordTime: ninetyDaysAgo.toISOString(),
-            endRecordTime: today.toISOString(),
-            beginMigrationId: 0,
-            weight: 1200000,
-            alreadyMintedWeight: 0,
-            gracePeriodMinutes: 60,
+            beneficiary: activeQuery.beneficiary,
+            beginRecordTime: activeQuery.beginRecordTime,
+            endRecordTime: activeQuery.endRecordTime,
+            beginMigrationId: activeQuery.beginMigrationId,
+            weight: activeQuery.weight,
+            alreadyMintedWeight: activeQuery.alreadyMintedWeight,
+            gracePeriodMinutes: activeQuery.gracePeriodMinutes,
             scanUrl: "https://scan.sv-1.global.canton.network.sync.global",
           },
         });
@@ -103,8 +118,12 @@ const UnclaimedSVRewards = () => {
     expiredAmount: "0.00",
     unclaimedCount: 0,
     estimatedUnclaimedAmount: "0.00",
-    timeRangeStart: ninetyDaysAgo.toISOString(),
-    timeRangeEnd: today.toISOString(),
+    timeRangeStart: activeQuery.beginRecordTime,
+    timeRangeEnd: activeQuery.endRecordTime,
+  };
+
+  const handleSearch = () => {
+    setActiveQuery({...queryParams});
   };
 
   const isLoading = configLoading || validatorsLoading || rewardLoading;
@@ -127,6 +146,100 @@ const UnclaimedSVRewards = () => {
             Track and analyze Super Validator reward coupons across the Canton Network
           </p>
         </div>
+
+        {/* Query Form */}
+        <Card className="glass-card border-primary/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Search className="h-5 w-5" />
+              Query Specific SV Rewards
+            </CardTitle>
+            <CardDescription>Enter parameters to query rewards for a specific beneficiary (similar to Python script)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="beneficiary">Beneficiary Party ID</Label>
+                <Input
+                  id="beneficiary"
+                  value={queryParams.beneficiary}
+                  onChange={(e) => setQueryParams({...queryParams, beneficiary: e.target.value})}
+                  placeholder="e.g., Kaiko-ghost-1::1220f5cf..."
+                  className="font-mono text-sm"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="beginTime">Begin Record Time</Label>
+                <Input
+                  id="beginTime"
+                  type="datetime-local"
+                  value={queryParams.beginRecordTime.slice(0, 16)}
+                  onChange={(e) => setQueryParams({...queryParams, beginRecordTime: e.target.value + ':00+00:00'})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="endTime">End Record Time</Label>
+                <Input
+                  id="endTime"
+                  type="datetime-local"
+                  value={queryParams.endRecordTime.slice(0, 16)}
+                  onChange={(e) => setQueryParams({...queryParams, endRecordTime: e.target.value + ':00+00:00'})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="migrationId">Begin Migration ID</Label>
+                <Input
+                  id="migrationId"
+                  type="number"
+                  value={queryParams.beginMigrationId}
+                  onChange={(e) => setQueryParams({...queryParams, beginMigrationId: parseInt(e.target.value)})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="weight">Weight</Label>
+                <Input
+                  id="weight"
+                  type="number"
+                  value={queryParams.weight}
+                  onChange={(e) => setQueryParams({...queryParams, weight: parseInt(e.target.value)})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="alreadyMinted">Already Minted Weight</Label>
+                <Input
+                  id="alreadyMinted"
+                  type="number"
+                  value={queryParams.alreadyMintedWeight}
+                  onChange={(e) => setQueryParams({...queryParams, alreadyMintedWeight: parseInt(e.target.value)})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="gracePeriod">Grace Period (minutes)</Label>
+                <Input
+                  id="gracePeriod"
+                  type="number"
+                  value={queryParams.gracePeriodMinutes}
+                  onChange={(e) => setQueryParams({...queryParams, gracePeriodMinutes: parseInt(e.target.value)})}
+                />
+              </div>
+            </div>
+            
+            <Button 
+              onClick={handleSearch} 
+              className="w-full mt-4"
+              disabled={rewardLoading}
+            >
+              <Search className="h-4 w-4 mr-2" />
+              {rewardLoading ? "Querying..." : "Query SV Rewards"}
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Warning Alert */}
         <Alert className="border-warning/50 bg-warning/10">
