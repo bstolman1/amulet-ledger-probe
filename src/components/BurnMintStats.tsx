@@ -99,7 +99,7 @@ export const BurnMintStats = () => {
   }
 
   // Fetch all-time data for minted (from round 0 to current)
-  const { data: allTimeData, isPending: allTimePending } = useQuery({
+  const { data: allTimeData, isPending: allTimePending, isError: allTimeError } = useQuery({
     queryKey: ["allTimeRoundTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
@@ -122,7 +122,7 @@ export const BurnMintStats = () => {
   });
 
   // Fetch all-time party totals for burned (from round 0 to current)
-  const { data: allTimePartyTotals, isPending: allTimePartyPending } = useQuery({
+  const { data: allTimePartyTotals, isPending: allTimePartyPending, isError: allTimePartyError } = useQuery({
     queryKey: ["allTimePartyTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
@@ -173,7 +173,12 @@ export const BurnMintStats = () => {
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = latestPending || currentPending || totalsPending || allTimePending || allTimePartyPending;
+  const loadingAllTimeMint = latestPending || allTimePending;
+  const loadingAllTimeBurn = latestPending || allTimePartyPending;
+  const loadingCumulative = latestPending || currentPending;
+  const loadingDailyMint = latestPending || totalsPending;
+  const loadingDailyBurn = latestPending || partyPending;
+  const loadingNetDaily = latestPending || totalsPending || partyPending;
 
   return (
     <>
@@ -183,7 +188,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">All Time Minted</h3>
             <Coins className="h-5 w-5 text-chart-2" />
           </div>
-          {isLoading ? (
+          {loadingAllTimeMint ? (
             <Skeleton className="h-10 w-full" />
           ) : (
             <>
@@ -200,7 +205,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">All Time Burned</h3>
             <Flame className="h-5 w-5 text-destructive" />
           </div>
-          {isLoading ? (
+          {loadingAllTimeBurn ? (
             <Skeleton className="h-10 w-full" />
           ) : (
             <>
@@ -217,7 +222,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
             <TrendingUp className="h-5 w-5 text-primary" />
           </div>
-          {isLoading ? (
+          {loadingCumulative ? (
             <Skeleton className="h-10 w-full" />
           ) : (
             <>
@@ -236,7 +241,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">Daily Minted (24h)</h3>
             <Coins className="h-5 w-5 text-chart-2" />
           </div>
-          {isLoading ? (
+          {loadingDailyMint ? (
             <Skeleton className="h-10 w-full" />
           ) : (
             <>
@@ -253,7 +258,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">Daily Burned (24h)</h3>
             <Flame className="h-5 w-5 text-destructive" />
           </div>
-          {isLoading ? (
+          {loadingDailyBurn ? (
             <Skeleton className="h-10 w-full" />
           ) : partyError ? (
             <>
@@ -275,7 +280,7 @@ export const BurnMintStats = () => {
             <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change (24h)</h3>
             <TrendingDown className="h-5 w-5 text-chart-3" />
           </div>
-          {isLoading ? (
+          {loadingNetDaily ? (
             <Skeleton className="h-10 w-full" />
           ) : (totalsError || partyError) ? (
             <>
