@@ -98,7 +98,7 @@ export const BurnMintStats = () => {
     console.info("BurnMintStats: using fallback burn from round totals (negative issuance)");
   }
 
-  // Fetch all-time data (from round 0 to current)
+  // Fetch all-time data for minted (from round 0 to current)
   const { data: allTimeData, isPending: allTimePending } = useQuery({
     queryKey: ["allTimeRoundTotals", latestRound?.round],
     queryFn: async () => {
@@ -121,16 +121,51 @@ export const BurnMintStats = () => {
     retry: 1,
   });
 
-  // Calculate all-time minted and burned
+  // Fetch all-time party totals for burned (from round 0 to current)
+  const { data: allTimePartyTotals, isPending: allTimePartyPending } = useQuery({
+    queryKey: ["allTimePartyTotals", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const maxChunk = 25;
+      const entries: any[] = [];
+      for (let s = 0; s <= latestRound.round; s += maxChunk) {
+        const e = Math.min(s + maxChunk - 1, latestRound.round);
+        try {
+          const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+          if (res?.entries?.length) entries.push(...res.entries);
+        } catch (err) {
+          console.warn("all-time-party-totals chunk failed", { s, e, err });
+          await new Promise(r => setTimeout(r, 300));
+          try {
+            const res2 = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+            if (res2?.entries?.length) entries.push(...res2.entries);
+          } catch (err2) {
+            console.error("all-time-party-totals retry failed", { s, e, err2 });
+          }
+        }
+      }
+      return { entries };
+    },
+    enabled: !!latestRound,
+    staleTime: 300_000, // 5 min cache since historical data doesn't change
+    retry: 0,
+  });
+
+  // Calculate all-time minted from round totals
   let allTimeMinted = 0;
-  let allTimeBurned = 0;
   if (allTimeData?.entries?.length) {
     for (const e of allTimeData.entries) {
       const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-      if (!isNaN(change)) {
-        if (change > 0) allTimeMinted += change;
-        if (change < 0) allTimeBurned += Math.abs(change);
-      }
+      if (!isNaN(change) && change > 0) allTimeMinted += change;
+    }
+  }
+
+  // Calculate all-time burned from party totals (actual burn data)
+  let allTimeBurned = 0;
+  if (allTimePartyTotals?.entries?.length) {
+    for (const e of allTimePartyTotals.entries) {
+      const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+      if (!isNaN(spent)) allTimeBurned += spent;
     }
   }
 
@@ -138,7 +173,7 @@ export const BurnMintStats = () => {
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero || 0;
 
-  const isLoading = latestPending || currentPending || totalsPending || allTimePending;
+  const isLoading = latestPending || currentPending || totalsPending || allTimePending || allTimePartyPending;
 
   return (
     <>
