@@ -9,20 +9,24 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchConfigData } from "@/lib/config-sync";
 
 const Dashboard = () => {
-  // Latest round
   const { data: latestRound } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // ✅ Updated for v2 API
+  // ✅ Correct request body and field access
   const {
     data: holdingsSummary,
     isError: balanceError,
     isLoading: balanceLoading,
   } = useQuery({
     queryKey: ["holdingsSummary"],
-    queryFn: () => scanApi.fetchHoldingsSummary({}),
+    queryFn: () =>
+      scanApi.fetchHoldingsSummary({
+        migration_id: 0,
+        record_time: new Date().toISOString(),
+        owner_party_ids: [],
+      }),
     retry: 2,
     retryDelay: 1000,
   });
@@ -54,7 +58,6 @@ const Dashboard = () => {
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  // --- Derived values ---
   const totalValidatorRounds =
     topValidators?.validatorsAndRewards?.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
 
@@ -64,8 +67,8 @@ const Dashboard = () => {
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  // ✅ Updated v2 field
-  const totalBalanceValue = holdingsSummary?.summary?.total_holdings || "0";
+  // ✅ Updated to use correct field
+  const totalBalanceValue = holdingsSummary?.summaries?.[0]?.total_coin_holdings || "0";
 
   const marketCap =
     totalBalanceValue && ccPrice !== undefined
@@ -98,7 +101,6 @@ const Dashboard = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        {/* Hero Section */}
         <div className="relative">
           <div className="absolute inset-0 gradient-primary rounded-2xl blur-3xl opacity-20" />
           <div className="relative glass-card p-8">
@@ -116,7 +118,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <StatCard title="Total Amulet Balance" value={stats.totalBalance} icon={Coins} gradient />
           <StatCard
