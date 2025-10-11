@@ -53,6 +53,66 @@ const Stats = () => {
   // Usage statistics via transactions API
   const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
 
+  // Fetch transactions to analyze subnet distribution
+  const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
+    queryKey: ["subnetTransactions"],
+    queryFn: async () => {
+      const allTransactions = [];
+      let hasMore = true;
+      let lastEventId = undefined;
+      let pageCount = 0;
+      const maxPages = 50; // Limit to avoid too many requests
+      
+      while (hasMore && pageCount < maxPages) {
+        const response = await scanApi.fetchTransactions({
+          page_end_event_id: lastEventId,
+          page_size: 100,
+          sort_order: "desc",
+        });
+        
+        if (response.transactions.length === 0) {
+          hasMore = false;
+        } else {
+          allTransactions.push(...response.transactions);
+          lastEventId = response.transactions[response.transactions.length - 1].event_id;
+          pageCount++;
+        }
+      }
+      
+      return allTransactions;
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Calculate subnet distribution
+  const subnetDistribution = transactionsData?.reduce((acc, tx) => {
+    const domainId = tx.domain_id;
+    if (!acc[domainId]) {
+      acc[domainId] = 0;
+    }
+    acc[domainId]++;
+    return acc;
+  }, {} as Record<string, number>) || {};
+
+  const subnetChartData = Object.entries(subnetDistribution)
+    .map(([domain, count]) => {
+      const txCount = Number(count);
+      const totalTx = transactionsData?.length || 1;
+      return {
+        subnet: domain.split('.').slice(0, 2).join('.') + '...', // Shorten for display
+        fullSubnet: domain,
+        transactions: txCount,
+        percentage: transactionsData && transactionsData.length > 0 
+          ? ((txCount / totalTx) * 100).toFixed(1) 
+          : '0',
+      };
+    })
+    .sort((a, b) => {
+      const aCount = Number(a.transactions);
+      const bCount = Number(b.transactions);
+      return bCount - aCount;
+    });
+
   // Calculate rounds per day based on recent data
   const roundsPerDay = roundTotals?.entries.length 
     ? (roundTotals.entries.length / 1) * 24 // Approximate based on data
@@ -893,6 +953,109 @@ const Stats = () => {
               </div>
             </Card>
           </div>
+
+          {/* Subnet Distribution Section */}
+          <Card className="glass-card">
+            <div className="p-6">
+              <h4 className="text-lg font-semibold mb-2">Transaction Distribution by Subnet</h4>
+              <p className="text-sm text-muted-foreground mb-4">
+                Shows the last {transactionsData?.length.toLocaleString() || 0} transactions analyzed across different synchronizers
+              </p>
+              {transactionsLoading ? (
+                <Skeleton className="h-[300px] w-full" />
+              ) : !transactionsData || transactionsData.length === 0 ? (
+                <div className="h-[300px] flex items-center justify-center">
+                  <p className="text-muted-foreground">No transaction data available</p>
+                </div>
+              ) : (
+                <>
+                  <ChartContainer
+                    config={{
+                      transactions: {
+                        label: "Transactions",
+                        color: "hsl(var(--chart-4))",
+                      },
+                    }}
+                    className="h-[300px] w-full"
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={subnetChartData}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
+                        <XAxis 
+                          dataKey="subnet" 
+                          className="text-xs"
+                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                        />
+                        <YAxis 
+                          className="text-xs"
+                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                        />
+                        <ChartTooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div className="rounded-lg border bg-background p-2 shadow-sm">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-xs font-mono text-muted-foreground break-all max-w-[300px]">
+                                      {data.fullSubnet}
+                                    </span>
+                                    <span className="text-sm font-bold">
+                                      {data.transactions.toLocaleString()} transactions
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {data.percentage}% of total
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar
+                          dataKey="transactions"
+                          fill="hsl(var(--chart-4))"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                  
+                  <div className="mt-6 space-y-2">
+                    <h4 className="text-sm font-semibold text-muted-foreground">Subnet Breakdown</h4>
+                    {subnetChartData.map((subnet, index) => (
+                      <div
+                        key={subnet.fullSubnet}
+                        className="p-3 rounded-lg bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm mb-1">Subnet {index + 1}</p>
+                          <p className="text-xs text-muted-foreground font-mono truncate">
+                            {subnet.fullSubnet}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4 ml-4">
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Transactions</p>
+                            <Badge variant="outline" className="mt-1">
+                              {subnet.transactions.toLocaleString()}
+                            </Badge>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Percentage</p>
+                            <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
+                              {subnet.percentage}%
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </Card>
         </div>
       </div>
     </DashboardLayout>
