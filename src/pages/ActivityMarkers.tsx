@@ -235,7 +235,7 @@ const ActivityMarkers = () => {
             <p><strong>Rewards:</strong> Each marker is automatically converted to an AppRewardCoupon by SV automation, enabling featured apps to receive Canton Coin rewards.</p>
             <p><strong>Weight:</strong> The weight field (0.0-1.0) allows splitting rewards for collaborative actions. Multiple markers can be created for a single transaction with different beneficiaries, where weights sum to 1.0.</p>
             <p><strong>Beneficiary:</strong> The party that has the right to mint the reward. Can be different from the provider to enable shared reward attribution.</p>
-            <p className="text-xs text-muted-foreground pt-2">Defined in CIP-47 | Fair usage policy enforced by GSF Tokenomics Committee</p>
+            <p className="text-xs text-muted-foreground pt-2">Defined in CIP-47 | Fair usage policy enforced by Canton Foundation Tokenomics Committee</p>
           </CardContent>
         </Card>
       </div>
