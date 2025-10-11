@@ -26,6 +26,19 @@ const ActivityMarkers = () => {
     return acc;
   }, {} as Record<string, typeof markers>);
 
+  // Group markers by beneficiary
+  const markersByBeneficiary = markers.reduce((acc, marker) => {
+    const beneficiary = marker.payload.beneficiary.split("::")[0] || marker.payload.beneficiary;
+    if (!acc[beneficiary]) {
+      acc[beneficiary] = [];
+    }
+    acc[beneficiary].push(marker);
+    return acc;
+  }, {} as Record<string, typeof markers>);
+
+  // Calculate total weight
+  const totalWeight = markers.reduce((sum, marker) => sum + parseFloat(marker.payload.weight || "0"), 0);
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -71,7 +84,7 @@ const ActivityMarkers = () => {
             <CardContent>
               <div className="text-2xl font-bold">
                 {markers.filter(m => {
-                  const markerTime = new Date(m.payload.timestamp || m.created_at).getTime();
+                  const markerTime = new Date(m.created_at).getTime();
                   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
                   return markerTime > dayAgo;
                 }).length}
@@ -82,13 +95,13 @@ const ActivityMarkers = () => {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">With Beneficiaries</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Weight</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {markers.filter(m => m.payload.beneficiaries && m.payload.beneficiaries.length > 0).length}
+                {totalWeight.toFixed(2)}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Shared reward attribution</p>
+              <p className="text-xs text-muted-foreground mt-1">Cumulative reward weight</p>
             </CardContent>
           </Card>
         </div>
@@ -148,64 +161,57 @@ const ActivityMarkers = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Created At</TableHead>
                       <TableHead>Provider</TableHead>
+                      <TableHead>Beneficiary</TableHead>
+                      <TableHead className="text-right">Weight</TableHead>
                       <TableHead>Contract ID</TableHead>
-                      <TableHead className="text-right">User Amount</TableHead>
-                      <TableHead>Beneficiaries</TableHead>
                       <TableHead>DSO</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {markers.slice(0, 100).map((marker) => (
-                      <TableRow key={marker.contract_id}>
-                        <TableCell className="font-mono text-sm">
-                          {format(new Date(marker.payload.timestamp || marker.created_at), "MMM dd, yyyy HH:mm:ss")}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono text-xs">
-                            {marker.payload.provider.split("::")[0] || marker.payload.provider}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          <span className="inline-block max-w-[120px] truncate" title={marker.contract_id}>
-                            {marker.contract_id.slice(0, 16)}...
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {marker.payload.userAmount ? (
-                            <span className="font-mono">
-                              {parseFloat(marker.payload.userAmount).toFixed(4)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {marker.payload.beneficiaries && marker.payload.beneficiaries.length > 0 ? (
-                            <div className="space-y-1">
-                              <Badge variant="secondary" className="text-xs">
-                                {marker.payload.beneficiaries.length} beneficiar{marker.payload.beneficiaries.length !== 1 ? 'ies' : 'y'}
+                    {markers.slice(0, 100).map((marker) => {
+                      const providerName = marker.payload.provider.split("::")[0] || marker.payload.provider;
+                      const beneficiaryName = marker.payload.beneficiary.split("::")[0] || marker.payload.beneficiary;
+                      const isSharedReward = providerName !== beneficiaryName;
+                      
+                      return (
+                        <TableRow key={marker.contract_id}>
+                          <TableCell className="font-mono text-sm">
+                            {format(new Date(marker.created_at), "MMM dd, yyyy HH:mm:ss")}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {providerName}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant={isSharedReward ? "secondary" : "outline"} 
+                                className="font-mono text-xs"
+                              >
+                                {beneficiaryName}
                               </Badge>
-                              {marker.payload.beneficiaries.length <= 2 && (
-                                <div className="text-xs text-muted-foreground space-y-0.5">
-                                  {marker.payload.beneficiaries.map((b, i) => (
-                                    <div key={i} className="font-mono">
-                                      {b.party.split("::")[0]}: {(parseFloat(b.weight) * 100).toFixed(1)}%
-                                    </div>
-                                  ))}
-                                </div>
+                              {isSharedReward && (
+                                <span className="text-xs text-muted-foreground">shared</span>
                               )}
                             </div>
-                          ) : (
-                            <span className="text-muted-foreground">Provider only</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {marker.payload.dso.split("::")[0] || "DSO"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {parseFloat(marker.payload.weight).toFixed(4)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            <span className="inline-block max-w-[120px] truncate" title={marker.contract_id}>
+                              {marker.contract_id.slice(0, 16)}...
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {marker.payload.dso.split("::")[0] || "DSO"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 {markers.length > 100 && (
@@ -226,8 +232,9 @@ const ActivityMarkers = () => {
           <CardContent className="space-y-2 text-sm">
             <p><strong>Purpose:</strong> Track economically important events from featured applications that don't involve direct CC transfers.</p>
             <p><strong>Examples:</strong> RWA transfers, token minting/burning, asset locks/unlocks, trade settlements.</p>
-            <p><strong>Rewards:</strong> Each marker is automatically converted to an AppRewardCoupon by SV automation, enabling the featured app to receive Canton Coin rewards.</p>
-            <p><strong>Beneficiaries:</strong> Activity can be shared across multiple parties with weighted reward distribution.</p>
+            <p><strong>Rewards:</strong> Each marker is automatically converted to an AppRewardCoupon by SV automation, enabling featured apps to receive Canton Coin rewards.</p>
+            <p><strong>Weight:</strong> The weight field (0.0-1.0) allows splitting rewards for collaborative actions. Multiple markers can be created for a single transaction with different beneficiaries, where weights sum to 1.0.</p>
+            <p><strong>Beneficiary:</strong> The party that has the right to mint the reward. Can be different from the provider to enable shared reward attribution.</p>
             <p className="text-xs text-muted-foreground pt-2">Defined in CIP-47 | Fair usage policy enforced by GSF Tokenomics Committee</p>
           </CardContent>
         </Card>

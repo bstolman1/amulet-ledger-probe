@@ -482,12 +482,8 @@ export interface ActivityMarker {
   payload: {
     dso: string;
     provider: string;
-    timestamp: string;
-    userAmount?: string;
-    beneficiaries?: Array<{
-      party: string;
-      weight: string;
-    }>;
+    beneficiary: string;
+    weight: string;
   };
   domain_id?: string;
 }
@@ -1195,9 +1191,8 @@ export const scanApi = {
               payload: {
                 dso: payload.dso || "",
                 provider: provider,
-                timestamp: payload.timestamp || ev.created_at,
-                userAmount: payload.userAmount,
-                beneficiaries: payload.beneficiaries || []
+                beneficiary: payload.beneficiary || provider,
+                weight: payload.weight || "1.0"
               }
             });
           }
@@ -1213,9 +1208,8 @@ export const scanApi = {
       
       console.log(`Fetched ${markers.length} activity markers from ${featuredProviders.size} featured apps`);
       
-      // Sort by timestamp, newest first
-      markers.sort((a, b) => new Date(b.payload.timestamp || b.created_at).getTime() - 
-                            new Date(a.payload.timestamp || a.created_at).getTime());
+      // Sort by created_at, newest first
+      markers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       return { markers };
     } catch (error) {
