@@ -9,33 +9,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchConfigData } from "@/lib/config-sync";
 
 const Dashboard = () => {
-  // Latest round (uses updated v2 logic internally)
+  // Latest round (v2-compatible)
   const { data: latestRound } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // ✅ NEW: use holdings summary instead of total balance
+  // ✅ Replace deprecated fetchTotalBalance with fetchHoldingsSummary
   const {
     data: holdingsSummary,
     isError: balanceError,
     isLoading: balanceLoading,
   } = useQuery({
     queryKey: ["holdingsSummary"],
-    queryFn: async () => {
-      const snapshot = await scanApi.fetchAcsSnapshotTimestamp();
-      return scanApi.fetchHoldingsSummary({
-        migration_id: 0,
-        record_time: snapshot.record_time,
-        owner_party_ids: [],
-      });
-    },
+    queryFn: () => scanApi.fetchHoldingsSummary(),
     retry: 2,
     retryDelay: 1000,
   });
 
-  // Validators and providers (still valid)
-  const { data: topValidators, isError: validatorsError } = useQuery({
+  const { data: topValidators } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
     retry: 1,
@@ -47,7 +39,7 @@ const Dashboard = () => {
     retry: 1,
   });
 
-  // Transactions — still OK (internally uses /v2/updates)
+  // Transactions now come from /v2/updates (handled internally)
   const { data: transactions } = useQuery({
     queryKey: ["recentTransactions"],
     queryFn: () =>
@@ -63,18 +55,18 @@ const Dashboard = () => {
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  // Aggregate metrics
+  // --- Data Calculations ---
   const totalValidatorRounds =
-    topValidators?.validatorsAndRewards.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
+    topValidators?.validatorsAndRewards?.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
 
-  const totalAppRewards = topProviders?.providersAndRewards.reduce((sum, p) => sum + parseFloat(p.rewards), 0) || 0;
+  const totalAppRewards = topProviders?.providersAndRewards?.reduce((sum, p) => sum + parseFloat(p.rewards), 0) || 0;
 
   const ccPrice = transactions?.transactions?.[0]?.amulet_price
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  const totalBalanceValue = 
-    holdingsSummary?.summaries?.reduce((sum, s) => sum + parseFloat(s.total_coin_holdings || "0"), 0).toString() || "0";
+  // ✅ Use holdingsSummary instead of totalBalance
+  const totalBalanceValue = holdingsSummary?.total_balance || holdingsSummary?.balance || "0";
 
   const marketCap =
     totalBalanceValue && ccPrice !== undefined
@@ -88,14 +80,12 @@ const Dashboard = () => {
       ? "Loading..."
       : balanceError
         ? "Connection Failed"
-        : totalBalanceValue
-          ? parseFloat(totalBalanceValue).toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-            })
-          : "Loading...",
+        : parseFloat(totalBalanceValue).toLocaleString(undefined, {
+            maximumFractionDigits: 2,
+          }),
     marketCap: balanceLoading || balanceError ? "Loading..." : `$${marketCap}`,
     superValidators: configData ? superValidatorCount.toString() : "Loading...",
-    currentRound: latestRound?.round.toLocaleString() || "Loading...",
+    currentRound: latestRound?.round?.toLocaleString() || "Loading...",
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
     totalRewards:
       totalAppRewards > 0
