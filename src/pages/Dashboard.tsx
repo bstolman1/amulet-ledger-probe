@@ -22,7 +22,14 @@ const Dashboard = () => {
     isLoading: balanceLoading,
   } = useQuery({
     queryKey: ["holdingsSummary"],
-    queryFn: () => scanApi.fetchHoldingsSummary(),
+    queryFn: async () => {
+      const snapshot = await scanApi.fetchAcsSnapshotTimestamp();
+      return scanApi.fetchHoldingsSummary({
+        migration_id: 0,
+        record_time: snapshot.record_time,
+        owner_party_ids: [],
+      });
+    },
     retry: 2,
     retryDelay: 1000,
   });
@@ -66,7 +73,8 @@ const Dashboard = () => {
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  const totalBalanceValue = holdingsSummary?.total_balance || holdingsSummary?.balance || "0";
+  const totalBalanceValue = 
+    holdingsSummary?.summaries?.reduce((sum, s) => sum + parseFloat(s.total_coin_holdings || "0"), 0).toString() || "0";
 
   const marketCap =
     totalBalanceValue && ccPrice !== undefined

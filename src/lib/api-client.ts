@@ -959,6 +959,55 @@ export const scanApi = {
   },
 
   /**
+   * Fetch round totals for a specific range of rounds.
+   */
+  async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
+    const response = await fetch(`${API_BASE}/v0/list-round-totals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: "cors",
+    });
+    if (!response.ok) throw new Error("Failed to fetch round totals");
+    return response.json();
+  },
+
+  /**
+   * Fetch round party totals for a specific range of rounds.
+   */
+  async fetchRoundPartyTotals(request: RoundPartyTotalsRequest): Promise<RoundPartyTotalsResponse> {
+    const response = await fetch(`${API_BASE}/v0/list-round-party-totals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      mode: "cors",
+    });
+    if (!response.ok) throw new Error("Failed to fetch round party totals");
+    return response.json();
+  },
+
+  /**
+   * Fetch top providers by app rewards.
+   */
+  async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
+    const params = new URLSearchParams();
+    params.append("limit", limit.toString());
+    const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, {
+      mode: "cors",
+    });
+    if (!response.ok) throw new Error("Failed to fetch top providers");
+    return response.json();
+  },
+
+  /**
+   * Fetch governance proposals (placeholder - implement based on actual API).
+   */
+  async fetchGovernanceProposals(): Promise<{ proposals: any[] }> {
+    // This is a placeholder - update with actual endpoint when available
+    return { proposals: [] };
+  },
+
+  /**
    * Fetch activity markers for featured apps.  This helper demonstrates how
    * to combine state queries with the list of featured apps.
    */
