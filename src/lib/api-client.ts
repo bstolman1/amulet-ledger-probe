@@ -1152,7 +1152,16 @@ export const scanApi = {
 
   async fetchActivityMarkers(): Promise<ActivityMarkersResponse> {
     try {
-      console.log("Fetching activity markers...");
+      console.log("Fetching featured apps and activity markers...");
+      
+      // First, fetch the featured apps to get the list of approved providers
+      const featuredAppsResponse = await this.fetchFeaturedApps();
+      const featuredProviders = new Set(
+        featuredAppsResponse.featured_apps.map((app: Contract) => app.payload?.provider).filter(Boolean)
+      );
+      
+      console.log(`Found ${featuredProviders.size} featured app providers`);
+      
       const { record_time, migration_id } = await this.fetchAcsSnapshotTimestamp();
       
       const markers: ActivityMarker[] = [];
@@ -1175,18 +1184,23 @@ export const scanApi = {
         
         for (const ev of response.created_events) {
           const payload = ev.create_arguments || {};
-          markers.push({
-            contract_id: ev.contract_id,
-            template_id: ev.template_id,
-            created_at: ev.created_at,
-            payload: {
-              dso: payload.dso || "",
-              provider: payload.provider || "",
-              timestamp: payload.timestamp || ev.created_at,
-              userAmount: payload.userAmount,
-              beneficiaries: payload.beneficiaries || []
-            }
-          });
+          const provider = payload.provider || "";
+          
+          // Only include markers from featured app providers
+          if (featuredProviders.has(provider)) {
+            markers.push({
+              contract_id: ev.contract_id,
+              template_id: ev.template_id,
+              created_at: ev.created_at,
+              payload: {
+                dso: payload.dso || "",
+                provider: provider,
+                timestamp: payload.timestamp || ev.created_at,
+                userAmount: payload.userAmount,
+                beneficiaries: payload.beneficiaries || []
+              }
+            });
+          }
         }
         
         // Check if there's more data to fetch
@@ -1197,7 +1211,7 @@ export const scanApi = {
         }
       }
       
-      console.log(`Fetched ${markers.length} activity markers`);
+      console.log(`Fetched ${markers.length} activity markers from ${featuredProviders.size} featured apps`);
       
       // Sort by timestamp, newest first
       markers.sort((a, b) => new Date(b.payload.timestamp || b.created_at).getTime() - 
