@@ -37,6 +37,7 @@ export type Database = {
           cip_number: string
           cip_type: string | null
           created_at: string
+          explorer_url: string | null
           github_link: string | null
           id: string
           requires_onchain_vote: boolean
@@ -50,6 +51,7 @@ export type Database = {
           cip_number: string
           cip_type?: string | null
           created_at?: string
+          explorer_url?: string | null
           github_link?: string | null
           id?: string
           requires_onchain_vote?: boolean
@@ -63,6 +65,7 @@ export type Database = {
           cip_number?: string
           cip_type?: string | null
           created_at?: string
+          explorer_url?: string | null
           github_link?: string | null
           id?: string
           requires_onchain_vote?: boolean

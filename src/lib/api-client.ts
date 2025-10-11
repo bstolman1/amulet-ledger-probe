@@ -319,7 +319,7 @@ export interface AcsSnapshotTimestampResponse {
 export interface StateAcsRequest {
   migration_id: number;
   record_time: string;
-  after?: number;
+  after_contract_id?: string;
   page_size: number;
   party_ids?: string[];
   templates?: string[];
