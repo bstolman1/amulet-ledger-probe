@@ -525,6 +525,7 @@ export const scanApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch updates");
     return response.json();
@@ -960,43 +961,70 @@ export const scanApi = {
 
   /**
    * Fetch round totals for a specific range of rounds.
+   * Note: Uses v0 endpoint. Consider migrating to derive from v2/updates.
    */
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
-    const response = await fetch(`${API_BASE}/v0/list-round-totals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch round totals");
-    return response.json();
+    try {
+      const response = await fetch(`${API_BASE}/v0/list-round-totals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        mode: "cors",
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch round totals: ${response.status} ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error("Error fetching round totals:", error);
+      throw error;
+    }
   },
 
   /**
    * Fetch round party totals for a specific range of rounds.
+   * Note: Uses v0 endpoint. Consider migrating to derive from v2/updates.
    */
   async fetchRoundPartyTotals(request: RoundPartyTotalsRequest): Promise<RoundPartyTotalsResponse> {
-    const response = await fetch(`${API_BASE}/v0/list-round-party-totals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch round party totals");
-    return response.json();
+    try {
+      const response = await fetch(`${API_BASE}/v0/list-round-party-totals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+        mode: "cors",
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch round party totals: ${response.status} ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error("Error fetching round party totals:", error);
+      throw error;
+    }
   },
 
   /**
    * Fetch top providers by app rewards.
+   * Note: Uses v0 endpoint. Consider migrating to derive from v2/updates.
    */
   async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
-    const params = new URLSearchParams();
-    params.append("limit", limit.toString());
-    const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch top providers");
-    return response.json();
+    try {
+      const params = new URLSearchParams();
+      params.append("limit", limit.toString());
+      const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, {
+        mode: "cors",
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch top providers: ${response.status} ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error("Error fetching top providers:", error);
+      throw error;
+    }
   },
 
   /**
