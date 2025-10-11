@@ -181,7 +181,16 @@ const Validators = () => {
     validator => !svParticipantIds.has(validator.provider)
   ) || [];
   
-  const totalValidators = activeValidatorsOnly.length;
+  // Remove duplicates by creating a map with provider as key
+  const uniqueValidatorsMap = new Map();
+  activeValidatorsOnly.forEach(validator => {
+    if (!uniqueValidatorsMap.has(validator.provider)) {
+      uniqueValidatorsMap.set(validator.provider, validator);
+    }
+  });
+  const uniqueActiveValidators = Array.from(uniqueValidatorsMap.values());
+  
+  const totalValidators = uniqueActiveValidators.length;
   const totalRewardWeight = superValidators.reduce((sum, sv) => sum + sv.rewardWeight, 0);
   const primaryOperatorsCount = operators.length;
   const totalSuperValidators = superValidators.length;
@@ -362,10 +371,10 @@ const Validators = () => {
                 {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-40 w-full" />)}
               </div> : isError ? <div className="text-center p-8">
                 <p className="text-muted-foreground">Unable to load validator data. The API endpoint may be unavailable.</p>
-              </div> : !activeValidatorsOnly.length ? <div className="text-center p-8">
+              </div> : !uniqueActiveValidators.length ? <div className="text-center p-8">
                 <p className="text-muted-foreground">No non-SV validator data available</p>
               </div> : <div className="space-y-4">
-                {activeValidatorsOnly.map((validator, index) => {
+                {uniqueActiveValidators.map((validator, index) => {
               const rank = index + 1;
               return <div key={validator.provider} className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50">
                       <div className="flex items-start justify-between mb-4">
