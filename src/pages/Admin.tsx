@@ -10,6 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useNavigate } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
 
 interface SVVote {
   organization: string;
@@ -37,6 +39,12 @@ interface FeaturedAppCommitteeVote {
 
 const Admin = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  
+  // Authentication state
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   // CIP-related state
   const [cipNumber, setCipNumber] = useState("");
@@ -74,12 +82,56 @@ const Admin = () => {
   const [cipHistory, setCipHistory] = useState<any[]>([]);
   const [featuredAppHistory, setFeaturedAppHistory] = useState<any[]>([]);
 
+  // Check authentication and authorization
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      
+      if (!session) {
+        setLoading(false);
+        navigate("/auth");
+        return;
+      }
+      
+      // Check admin role
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Error checking admin role:', error);
+        setLoading(false);
+        return;
+      }
+      
+      setIsAdmin(!!data);
+      setLoading(false);
+    };
+    
+    checkAuth();
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) {
+        navigate("/auth");
+      }
+    });
+    
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+  
   // Fetch CIP types on mount
   useEffect(() => {
-    fetchCipTypes();
-    fetchCipHistory();
-    fetchFeaturedAppHistory();
-  }, []);
+    if (isAdmin) {
+      fetchCipTypes();
+      fetchCipHistory();
+      fetchFeaturedAppHistory();
+    }
+  }, [isAdmin]);
 
   const fetchCipTypes = async () => {
     try {
@@ -509,6 +561,43 @@ const Admin = () => {
       description: "Ready to create a new featured app vote",
     });
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Unauthorized state
+  if (!session || !isAdmin) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Card className="max-w-md">
+            <CardHeader>
+              <CardTitle>Unauthorized</CardTitle>
+              <CardDescription>
+                You do not have permission to access this page. Admin access is required.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => navigate("/auth")} className="w-full">
+                Go to Sign In
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
