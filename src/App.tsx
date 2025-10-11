@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Validators from "./pages/Validators";
+import ValidatorLiveness from "./pages/ValidatorLiveness";
 import MiningRounds from "./pages/MiningRounds";
 import RoundStats from "./pages/RoundStats";
 import ANS from "./pages/ANS";
@@ -41,6 +42,7 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/validators" element={<Validators />} />
+          <Route path="/validator-liveness" element={<ValidatorLiveness />} />
           <Route path="/mining-rounds" element={<MiningRounds />} />
           <Route path="/round-stats" element={<RoundStats />} />
           <Route path="/ans" element={<ANS />} />

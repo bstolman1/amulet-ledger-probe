@@ -488,6 +488,23 @@ export interface ActivityMarker {
   domain_id?: string;
 }
 
+export interface ValidatorLivenessActivityRecordsResponse {
+  records: ValidatorLivenessActivityRecord[];
+}
+
+export interface ValidatorLivenessActivityRecord {
+  contract_id: string;
+  template_id: string;
+  created_at: string;
+  payload: {
+    dso: string;
+    validator: string;
+    round: {
+      number: number;
+    };
+  };
+}
+
 // API Client Functions
 export const scanApi = {
   async fetchUpdates(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
@@ -1215,6 +1232,68 @@ export const scanApi = {
     } catch (error) {
       console.error("Error fetching activity markers:", error);
       return { markers: [] };
+    }
+  },
+
+  async fetchValidatorLivenessActivityRecords(): Promise<ValidatorLivenessActivityRecordsResponse> {
+    try {
+      console.log("Fetching validator liveness activity records...");
+      
+      const { record_time, migration_id } = await this.fetchAcsSnapshotTimestamp();
+      
+      const records: ValidatorLivenessActivityRecord[] = [];
+      let hasMore = true;
+      let afterContractId: string | undefined = undefined;
+      
+      // Query ValidatorLivenessActivityRecord contracts
+      while (hasMore) {
+        const request: StateAcsRequest = {
+          migration_id,
+          record_time,
+          page_size: 1000,
+          after_contract_id: afterContractId,
+          templates: [
+            "Splice.Amulet:ValidatorLivenessActivityRecord"
+          ]
+        };
+        
+        const response = await this.fetchStateAcs(request);
+        
+        for (const ev of response.created_events) {
+          const payload = ev.create_arguments || {};
+          records.push({
+            contract_id: ev.contract_id,
+            template_id: ev.template_id,
+            created_at: ev.created_at,
+            payload: {
+              dso: payload.dso || "",
+              validator: payload.validator || "",
+              round: payload.round || { number: 0 }
+            }
+          });
+        }
+        
+        // Check if there's more data to fetch
+        if (response.created_events.length === 1000 && response.created_events.length > 0) {
+          afterContractId = response.created_events[response.created_events.length - 1].contract_id;
+        } else {
+          hasMore = false;
+        }
+      }
+      
+      console.log(`Fetched ${records.length} validator liveness activity records`);
+      
+      // Sort by round number descending, then by created_at
+      records.sort((a, b) => {
+        const roundDiff = b.payload.round.number - a.payload.round.number;
+        if (roundDiff !== 0) return roundDiff;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      
+      return { records };
+    } catch (error) {
+      console.error("Error fetching validator liveness activity records:", error);
+      return { records: [] };
     }
   },
 };
