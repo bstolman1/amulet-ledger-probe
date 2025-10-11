@@ -53,65 +53,86 @@ const Stats = () => {
   // Usage statistics via transactions API
   const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
 
-  // Fetch transactions to analyze subnet distribution
-  const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
-    queryKey: ["subnetTransactions"],
+  // Fetch updates to analyze cross-subnet (intersubnet) transactions
+  const { data: crossSubnetData, isLoading: crossSubnetLoading } = useQuery({
+    queryKey: ["crossSubnetTransactions"],
     queryFn: async () => {
-      const allTransactions = [];
+      const allUpdates = [];
       let hasMore = true;
-      let lastEventId = undefined;
+      let afterMigrationId = undefined;
+      let afterRecordTime = undefined;
       let pageCount = 0;
       const maxPages = 50; // Limit to avoid too many requests
       
       while (hasMore && pageCount < maxPages) {
-        const response = await scanApi.fetchTransactions({
-          page_end_event_id: lastEventId,
+        const response = await scanApi.fetchUpdates({
+          after: afterMigrationId && afterRecordTime ? {
+            after_migration_id: afterMigrationId,
+            after_record_time: afterRecordTime,
+          } : undefined,
           page_size: 100,
-          sort_order: "desc",
         });
         
         if (response.transactions.length === 0) {
           hasMore = false;
         } else {
-          allTransactions.push(...response.transactions);
-          lastEventId = response.transactions[response.transactions.length - 1].event_id;
+          allUpdates.push(...response.transactions);
+          const lastUpdate = response.transactions[response.transactions.length - 1];
+          if ('migration_id' in lastUpdate && 'record_time' in lastUpdate) {
+            afterMigrationId = lastUpdate.migration_id;
+            afterRecordTime = lastUpdate.record_time;
+          }
           pageCount++;
         }
       }
       
-      return allTransactions;
+      return allUpdates;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
-  // Calculate subnet distribution
-  const subnetDistribution = transactionsData?.reduce((acc, tx) => {
-    const domainId = tx.domain_id;
-    if (!acc[domainId]) {
-      acc[domainId] = 0;
+  // Analyze cross-subnet transactions (reassignments)
+  const crossSubnetStats = crossSubnetData?.reduce((acc, update) => {
+    // Check if this is a reassignment event
+    if ('event' in update) {
+      const event = update.event;
+      let sourceSynchronizer = '';
+      let targetSynchronizer = '';
+      
+      if ('source_synchronizer' in event && 'target_synchronizer' in event) {
+        sourceSynchronizer = event.source_synchronizer;
+        targetSynchronizer = event.target_synchronizer;
+        
+        const key = `${sourceSynchronizer} → ${targetSynchronizer}`;
+        if (!acc.routes[key]) {
+          acc.routes[key] = {
+            source: sourceSynchronizer,
+            target: targetSynchronizer,
+            count: 0,
+          };
+        }
+        acc.routes[key].count++;
+        acc.totalCrossSubnet++;
+      }
     }
-    acc[domainId]++;
     return acc;
-  }, {} as Record<string, number>) || {};
+  }, { 
+    routes: {} as Record<string, { source: string; target: string; count: number }>,
+    totalCrossSubnet: 0 
+  }) || { routes: {}, totalCrossSubnet: 0 };
 
-  const subnetChartData = Object.entries(subnetDistribution)
-    .map(([domain, count]) => {
-      const txCount = Number(count);
-      const totalTx = transactionsData?.length || 1;
-      return {
-        subnet: domain.split('.').slice(0, 2).join('.') + '...', // Shorten for display
-        fullSubnet: domain,
-        transactions: txCount,
-        percentage: transactionsData && transactionsData.length > 0 
-          ? ((txCount / totalTx) * 100).toFixed(1) 
-          : '0',
-      };
-    })
-    .sort((a, b) => {
-      const aCount = Number(a.transactions);
-      const bCount = Number(b.transactions);
-      return bCount - aCount;
-    });
+  const crossSubnetChartData = Object.values(crossSubnetStats.routes)
+    .map((route: { source: string; target: string; count: number }) => ({
+      route: `${route.source.split('.')[0]}... → ${route.target.split('.')[0]}...`,
+      fullRoute: `${route.source} → ${route.target}`,
+      source: route.source,
+      target: route.target,
+      transactions: route.count,
+      percentage: crossSubnetStats.totalCrossSubnet > 0 
+        ? ((route.count / crossSubnetStats.totalCrossSubnet) * 100).toFixed(1) 
+        : '0',
+    }))
+    .sort((a, b) => b.transactions - a.transactions);
 
   // Calculate rounds per day based on recent data
   const roundsPerDay = roundTotals?.entries.length 
@@ -954,37 +975,46 @@ const Stats = () => {
             </Card>
           </div>
 
-          {/* Subnet Distribution Section */}
+          {/* Cross-Subnet Transaction Section */}
           <Card className="glass-card">
             <div className="p-6">
-              <h4 className="text-lg font-semibold mb-2">Transaction Distribution by Subnet</h4>
+              <h4 className="text-lg font-semibold mb-2">Cross-Subnet (Intersubnet) Transactions</h4>
               <p className="text-sm text-muted-foreground mb-4">
-                Shows the last {transactionsData?.length.toLocaleString() || 0} transactions analyzed across different synchronizers
+                Tracks transactions that move between different synchronizers via reassignment events.
+                Analyzed {crossSubnetData?.length.toLocaleString() || 0} updates, found {crossSubnetStats.totalCrossSubnet.toLocaleString()} cross-subnet transfers.
               </p>
-              {transactionsLoading ? (
+              {crossSubnetLoading ? (
                 <Skeleton className="h-[300px] w-full" />
-              ) : !transactionsData || transactionsData.length === 0 ? (
+              ) : !crossSubnetData || crossSubnetStats.totalCrossSubnet === 0 ? (
                 <div className="h-[300px] flex items-center justify-center">
-                  <p className="text-muted-foreground">No transaction data available</p>
+                  <div className="text-center">
+                    <p className="text-muted-foreground mb-2">No cross-subnet transactions found</p>
+                    <p className="text-xs text-muted-foreground">
+                      {crossSubnetData ? 'All transactions are happening within single subnets' : 'Loading data...'}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <>
                   <ChartContainer
                     config={{
                       transactions: {
-                        label: "Transactions",
+                        label: "Cross-Subnet Transactions",
                         color: "hsl(var(--chart-4))",
                       },
                     }}
                     className="h-[300px] w-full"
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={subnetChartData}>
+                      <BarChart data={crossSubnetChartData}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
                         <XAxis 
-                          dataKey="subnet" 
+                          dataKey="route" 
                           className="text-xs"
                           tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
                         />
                         <YAxis 
                           className="text-xs"
@@ -995,17 +1025,28 @@ const Stats = () => {
                             if (active && payload && payload.length) {
                               const data = payload[0].payload;
                               return (
-                                <div className="rounded-lg border bg-background p-2 shadow-sm">
-                                  <div className="flex flex-col gap-1">
-                                    <span className="text-xs font-mono text-muted-foreground break-all max-w-[300px]">
-                                      {data.fullSubnet}
-                                    </span>
-                                    <span className="text-sm font-bold">
-                                      {data.transactions.toLocaleString()} transactions
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                      {data.percentage}% of total
-                                    </span>
+                                <div className="rounded-lg border bg-background p-3 shadow-sm max-w-[400px]">
+                                  <div className="flex flex-col gap-2">
+                                    <div className="space-y-1">
+                                      <p className="text-xs font-semibold text-muted-foreground">Source:</p>
+                                      <p className="text-xs font-mono text-foreground break-all">
+                                        {data.source}
+                                      </p>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <p className="text-xs font-semibold text-muted-foreground">Target:</p>
+                                      <p className="text-xs font-mono text-foreground break-all">
+                                        {data.target}
+                                      </p>
+                                    </div>
+                                    <div className="pt-2 border-t">
+                                      <span className="text-sm font-bold">
+                                        {data.transactions.toLocaleString()} transfers
+                                      </span>
+                                      <span className="text-xs text-muted-foreground ml-2">
+                                        ({data.percentage}% of cross-subnet)
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -1023,30 +1064,43 @@ const Stats = () => {
                   </ChartContainer>
                   
                   <div className="mt-6 space-y-2">
-                    <h4 className="text-sm font-semibold text-muted-foreground">Subnet Breakdown</h4>
-                    {subnetChartData.map((subnet, index) => (
+                    <h4 className="text-sm font-semibold text-muted-foreground">Cross-Subnet Routes</h4>
+                    {crossSubnetChartData.map((route, index) => (
                       <div
-                        key={subnet.fullSubnet}
-                        className="p-3 rounded-lg bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                        key={route.fullRoute}
+                        className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm mb-1">Subnet {index + 1}</p>
-                          <p className="text-xs text-muted-foreground font-mono truncate">
-                            {subnet.fullSubnet}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-4 ml-4">
-                          <div className="text-right">
-                            <p className="text-xs text-muted-foreground">Transactions</p>
-                            <Badge variant="outline" className="mt-1">
-                              {subnet.transactions.toLocaleString()}
-                            </Badge>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <p className="font-medium text-sm">Route {index + 1}</p>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">Source</Badge>
+                                <p className="text-xs text-muted-foreground font-mono truncate">
+                                  {route.source}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">Target</Badge>
+                                <p className="text-xs text-muted-foreground font-mono truncate">
+                                  {route.target}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xs text-muted-foreground">Percentage</p>
-                            <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
-                              {subnet.percentage}%
-                            </Badge>
+                          <div className="flex items-center gap-4 shrink-0">
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Transfers</p>
+                              <Badge variant="outline" className="mt-1">
+                                {route.transactions.toLocaleString()}
+                              </Badge>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Share</p>
+                              <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
+                                {route.percentage}%
+                              </Badge>
+                            </div>
                           </div>
                         </div>
                       </div>
