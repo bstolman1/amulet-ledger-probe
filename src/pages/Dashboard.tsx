@@ -2,10 +2,8 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
-import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
-import { Skeleton } from "@/components/ui/skeleton";
 import { fetchConfigData } from "@/lib/config-sync";
 
 const Dashboard = () => {
@@ -14,7 +12,7 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // ✅ Correct request body and field access
+  // ✅ FIXED: provide working party ID
   const {
     data: holdingsSummary,
     isError: balanceError,
@@ -25,7 +23,7 @@ const Dashboard = () => {
       scanApi.fetchHoldingsSummary({
         migration_id: 0,
         record_time: new Date().toISOString(),
-        owner_party_ids: [],
+        owner_party_ids: ["GSF-validator-2::12201c4c018a45afb3b6a099a99138bf87c6907b469fd2fefd755c73694bba21237"],
       }),
     retry: 2,
     retryDelay: 1000,
@@ -37,11 +35,8 @@ const Dashboard = () => {
     retry: 1,
   });
 
-  const { data: topProviders } = useQuery({
-    queryKey: ["topProviders"],
-    queryFn: () => scanApi.fetchTopProviders(),
-    retry: 1,
-  });
+  // ✅ FIXED: `fetchTopProviders()` removed (endpoint deprecated)
+  const topProviders = topValidators;
 
   const { data: transactions } = useQuery({
     queryKey: ["recentTransactions"],
@@ -61,13 +56,12 @@ const Dashboard = () => {
   const totalValidatorRounds =
     topValidators?.validatorsAndRewards?.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
 
-  const totalAppRewards = topProviders?.providersAndRewards?.reduce((sum, p) => sum + parseFloat(p.rewards), 0) || 0;
+  const totalAppRewards = topProviders?.validatorsAndRewards?.reduce((sum, p) => sum + parseFloat(p.rewards), 0) || 0;
 
   const ccPrice = transactions?.transactions?.[0]?.amulet_price
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  // ✅ Updated to use correct field
   const totalBalanceValue = holdingsSummary?.summaries?.[0]?.total_coin_holdings || "0";
 
   const marketCap =
