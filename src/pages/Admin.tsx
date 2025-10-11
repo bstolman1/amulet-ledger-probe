@@ -629,21 +629,6 @@ const Admin = () => {
               </div>
             </div>
             
-            {requiresOnchainVote && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="explorerUrl">On-chain Vote Explorer URL</Label>
-                <Input
-                  id="explorerUrl"
-                  value={explorerUrl}
-                  onChange={(e) => setExplorerUrl(e.target.value)}
-                  placeholder="https://scan.sv-1.global.canton.network.sync.global/..."
-                />
-                <p className="text-xs text-muted-foreground">
-                  Link to the on-chain vote in the Canton Network Explorer
-                </p>
-              </div>
-            )}
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="voteStart">Vote Start Date</Label>
@@ -929,6 +914,32 @@ const Admin = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* On-chain Vote Explorer URL */}
+        {requiresOnchainVote && (
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle>On-chain Vote Explorer URL</CardTitle>
+              <CardDescription>
+                Link to the on-chain vote in the Canton Network Explorer
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="explorerUrl">Explorer URL</Label>
+                <Input
+                  id="explorerUrl"
+                  value={explorerUrl}
+                  onChange={(e) => setExplorerUrl(e.target.value)}
+                  placeholder="https://scan.sv-1.global.canton.network.sync.global/..."
+                />
+              </div>
+              <Button onClick={handleNewCIP} variant="outline">
+                Save Explorer URL
+              </Button>
+            </CardContent>
+          </Card>
+        )}
           </TabsContent>
 
           {/* Featured App Votes Tab */}
