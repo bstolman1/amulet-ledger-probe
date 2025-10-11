@@ -471,6 +471,27 @@ export interface AmuletConfigForRoundResponse {
   amulet_config: any;
 }
 
+export interface ActivityMarkersResponse {
+  markers: ActivityMarker[];
+}
+
+export interface ActivityMarker {
+  contract_id: string;
+  template_id: string;
+  created_at: string;
+  payload: {
+    dso: string;
+    provider: string;
+    timestamp: string;
+    userAmount?: string;
+    beneficiaries?: Array<{
+      party: string;
+      weight: string;
+    }>;
+  };
+  domain_id?: string;
+}
+
 // API Client Functions
 export const scanApi = {
   async fetchUpdates(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
@@ -1126,6 +1147,66 @@ export const scanApi = {
     } catch (error) {
       console.error("Error fetching governance proposals:", error);
       return [];
+    }
+  },
+
+  async fetchActivityMarkers(): Promise<ActivityMarkersResponse> {
+    try {
+      console.log("Fetching activity markers...");
+      const { record_time, migration_id } = await this.fetchAcsSnapshotTimestamp();
+      
+      const markers: ActivityMarker[] = [];
+      let hasMore = true;
+      let afterContractId: string | undefined = undefined;
+      
+      // Query FeaturedAppActivityMarker contracts
+      while (hasMore) {
+        const request: StateAcsRequest = {
+          migration_id,
+          record_time,
+          page_size: 1000,
+          after_contract_id: afterContractId,
+          templates: [
+            "Splice.Api.FeaturedAppRightV1:FeaturedAppActivityMarker"
+          ]
+        };
+        
+        const response = await this.fetchStateAcs(request);
+        
+        for (const ev of response.created_events) {
+          const payload = ev.create_arguments || {};
+          markers.push({
+            contract_id: ev.contract_id,
+            template_id: ev.template_id,
+            created_at: ev.created_at,
+            payload: {
+              dso: payload.dso || "",
+              provider: payload.provider || "",
+              timestamp: payload.timestamp || ev.created_at,
+              userAmount: payload.userAmount,
+              beneficiaries: payload.beneficiaries || []
+            }
+          });
+        }
+        
+        // Check if there's more data to fetch
+        if (response.created_events.length === 1000 && response.created_events.length > 0) {
+          afterContractId = response.created_events[response.created_events.length - 1].contract_id;
+        } else {
+          hasMore = false;
+        }
+      }
+      
+      console.log(`Fetched ${markers.length} activity markers`);
+      
+      // Sort by timestamp, newest first
+      markers.sort((a, b) => new Date(b.payload.timestamp || b.created_at).getTime() - 
+                            new Date(a.payload.timestamp || a.created_at).getTime());
+      
+      return { markers };
+    } catch (error) {
+      console.error("Error fetching activity markers:", error);
+      return { markers: [] };
     }
   },
 };
