@@ -9,20 +9,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchConfigData } from "@/lib/config-sync";
 
 const Dashboard = () => {
-  // Latest round (v2-compatible)
+  // Latest round
   const { data: latestRound } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // ✅ Replace deprecated fetchTotalBalance with fetchHoldingsSummary
+  // ✅ Updated for v2 API
   const {
     data: holdingsSummary,
     isError: balanceError,
     isLoading: balanceLoading,
   } = useQuery({
     queryKey: ["holdingsSummary"],
-    queryFn: () => scanApi.fetchHoldingsSummary(),
+    queryFn: () => scanApi.fetchHoldingsSummary({}),
     retry: 2,
     retryDelay: 1000,
   });
@@ -39,7 +39,6 @@ const Dashboard = () => {
     retry: 1,
   });
 
-  // Transactions now come from /v2/updates (handled internally)
   const { data: transactions } = useQuery({
     queryKey: ["recentTransactions"],
     queryFn: () =>
@@ -55,7 +54,7 @@ const Dashboard = () => {
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  // --- Data Calculations ---
+  // --- Derived values ---
   const totalValidatorRounds =
     topValidators?.validatorsAndRewards?.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
 
@@ -65,8 +64,8 @@ const Dashboard = () => {
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  // ✅ Use holdingsSummary instead of totalBalance
-  const totalBalanceValue = holdingsSummary?.total_balance || holdingsSummary?.balance || "0";
+  // ✅ Updated v2 field
+  const totalBalanceValue = holdingsSummary?.summary?.total_holdings || "0";
 
   const marketCap =
     totalBalanceValue && ccPrice !== undefined
