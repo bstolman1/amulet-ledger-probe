@@ -184,11 +184,21 @@ const Governance = () => {
                         <div className="gradient-accent p-2 rounded-lg">
                           {getStatusIcon(proposal.status)}
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <h4 className="font-semibold text-lg">{proposal.title}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Proposal #{proposal.id}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm text-muted-foreground">
+                              Proposal #{proposal.id}
+                            </p>
+                            {proposal.requester && proposal.requester !== 'Unknown' && (
+                              <>
+                                <span className="text-muted-foreground">•</span>
+                                <p className="text-xs text-muted-foreground">
+                                  by {proposal.requester.split('::')[0]}
+                                </p>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <Badge className={getStatusColor(proposal.status)}>
@@ -196,9 +206,14 @@ const Governance = () => {
                       </Badge>
                     </div>
 
-                    <p className="text-muted-foreground mb-4">{proposal.description}</p>
+                    <p className="text-muted-foreground mb-2">{proposal.description}</p>
+                    {proposal.reason && (
+                      <p className="text-sm text-muted-foreground/80 mb-4 italic">
+                        Reason: {proposal.reason}
+                      </p>
+                    )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="p-3 rounded-lg bg-background/50">
                         <p className="text-xs text-muted-foreground mb-1">For</p>
                         <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
@@ -211,6 +226,12 @@ const Governance = () => {
                         <p className="text-xs text-muted-foreground mb-1">Created</p>
                         <p className="text-sm font-mono">{new Date(proposal.createdAt).toLocaleDateString()}</p>
                       </div>
+                      {proposal.completedAt && (
+                        <div className="p-3 rounded-lg bg-background/50">
+                          <p className="text-xs text-muted-foreground mb-1">Completed</p>
+                          <p className="text-sm font-mono">{new Date(proposal.completedAt).toLocaleDateString()}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

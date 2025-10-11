@@ -952,20 +952,41 @@ export const scanApi = {
       // Get a snapshot timestamp as of the latest round effective time
       const snap = await this.fetchAcsSnapshotTimestamp(latest.effectiveAt, 0);
 
-      const acs = await this.fetchStateAcs({
-        migration_id: 0,
-        record_time: snap.record_time,
-        page_size: 1000,
-        templates: [
-          "Splice.DsoRules:VoteRequest",
-          "Splice.DsoRules:DsoRules_CloseVoteRequestResult",
-        ],
-      });
+      // Fetch all pages of ACS data
+      const allEvents = [];
+      let hasMore = true;
+      let afterContractId: string | undefined = undefined;
+
+      while (hasMore) {
+        const acs = await this.fetchStateAcs({
+          migration_id: 0,
+          record_time: snap.record_time,
+          page_size: 1000,
+          after_contract_id: afterContractId,
+          templates: [
+            "Splice.DsoRules:VoteRequest",
+            "Splice.DsoRules:DsoRules_CloseVoteRequestResult",
+          ],
+        });
+
+        allEvents.push(...acs.created_events);
+
+        // Check if there are more pages
+        if (acs.created_events.length < 1000) {
+          hasMore = false;
+        } else {
+          // Get the last contract ID for pagination
+          const lastEvent = acs.created_events[acs.created_events.length - 1];
+          afterContractId = lastEvent.contract_id;
+        }
+      }
 
       const proposals: any[] = [];
       const byContract: Record<string, any> = {};
+      const voteRequestTrackingIds: Record<string, string> = {}; // Map trackingCid to contract_id
 
-      for (const ev of acs.created_events) {
+      // First pass: Process all VoteRequest contracts
+      for (const ev of allEvents) {
         const templateId = ev.template_id || "";
         const cid = ev.contract_id;
         const payload = ev.create_arguments || {};
@@ -976,40 +997,114 @@ export const scanApi = {
           const votesFor = Object.values(votes).filter((v: any) => v?.accept || v?.Accept).length;
           const votesAgainst = Object.values(votes).filter((v: any) => v?.reject || v?.Reject).length;
           const action = payload.action || {};
-          const key = Object.keys(action)[0];
-          const title = key ? key.replace(/ARC_|_/g, " ") : "Governance Proposal";
+          
+          // Extract better titles from different action types
+          let title = "Governance Proposal";
+          let description = "Vote request";
+          
+          const actionKeys = Object.keys(action);
+          if (actionKeys.length > 0) {
+            const key = actionKeys[0];
+            const actionData = action[key];
+            
+            // Try to extract more meaningful information
+            if (key.includes("ARC_AnsEntryContext")) {
+              title = "ANS Entry Context Update";
+              if (actionData?.cns) {
+                description = `Update ANS entry for ${actionData.cns}`;
+              }
+            } else if (key.includes("ARC_DsoRules")) {
+              title = "DSO Rules Update";
+              if (actionData?.dsoAction) {
+                const dsoActionKey = Object.keys(actionData.dsoAction)[0];
+                if (dsoActionKey.includes("SRARC_OffboardSv")) {
+                  const svName = actionData.dsoAction[dsoActionKey]?.sv || "Unknown";
+                  title = `Offboard Super Validator: ${svName}`;
+                  description = `Operational proposal to offboard ${svName}`;
+                } else if (dsoActionKey.includes("SRARC_OnboardSv")) {
+                  const candidateName = actionData.dsoAction[dsoActionKey]?.candidateName || "Unknown";
+                  title = `Onboard Super Validator: ${candidateName}`;
+                  description = `Proposal to onboard new Super Validator ${candidateName}`;
+                } else if (dsoActionKey.includes("SRARC_SetConfig")) {
+                  title = "Network Configuration Update";
+                  description = "Proposal to update network configuration parameters";
+                }
+                description = `DSO Rules Action: ${dsoActionKey.replace(/SRARC_|_/g, " ")}`;
+              }
+            } else if (key.includes("ARC_AmuletRules")) {
+              title = "Amulet Rules Update";
+              description = "Update to amulet issuance and reward rules";
+            } else {
+              // Generic fallback
+              title = key.replace(/ARC_|_/g, " ");
+            }
+          }
+          
+          // Store the tracking ID mapping
+          if (payload.trackingCid) {
+            voteRequestTrackingIds[payload.trackingCid] = cid;
+          }
 
           byContract[cid] = {
             id: cid.slice(0, 12),
             title,
-            description: "Vote request",
+            description,
             status: "pending",
             votesFor,
             votesAgainst,
             createdAt: ev.created_at,
+            trackingCid: payload.trackingCid,
+            requester: payload.requester || "Unknown",
+            reason: payload.reason?.url || payload.reason || "",
           };
         }
+      }
+
+      // Second pass: Process CloseVoteRequestResult contracts
+      for (const ev of allEvents) {
+        const templateId = ev.template_id || "";
+        const payload = ev.create_arguments || {};
 
         if (templateId.includes("CloseVoteRequestResult")) {
-          // Closed result links to the request via trackingCid if present
+          // Closed result links to the request via trackingCid
+          const trackingCid = payload.request?.trackingCid;
           const outcome = payload.outcome || {};
-          let status = "executed";
-          if (outcome.VRO_Rejected) status = "rejected";
-          if (outcome.VRO_Expired) status = "expired";
+          
+          let status = "approved";
+          if (outcome.VRO_Rejected || outcome.Rejected) status = "rejected";
+          if (outcome.VRO_Expired || outcome.Expired) status = "expired";
+          if (outcome.VRO_Accepted || outcome.Accepted) status = "approved";
 
-          const base = byContract[cid] || { id: cid.slice(0, 12), title: "Governance Proposal" };
-          byContract[cid] = {
-            ...base,
-            status,
-            createdAt: ev.created_at,
-          };
+          // Find the original vote request by tracking ID
+          const originalCid = trackingCid ? voteRequestTrackingIds[trackingCid] : null;
+          
+          if (originalCid && byContract[originalCid]) {
+            // Update the existing proposal with outcome
+            byContract[originalCid].status = status;
+            byContract[originalCid].completedAt = ev.created_at;
+          } else {
+            // Create a standalone result entry if we can't find the original
+            const completedProposal = {
+              id: ev.contract_id.slice(0, 12),
+              title: "Completed Governance Proposal",
+              description: "Voting completed",
+              status,
+              votesFor: 0,
+              votesAgainst: 0,
+              createdAt: ev.created_at,
+              completedAt: ev.created_at,
+            };
+            byContract[ev.contract_id] = completedProposal;
+          }
         }
       }
 
       Object.values(byContract).forEach((p: any) => proposals.push(p));
 
-      // Sort newest first
+      // Sort newest first by creation time
       proposals.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+      console.log(`Fetched ${proposals.length} governance proposals`);
 
       // As a fallback, if nothing found, list recent SV onboardings as executed items
       if (proposals.length === 0 && dso.dso_rules?.contract?.payload?.svs) {
@@ -1019,7 +1114,7 @@ export const scanApi = {
             id: svPartyId.slice(0, 12),
             title: `Super Validator Onboarding: ${svInfo.name}`,
             description: `${svInfo.name} approved at round ${svInfo.joinedAsOfRound?.number || 0}`,
-            status: "executed",
+            status: "approved",
             votesFor: dso.voting_threshold,
             votesAgainst: 0,
             createdAt: dso.dso_rules.contract.created_at,
