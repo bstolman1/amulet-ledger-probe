@@ -513,8 +513,7 @@ Deno.serve(async (req) => {
     console.error('Error calculating rewards summary:', error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        details: error instanceof Error ? error.stack : undefined
+        error: 'Unable to calculate rewards summary. Please try again later.'
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
