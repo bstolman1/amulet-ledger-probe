@@ -187,8 +187,7 @@ export interface GetTopProvidersByAppRewardsResponse {
 }
 
 export interface PartyAndRewards {
-  provider?: string;
-  validator?: string;
+  provider: string;
   rewards: string;
   firstCollectedInRound?: number;
 }
