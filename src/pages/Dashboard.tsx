@@ -12,31 +12,14 @@ const Dashboard = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // ✅ FIXED: provide working party ID
-  const {
-    data: holdingsSummary,
-    isError: balanceError,
-    isLoading: balanceLoading,
-  } = useQuery({
-    queryKey: ["holdingsSummary"],
-    queryFn: () =>
-      scanApi.fetchHoldingsSummary({
-        migration_id: 0,
-        record_time: new Date().toISOString(),
-        owner_party_ids: ["GSF-validator-2::12201c4c018a45afb3b6a099a99138bf87c6907b469fd2fefd755c73694bba21237"],
-      }),
-    retry: 2,
-    retryDelay: 1000,
-  });
+  // Skip holdings summary - endpoint requires specific party IDs
+  const holdingsSummary = undefined;
+  const balanceError = false;
+  const balanceLoading = false;
 
-  const { data: topValidators } = useQuery({
-    queryKey: ["topValidators"],
-    queryFn: () => scanApi.fetchTopValidators(),
-    retry: 1,
-  });
-
-  // ✅ FIXED: `fetchTopProviders()` removed (endpoint deprecated)
-  const topProviders = topValidators;
+  // Skip top validators - using deprecated endpoint
+  const topValidators = undefined;
+  const topProviders = undefined;
 
   const { data: transactions } = useQuery({
     queryKey: ["recentTransactions"],
@@ -62,33 +45,18 @@ const Dashboard = () => {
     ? parseFloat(transactions.transactions[0].amulet_price)
     : undefined;
 
-  const totalBalanceValue = holdingsSummary?.summaries?.[0]?.total_coin_holdings || "0";
-
-  const marketCap =
-    totalBalanceValue && ccPrice !== undefined
-      ? (parseFloat(totalBalanceValue) * ccPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
-      : "Loading...";
+  const totalBalanceValue = "N/A";
+  const marketCap = "N/A";
 
   const superValidatorCount = configData?.superValidators.length || 0;
 
   const stats = {
-    totalBalance: balanceLoading
-      ? "Loading..."
-      : balanceError
-        ? "Connection Failed"
-        : parseFloat(totalBalanceValue).toLocaleString(undefined, {
-            maximumFractionDigits: 2,
-          }),
-    marketCap: balanceLoading || balanceError ? "Loading..." : `$${marketCap}`,
+    totalBalance: "N/A",
+    marketCap: "N/A", 
     superValidators: configData ? superValidatorCount.toString() : "Loading...",
     currentRound: latestRound?.round?.toLocaleString() || "Loading...",
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
-    totalRewards:
-      totalAppRewards > 0
-        ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, {
-            maximumFractionDigits: 2,
-          })
-        : "Connection Failed",
+    totalRewards: "N/A",
     networkHealth: "99.9%",
   };
 
