@@ -103,12 +103,19 @@ const Stats = () => {
     const now = new Date();
     const networkStart = new Date('2024-06-01T00:00:00Z');
 
+    // Helper function for consistent date formatting
+    const formatMonth = (date: Date) => {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[date.getMonth()]} ${date.getFullYear()}`;
+    };
+
     // Initialize months from network start to now
-    const iter = new Date(networkStart.getFullYear(), networkStart.getMonth(), 1);
-    while (iter <= now) {
-      const monthKey = iter.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+    const iter = new Date(Date.UTC(networkStart.getFullYear(), networkStart.getMonth(), 1));
+    const nowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    while (iter <= nowUTC) {
+      const monthKey = formatMonth(iter);
       monthlyData[monthKey] = 0;
-      iter.setMonth(iter.getMonth() + 1);
+      iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
     // Calculate join dates for validators
@@ -118,7 +125,7 @@ const Stats = () => {
       const joinDate = new Date(now.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
 
       if (joinDate >= networkStart) {
-        const monthKey = joinDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        const monthKey = formatMonth(joinDate);
         if (monthlyData.hasOwnProperty(monthKey)) {
           monthlyData[monthKey]++;
         }
