@@ -2,8 +2,7 @@
 const DEFAULT_API_BASE = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
 // Get API base URL from environment or use default
-import { API_BASE } from "@/config";
-import type { GetTopProvidersByAppRewardsResponse } from "@/types";
+const API_BASE = import.meta.env.VITE_SCAN_API_URL || DEFAULT_API_BASE;
 
 export interface UpdateHistoryRequest {
   after?: {
@@ -508,67 +507,49 @@ export const scanApi = {
   },
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint
-// src/lib/api-client.ts
-
-export const scanApi = {
-  async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
-    const latestRound = await this.fetchLatestRound();
-    const params = new URLSearchParams();
-    params.append("round", latestRound.round.toString());
-    params.append("limit", limit.toString());
-
+  async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
-
     try {
-      const response = await fetch(
-        `${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`,
-        { mode: "cors", signal: controller.signal }
-      );
-      if (!response.ok) throw new Error("Failed to fetch top providers by app rewards");
-      const data = await response.json();
-      if (!Array.isArray(data.providersAndRewards))
-        throw new Error("Unexpected response format for top providers by app rewards");
-      return data as GetTopProvidersByAppRewardsResponse;
+      const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
+        mode: "cors",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Failed to fetch top validators");
+      const data: TopValidatorsByFaucetsResponse = await response.json();
+
+      // Transform the response to match expected format, preserving join data
+      return {
+        validatorsAndRewards: data.validatorsByReceivedFaucets.map((v) => ({
+          provider: v.validator,
+          rewards: v.numRoundsCollected.toString(),
+          firstCollectedInRound: v.firstCollectedInRound,
+        })),
+      };
     } catch (err: any) {
-      if (err?.name === "AbortError") throw new Error("Request timed out");
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
       throw err;
     } finally {
       clearTimeout(timeout);
     }
   },
 
-  async fetchLatestRound() {
-    const response = await fetch(`${API_BASE}/v0/latest-round`, { mode: "cors" });
-    if (!response.ok) throw new Error("Failed to fetch latest round");
-    return response.json();
-  },
-};
-
-  // You can safely add other methods here
-  async fetchLatestRound() {
-    // implement this if it's used above
-    const response = await fetch(`${API_BASE}/v0/latest-round`, { mode: "cors" });
-    if (!response.ok) throw new Error("Failed to fetch latest round");
-    return response.json();
-  },
-};
-
-
-  // Get provider rewards from recent round totals
-export const scanApi = {
+  // ✅ Updated: Get provider rewards directly from top-providers-by-app-rewards for current round (+limit)
   async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
     const latestRound = await this.fetchLatestRound();
     const params = new URLSearchParams();
     params.append("round", latestRound.round.toString());
     params.append("limit", limit.toString());
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(
-        `${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`,
-        { mode: "cors", signal: controller.signal }
-      );
+      const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, {
+        mode: "cors",
+        signal: controller.signal,
+      });
       if (!response.ok) throw new Error("Failed to fetch top providers by app rewards");
       const data = await response.json();
       if (!data.providersAndRewards || !Array.isArray(data.providersAndRewards)) {
@@ -576,13 +557,14 @@ export const scanApi = {
       }
       return data as GetTopProvidersByAppRewardsResponse;
     } catch (err: any) {
-      if (err?.name === "AbortError") throw new Error("Request timed out");
+      if (err?.name === "AbortError") {
+        throw new Error("Request timed out");
+      }
       throw err;
     } finally {
       clearTimeout(timeout);
     }
   },
-};
 
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
     const controller = new AbortController();
@@ -607,7 +589,7 @@ export const scanApi = {
   },
 
   async fetchOpenAndIssuingRounds(
-    request: GetOpenAndIssuingMiningRoundsRequest = {}
+    request: GetOpenAndIssuingMiningRoundsRequest = {},
   ): Promise<GetOpenAndIssuingMiningRoundsResponse> {
     const response = await fetch(`${API_BASE}/v0/open-and-issuing-mining-rounds`, {
       method: "POST",
@@ -650,7 +632,7 @@ export const scanApi = {
       start_round: latestRound.round,
       end_round: latestRound.round,
     });
-    
+
     if (roundTotals.entries.length > 0) {
       return { total_balance: roundTotals.entries[0].total_amulet_balance };
     }
@@ -659,10 +641,10 @@ export const scanApi = {
 
   async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {
     const params = new URLSearchParams();
-    validator_ids.forEach(id => params.append('validator_ids', id));
-    
+    validator_ids.forEach((id) => params.append("validator_ids", id));
+
     const response = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch validator liveness");
     return response.json();
@@ -673,7 +655,7 @@ export const scanApi = {
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(`${API_BASE}/v0/dso`, {
-        mode: 'cors',
+        mode: "cors",
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("Failed to fetch DSO info");
@@ -690,7 +672,7 @@ export const scanApi = {
 
   async fetchScans(): Promise<ScansResponse> {
     const response = await fetch(`${API_BASE}/v0/scans`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch scans");
     return response.json();
@@ -698,11 +680,11 @@ export const scanApi = {
 
   async fetchValidatorLicenses(after?: number, limit: number = 1000): Promise<ValidatorLicensesResponse> {
     const params = new URLSearchParams();
-    if (after !== undefined) params.append('after', after.toString());
-    params.append('limit', limit.toString());
-    
+    if (after !== undefined) params.append("after", after.toString());
+    params.append("limit", limit.toString());
+
     const response = await fetch(`${API_BASE}/v0/admin/validator/licenses?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch validator licenses");
     return response.json();
@@ -710,7 +692,7 @@ export const scanApi = {
 
   async fetchDsoSequencers(): Promise<DsoSequencersResponse> {
     const response = await fetch(`${API_BASE}/v0/dso-sequencers`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch DSO sequencers");
     return response.json();
@@ -718,7 +700,7 @@ export const scanApi = {
 
   async fetchParticipantId(domainId: string, partyId: string): Promise<ParticipantIdResponse> {
     const response = await fetch(`${API_BASE}/v0/domains/${domainId}/parties/${partyId}/participant-id`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch participant ID");
     return response.json();
@@ -726,7 +708,7 @@ export const scanApi = {
 
   async fetchTrafficStatus(domainId: string, memberId: string): Promise<TrafficStatusResponse> {
     const response = await fetch(`${API_BASE}/v0/domains/${domainId}/members/${memberId}/traffic-status`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch traffic status");
     return response.json();
@@ -734,11 +716,11 @@ export const scanApi = {
 
   async fetchAcsSnapshotTimestamp(before: string, migrationId: number): Promise<AcsSnapshotTimestampResponse> {
     const params = new URLSearchParams();
-    params.append('before', before);
-    params.append('migration_id', migrationId.toString());
-    
+    params.append("before", before);
+    params.append("migration_id", migrationId.toString());
+
     const response = await fetch(`${API_BASE}/v0/state/acs/snapshot-timestamp?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch ACS snapshot timestamp");
     return response.json();
@@ -749,7 +731,7 @@ export const scanApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch state ACS");
     return response.json();
@@ -760,7 +742,7 @@ export const scanApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch holdings summary");
     return response.json();
@@ -768,11 +750,11 @@ export const scanApi = {
 
   async fetchAnsEntries(namePrefix?: string, pageSize: number = 100): Promise<AnsEntriesResponse> {
     const params = new URLSearchParams();
-    if (namePrefix) params.append('name_prefix', namePrefix);
-    params.append('page_size', pageSize.toString());
-    
+    if (namePrefix) params.append("name_prefix", namePrefix);
+    params.append("page_size", pageSize.toString());
+
     const response = await fetch(`${API_BASE}/v0/ans-entries?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch ANS entries");
     return response.json();
@@ -780,7 +762,7 @@ export const scanApi = {
 
   async fetchAnsEntryByParty(party: string): Promise<AnsEntryResponse> {
     const response = await fetch(`${API_BASE}/v0/ans-entries/by-party/${party}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch ANS entry by party");
     return response.json();
@@ -788,7 +770,7 @@ export const scanApi = {
 
   async fetchAnsEntryByName(name: string): Promise<AnsEntryResponse> {
     const response = await fetch(`${API_BASE}/v0/ans-entries/by-name/${name}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch ANS entry by name");
     return response.json();
@@ -796,7 +778,7 @@ export const scanApi = {
 
   async fetchDsoPartyId(): Promise<DsoPartyIdResponse> {
     const response = await fetch(`${API_BASE}/v0/dso-party-id`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch DSO party ID");
     return response.json();
@@ -804,7 +786,7 @@ export const scanApi = {
 
   async fetchFeaturedApps(): Promise<FeaturedAppsResponse> {
     const response = await fetch(`${API_BASE}/v0/featured-apps`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch featured apps");
     return response.json();
@@ -812,7 +794,7 @@ export const scanApi = {
 
   async fetchFeaturedApp(providerPartyId: string): Promise<FeaturedAppResponse> {
     const response = await fetch(`${API_BASE}/v0/featured-apps/${providerPartyId}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch featured app");
     return response.json();
@@ -820,10 +802,10 @@ export const scanApi = {
 
   async fetchTopValidatorsByFaucets(limit: number): Promise<TopValidatorsByFaucetsResponse> {
     const params = new URLSearchParams();
-    params.append('limit', limit.toString());
-    
+    params.append("limit", limit.toString());
+
     const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch top validators by faucets");
     return response.json();
@@ -831,7 +813,7 @@ export const scanApi = {
 
   async fetchTransferPreapprovalByParty(party: string): Promise<TransferPreapprovalResponse> {
     const response = await fetch(`${API_BASE}/v0/transfer-preapprovals/by-party/${party}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch transfer preapproval");
     return response.json();
@@ -839,7 +821,7 @@ export const scanApi = {
 
   async fetchTransferCommandCounter(party: string): Promise<TransferCommandCounterResponse> {
     const response = await fetch(`${API_BASE}/v0/transfer-command-counter/${party}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch transfer command counter");
     return response.json();
@@ -847,11 +829,11 @@ export const scanApi = {
 
   async fetchTransferCommandStatus(sender: string, nonce: number): Promise<TransferCommandStatusResponse> {
     const params = new URLSearchParams();
-    params.append('sender', sender);
-    params.append('nonce', nonce.toString());
-    
+    params.append("sender", sender);
+    params.append("nonce", nonce.toString());
+
     const response = await fetch(`${API_BASE}/v0/transfer-command/status?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch transfer command status");
     return response.json();
@@ -859,7 +841,7 @@ export const scanApi = {
 
   async fetchMigrationSchedule(): Promise<MigrationScheduleResponse> {
     const response = await fetch(`${API_BASE}/v0/migrations/schedule`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch migration schedule");
     return response.json();
@@ -867,7 +849,7 @@ export const scanApi = {
 
   async fetchSpliceInstanceNames(): Promise<SpliceInstanceNamesResponse> {
     const response = await fetch(`${API_BASE}/v0/splice-instance-names`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch splice instance names");
     return response.json();
@@ -879,7 +861,7 @@ export const scanApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch v1 updates");
     return response.json();
@@ -887,26 +869,26 @@ export const scanApi = {
 
   async fetchUpdateByIdV1(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
     const params = new URLSearchParams();
-    if (damlValueEncoding) params.append('daml_value_encoding', damlValueEncoding);
-    
-    const url = params.toString() 
+    if (damlValueEncoding) params.append("daml_value_encoding", damlValueEncoding);
+
+    const url = params.toString()
       ? `${API_BASE}/v1/updates/${updateId}?${params.toString()}`
       : `${API_BASE}/v1/updates/${updateId}`;
-    
-    const response = await fetch(url, { mode: 'cors' });
+
+    const response = await fetch(url, { mode: "cors" });
     if (!response.ok) throw new Error("Failed to fetch v1 update by ID");
     return response.json();
   },
 
   async fetchUpdateByIdV2(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
     const params = new URLSearchParams();
-    if (damlValueEncoding) params.append('daml_value_encoding', damlValueEncoding);
-    
-    const url = params.toString() 
+    if (damlValueEncoding) params.append("daml_value_encoding", damlValueEncoding);
+
+    const url = params.toString()
       ? `${API_BASE}/v2/updates/${updateId}?${params.toString()}`
       : `${API_BASE}/v2/updates/${updateId}`;
-    
-    const response = await fetch(url, { mode: 'cors' });
+
+    const response = await fetch(url, { mode: "cors" });
     if (!response.ok) throw new Error("Failed to fetch v2 update by ID");
     return response.json();
   },
@@ -914,20 +896,18 @@ export const scanApi = {
   // Deprecated endpoints
   async fetchAcsSnapshot(party: string, recordTime?: string): Promise<AcsSnapshotResponse> {
     const params = new URLSearchParams();
-    if (recordTime) params.append('record_time', recordTime);
-    
-    const url = params.toString() 
-      ? `${API_BASE}/v0/acs/${party}?${params.toString()}`
-      : `${API_BASE}/v0/acs/${party}`;
-    
-    const response = await fetch(url, { mode: 'cors' });
+    if (recordTime) params.append("record_time", recordTime);
+
+    const url = params.toString() ? `${API_BASE}/v0/acs/${party}?${params.toString()}` : `${API_BASE}/v0/acs/${party}`;
+
+    const response = await fetch(url, { mode: "cors" });
     if (!response.ok) throw new Error("Failed to fetch ACS snapshot");
     return response.json();
   },
 
   async fetchAggregatedRounds(): Promise<AggregatedRoundsResponse> {
     const response = await fetch(`${API_BASE}/v0/aggregated-rounds`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch aggregated rounds");
     return response.json();
@@ -941,11 +921,11 @@ export const scanApi = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-        mode: 'cors',
+        mode: "cors",
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("Failed to fetch round party totals");
-      return response.json();
+      return await response.json();
     } finally {
       clearTimeout(timeout);
     }
@@ -953,11 +933,11 @@ export const scanApi = {
 
   async fetchWalletBalance(partyId: string, asOfEndOfRound: number): Promise<WalletBalanceResponse> {
     const params = new URLSearchParams();
-    params.append('party_id', partyId);
-    params.append('asOfEndOfRound', asOfEndOfRound.toString());
-    
+    params.append("party_id", partyId);
+    params.append("asOfEndOfRound", asOfEndOfRound.toString());
+
     const response = await fetch(`${API_BASE}/v0/wallet-balance?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch wallet balance");
     return response.json();
@@ -965,10 +945,10 @@ export const scanApi = {
 
   async fetchAmuletConfigForRound(round: number): Promise<AmuletConfigForRoundResponse> {
     const params = new URLSearchParams();
-    params.append('round', round.toString());
-    
+    params.append("round", round.toString());
+
     const response = await fetch(`${API_BASE}/v0/amulet-config-for-round?${params.toString()}`, {
-      mode: 'cors',
+      mode: "cors",
     });
     if (!response.ok) throw new Error("Failed to fetch amulet config for round");
     return response.json();
@@ -986,10 +966,7 @@ export const scanApi = {
         migration_id: 0,
         record_time: snap.record_time,
         page_size: 1000,
-        templates: [
-          "Splice.DsoRules:VoteRequest",
-          "Splice.DsoRules:DsoRules_CloseVoteRequestResult",
-        ],
+        templates: ["Splice.DsoRules:VoteRequest", "Splice.DsoRules:DsoRules_CloseVoteRequestResult"],
       });
 
       const proposals: any[] = [];
@@ -1002,10 +979,10 @@ export const scanApi = {
 
         if (templateId.includes("VoteRequest")) {
           // Active vote request
-          const votes = payload.votes || {};
+          const votes = (payload as any).votes || {};
           const votesFor = Object.values(votes).filter((v: any) => v?.accept || v?.Accept).length;
           const votesAgainst = Object.values(votes).filter((v: any) => v?.reject || v?.Reject).length;
-          const action = payload.action || {};
+          const action = (payload as any).action || {};
           const key = Object.keys(action)[0];
           const title = key ? key.replace(/ARC_|_/g, " ") : "Governance Proposal";
 
@@ -1016,13 +993,13 @@ export const scanApi = {
             status: "pending",
             votesFor,
             votesAgainst,
-            createdAt: ev.created_at,
+            createdAt: (ev as any).created_at,
           };
         }
 
         if (templateId.includes("CloseVoteRequestResult")) {
           // Closed result links to the request via trackingCid if present
-          const outcome = payload.outcome || {};
+          const outcome = (payload as any).outcome || {};
           let status = "executed";
           if (outcome.VRO_Rejected) status = "rejected";
           if (outcome.VRO_Expired) status = "expired";
@@ -1031,7 +1008,7 @@ export const scanApi = {
           byContract[cid] = {
             ...base,
             status,
-            createdAt: ev.created_at,
+            createdAt: (ev as any).created_at,
           };
         }
       }
@@ -1039,20 +1016,22 @@ export const scanApi = {
       Object.values(byContract).forEach((p: any) => proposals.push(p));
 
       // Sort newest first
-      proposals.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      proposals.sort(
+        (a, b) => new Date((b as any).createdAt || 0).getTime() - new Date((a as any).createdAt || 0).getTime(),
+      );
 
       // As a fallback, if nothing found, list recent SV onboardings as executed items
-      if (proposals.length === 0 && dso.dso_rules?.contract?.payload?.svs) {
-        const svs = dso.dso_rules.contract.payload.svs;
+      if (proposals.length === 0 && (dso as any).dso_rules?.contract?.payload?.svs) {
+        const svs = (dso as any).dso_rules.contract.payload.svs;
         svs.slice(0, 20).forEach(([svPartyId, svInfo]: [string, any]) => {
           proposals.push({
             id: svPartyId.slice(0, 12),
             title: `Super Validator Onboarding: ${svInfo.name}`,
             description: `${svInfo.name} approved at round ${svInfo.joinedAsOfRound?.number || 0}`,
             status: "executed",
-            votesFor: dso.voting_threshold,
+            votesFor: (dso as any).voting_threshold,
             votesAgainst: 0,
-            createdAt: dso.dso_rules.contract.created_at,
+            createdAt: (dso as any).dso_rules.contract.created_at,
           });
         });
       }
