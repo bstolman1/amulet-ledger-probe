@@ -53,10 +53,21 @@ const Stats = () => {
   // Usage statistics via transactions API
   const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
 
-  // Calculate rounds per day based on recent data
-  const roundsPerDay = roundTotals?.entries.length 
-    ? (roundTotals.entries.length / 1) * 24 // Approximate based on data
-    : 144; // Fallback estimate (10 min per round = 144/day)
+  // Calculate rounds per day based on recent data using timestamps
+  const roundsPerDay = (() => {
+    const entries = roundTotals?.entries || [];
+    if (entries.length >= 2) {
+      const first = entries[0];
+      const last = entries[entries.length - 1];
+      const firstTime = new Date(first.closed_round_effective_at).getTime();
+      const lastTime = new Date(last.closed_round_effective_at).getTime();
+      const roundDiff = Math.max(1, last.closed_round - first.closed_round);
+      const secondsPerRound = (lastTime - firstTime) / 1000 / roundDiff;
+      const computed = secondsPerRound > 0 ? 86400 / secondsPerRound : 144;
+      return Math.round(computed);
+    }
+    return 144; // Fallback estimate (10 min per round = 144/day)
+  })();
 
   const currentRound = latestRound?.round || 0;
   const oneDayAgo = currentRound - roundsPerDay;
