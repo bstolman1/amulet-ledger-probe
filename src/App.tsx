@@ -6,8 +6,6 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Validators from "./pages/Validators";
-import ValidatorLiveness from "./pages/ValidatorLiveness";
-import TrafficPurchases from "./pages/TrafficPurchases";
 import MiningRounds from "./pages/MiningRounds";
 import RoundStats from "./pages/RoundStats";
 import ANS from "./pages/ANS";
@@ -17,8 +15,6 @@ import Governance from "./pages/Governance";
 import Supply from "./pages/Supply";
 import UnclaimedSVRewards from "./pages/UnclaimedSVRewards";
 import Admin from "./pages/Admin";
-import ActivityMarkers from "./pages/ActivityMarkers";
-import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -44,8 +40,6 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/validators" element={<Validators />} />
-          <Route path="/validator-liveness" element={<ValidatorLiveness />} />
-          <Route path="/traffic-purchases" element={<TrafficPurchases />} />
           <Route path="/mining-rounds" element={<MiningRounds />} />
           <Route path="/round-stats" element={<RoundStats />} />
           <Route path="/ans" element={<ANS />} />
@@ -54,8 +48,6 @@ const App = () => (
           <Route path="/governance" element={<Governance />} />
           <Route path="/supply" element={<Supply />} />
           <Route path="/unclaimed-sv-rewards" element={<UnclaimedSVRewards />} />
-          <Route path="/activity-markers" element={<ActivityMarkers />} />
-          <Route path="/auth" element={<Auth />} />
           <Route path="/admin" element={<Admin />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

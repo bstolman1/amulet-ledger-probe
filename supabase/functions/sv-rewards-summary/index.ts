@@ -468,173 +468,41 @@ function buildSummary(
   };
 }
 
-// Input validation schema
-interface RequestParams {
-  beneficiary: string;
-  beginRecordTime: string;
-  endRecordTime: string;
-  beginMigrationId: number;
-  weight: number;
-  alreadyMintedWeight: number;
-  gracePeriodMinutes: number;
-  scanUrl: string;
-}
-
-function validateInput(params: any): { valid: boolean; error?: string; data?: RequestParams } {
-  // Validate required fields
-  if (!params.beneficiary || typeof params.beneficiary !== 'string') {
-    return { valid: false, error: 'beneficiary is required and must be a string' };
-  }
-  if (params.beneficiary.length > 200) {
-    return { valid: false, error: 'beneficiary must be less than 200 characters' };
-  }
-  if (!/^[a-zA-Z0-9:_-]+$/.test(params.beneficiary)) {
-    return { valid: false, error: 'beneficiary contains invalid characters' };
-  }
-
-  if (!params.beginRecordTime || typeof params.beginRecordTime !== 'string') {
-    return { valid: false, error: 'beginRecordTime is required and must be a string' };
-  }
-  if (!params.endRecordTime || typeof params.endRecordTime !== 'string') {
-    return { valid: false, error: 'endRecordTime is required and must be a string' };
-  }
-
-  // Validate date formats and ranges
-  const beginDate = new Date(params.beginRecordTime);
-  const endDate = new Date(params.endRecordTime);
-  
-  if (isNaN(beginDate.getTime())) {
-    return { valid: false, error: 'beginRecordTime is not a valid date' };
-  }
-  if (isNaN(endDate.getTime())) {
-    return { valid: false, error: 'endRecordTime is not a valid date' };
-  }
-  if (beginDate >= endDate) {
-    return { valid: false, error: 'beginRecordTime must be before endRecordTime' };
-  }
-  
-  const daysDiff = (endDate.getTime() - beginDate.getTime()) / (1000 * 60 * 60 * 24);
-  if (daysDiff > 365) {
-    return { valid: false, error: 'Date range cannot exceed 365 days' };
-  }
-
-  if (params.beginMigrationId === undefined || typeof params.beginMigrationId !== 'number') {
-    return { valid: false, error: 'beginMigrationId is required and must be a number' };
-  }
-  if (!Number.isInteger(params.beginMigrationId) || params.beginMigrationId < 0 || params.beginMigrationId > 999999999) {
-    return { valid: false, error: 'beginMigrationId must be an integer between 0 and 999999999' };
-  }
-
-  if (params.weight === undefined || typeof params.weight !== 'number') {
-    return { valid: false, error: 'weight is required and must be a number' };
-  }
-  if (params.weight < 0 || params.weight > 1000000) {
-    return { valid: false, error: 'weight must be between 0 and 1000000' };
-  }
-
-  if (params.alreadyMintedWeight === undefined || typeof params.alreadyMintedWeight !== 'number') {
-    return { valid: false, error: 'alreadyMintedWeight is required and must be a number' };
-  }
-  if (params.alreadyMintedWeight < 0 || params.alreadyMintedWeight > 1000000) {
-    return { valid: false, error: 'alreadyMintedWeight must be between 0 and 1000000' };
-  }
-
-  // Validate optional parameters
-  const gracePeriodMinutes = params.gracePeriodMinutes ?? 60;
-  if (typeof gracePeriodMinutes !== 'number' || !Number.isInteger(gracePeriodMinutes) || gracePeriodMinutes < 0 || gracePeriodMinutes > 1440) {
-    return { valid: false, error: 'gracePeriodMinutes must be an integer between 0 and 1440' };
-  }
-
-  const scanUrl = params.scanUrl ?? 'https://scan.sv-1.global.canton.network.sync.global';
-  if (typeof scanUrl !== 'string') {
-    return { valid: false, error: 'scanUrl must be a string' };
-  }
-  
-  // Validate scanUrl to prevent SSRF
-  try {
-    const url = new URL(scanUrl);
-    if (url.protocol !== 'https:') {
-      return { valid: false, error: 'scanUrl must use HTTPS protocol' };
-    }
-    if (!url.hostname.startsWith('scan.') || !url.hostname.includes('canton.network')) {
-      return { valid: false, error: 'scanUrl must be a canton.network scan domain' };
-    }
-  } catch {
-    return { valid: false, error: 'scanUrl is not a valid URL' };
-  }
-
-  return {
-    valid: true,
-    data: {
-      beneficiary: params.beneficiary,
-      beginRecordTime: params.beginRecordTime,
-      endRecordTime: params.endRecordTime,
-      beginMigrationId: params.beginMigrationId,
-      weight: params.weight,
-      alreadyMintedWeight: params.alreadyMintedWeight,
-      gracePeriodMinutes,
-      scanUrl,
-    },
-  };
-}
-
-// Rate limiting
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
-
-function checkRateLimit(ip: string, maxRequests: number, windowMs: number): boolean {
-  const now = Date.now();
-  const record = rateLimitStore.get(ip);
-  
-  if (!record || now > record.resetTime) {
-    rateLimitStore.set(ip, { count: 1, resetTime: now + windowMs });
-    return true;
-  }
-  
-  if (record.count >= maxRequests) {
-    return false;
-  }
-  
-  record.count++;
-  return true;
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Rate limiting
-    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || 'unknown';
-    if (!checkRateLimit(clientIp, 10, 60000)) { // 10 requests per minute
-      return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { 
+      beneficiary,
+      beginRecordTime,
+      endRecordTime,
+      beginMigrationId,
+      weight,
+      alreadyMintedWeight,
+      gracePeriodMinutes = 60,
+      scanUrl = 'https://scan.sv-1.global.canton.network.sync.global'
+    } = await req.json();
 
-    // Parse and validate input
-    const rawParams = await req.json();
-    const validation = validateInput(rawParams);
-    
-    if (!validation.valid) {
+    if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined || weight === undefined || alreadyMintedWeight === undefined) {
       return new Response(
-        JSON.stringify({ error: validation.error }),
+        JSON.stringify({ 
+          error: 'Missing required parameters: beneficiary, beginRecordTime, endRecordTime, beginMigrationId, weight, alreadyMintedWeight' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    const params = validation.data!;
 
     const summary = await calculateRewardsSummary(
-      params.scanUrl,
-      params.beneficiary,
-      params.beginRecordTime,
-      params.endRecordTime,
-      params.beginMigrationId,
-      params.weight,
-      params.alreadyMintedWeight,
-      params.gracePeriodMinutes
+      scanUrl,
+      beneficiary,
+      beginRecordTime,
+      endRecordTime,
+      beginMigrationId,
+      weight,
+      alreadyMintedWeight,
+      gracePeriodMinutes
     );
 
     return new Response(
@@ -645,7 +513,8 @@ Deno.serve(async (req) => {
     console.error('Error calculating rewards summary:', error);
     return new Response(
       JSON.stringify({ 
-        error: 'Unable to calculate rewards summary. Please try again later.'
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        details: error instanceof Error ? error.stack : undefined
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

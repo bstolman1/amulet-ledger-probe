@@ -44,7 +44,6 @@ const Admin = () => {
   const [voteStart, setVoteStart] = useState("");
   const [voteClose, setVoteClose] = useState("");
   const [githubLink, setGithubLink] = useState("");
-  const [explorerUrl, setExplorerUrl] = useState("");
   const [requiresOnchainVote, setRequiresOnchainVote] = useState(false);
   const [cipType, setCipType] = useState("");
   const [cipTypes, setCipTypes] = useState<{ id: string; type_name: string }[]>([]);
@@ -455,7 +454,6 @@ const Admin = () => {
           vote_start_date: voteStart || null,
           vote_close_date: voteClose || null,
           github_link: githubLink,
-          explorer_url: explorerUrl || null,
           requires_onchain_vote: requiresOnchainVote,
           cip_type: cipType,
         })
@@ -484,7 +482,6 @@ const Admin = () => {
     setVoteStart("");
     setVoteClose("");
     setGithubLink("");
-    setExplorerUrl("");
     setRequiresOnchainVote(false);
     setCipType("");
     setCurrentCipId(null);
@@ -627,9 +624,6 @@ const Admin = () => {
                   <option value="yes">Requires onchain vote</option>
                 </select>
               </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="voteStart">Vote Start Date</Label>
                 <Input
@@ -914,32 +908,6 @@ const Admin = () => {
             </div>
           </CardContent>
         </Card>
-
-        {/* On-chain Vote Explorer URL */}
-        {requiresOnchainVote && (
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle>On-chain Vote Explorer URL</CardTitle>
-              <CardDescription>
-                Link to the on-chain vote in the Canton Network Explorer
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="explorerUrl">Explorer URL</Label>
-                <Input
-                  id="explorerUrl"
-                  value={explorerUrl}
-                  onChange={(e) => setExplorerUrl(e.target.value)}
-                  placeholder="https://scan.sv-1.global.canton.network.sync.global/..."
-                />
-              </div>
-              <Button onClick={handleNewCIP} variant="outline">
-                Save Explorer URL
-              </Button>
-            </CardContent>
-          </Card>
-        )}
           </TabsContent>
 
           {/* Featured App Votes Tab */}
@@ -1161,14 +1129,6 @@ const Admin = () => {
                         <div className="mb-4 pb-4 border-b border-border/50">
                           <a href={cip.github_link} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">
                             View on GitHub →
-                          </a>
-                        </div>
-                      )}
-                      
-                      {cip.explorer_url && (
-                        <div className="mb-4 pb-4 border-b border-border/50">
-                          <a href={cip.explorer_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-500 hover:underline">
-                            View On-chain Vote in Explorer →
                           </a>
                         </div>
                       )}
