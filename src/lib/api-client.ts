@@ -509,8 +509,8 @@ export const scanApi = {
   // Use validator faucets endpoint instead of non-existent rewards endpoint
 // src/lib/api-client.ts
 
-import { API_BASE } from "@/config"; // ensure this import exists
-import type { GetTopProvidersByAppRewardsResponse } from "@/types"; // adjust path as needed
+import { API_BASE } from "@/config";
+import type { GetTopProvidersByAppRewardsResponse } from "@/types";
 
 export const scanApi = {
   async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
@@ -527,16 +527,10 @@ export const scanApi = {
         `${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`,
         { mode: "cors", signal: controller.signal }
       );
-
-      if (!response.ok)
-        throw new Error("Failed to fetch top providers by app rewards");
-
+      if (!response.ok) throw new Error("Failed to fetch top providers by app rewards");
       const data = await response.json();
-
-      if (!data.providersAndRewards || !Array.isArray(data.providersAndRewards)) {
+      if (!Array.isArray(data.providersAndRewards))
         throw new Error("Unexpected response format for top providers by app rewards");
-      }
-
       return data as GetTopProvidersByAppRewardsResponse;
     } catch (err: any) {
       if (err?.name === "AbortError") throw new Error("Request timed out");
@@ -545,6 +539,13 @@ export const scanApi = {
       clearTimeout(timeout);
     }
   },
+
+  async fetchLatestRound() {
+    const response = await fetch(`${API_BASE}/v0/latest-round`, { mode: "cors" });
+    if (!response.ok) throw new Error("Failed to fetch latest round");
+    return response.json();
+  },
+};
 
   // You can safely add other methods here
   async fetchLatestRound() {
