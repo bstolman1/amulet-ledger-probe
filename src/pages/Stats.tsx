@@ -71,40 +71,40 @@ const Stats = () => {
 
   const currentRound = latestRound?.round || 0;
   const oneDayAgo = currentRound - roundsPerDay;
-  const oneWeekAgo = currentRound - (roundsPerDay * 7);
-  const oneMonthAgo = currentRound - (roundsPerDay * 30);
-  const sixMonthsAgo = currentRound - (roundsPerDay * 180);
-  const oneYearAgo = currentRound - (roundsPerDay * 365);
+  const oneWeekAgo = currentRound - roundsPerDay * 7;
+  const oneMonthAgo = currentRound - roundsPerDay * 30;
+  const sixMonthsAgo = currentRound - roundsPerDay * 180;
+  const oneYearAgo = currentRound - roundsPerDay * 365;
 
   // Get validator liveness data
   const validatorsList = validators?.validatorsAndRewards || [];
 
   // Get SV participant IDs to exclude them from regular validator counts
-  const svParticipantIds = new Set(configData?.superValidators.map(sv => sv.address) || []);
+  const svParticipantIds = new Set(configData?.superValidators.map((sv) => sv.address) || []);
 
   // Filter validators by join period based on rounds collected (excluding SVs)
-  const recentValidators = validatorsList.filter(v => {
+  const recentValidators = validatorsList.filter((v) => {
     const roundsCollected = parseFloat(v.rewards);
     return roundsCollected > 0 && !svParticipantIds.has(v.provider);
   });
 
   // Categorize validators by activity duration
-  const newValidators = recentValidators.filter(v => parseFloat(v.rewards) < roundsPerDay);
-  const weeklyValidators = recentValidators.filter(v => {
+  const newValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
+  const weeklyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
-    return rounds < (roundsPerDay * 7) && rounds >= roundsPerDay;
+    return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
   });
-  const monthlyValidators = recentValidators.filter(v => {
+  const monthlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
-    return rounds < (roundsPerDay * 30) && rounds >= (roundsPerDay * 7);
+    return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
   });
-  const sixMonthValidators = recentValidators.filter(v => {
+  const sixMonthValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
-    return rounds < (roundsPerDay * 180) && rounds >= (roundsPerDay * 30);
+    return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
   });
-  const yearlyValidators = recentValidators.filter(v => {
+  const yearlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
-    return rounds < (roundsPerDay * 365) && rounds >= (roundsPerDay * 180);
+    return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
   });
   const allTimeValidators = recentValidators;
 
@@ -112,17 +112,17 @@ const Stats = () => {
   const getMonthlyJoinData = () => {
     const monthlyData: { [key: string]: number } = {};
     const now = new Date();
-    const networkStart = new Date('2024-06-01T00:00:00Z');
+    const networkStart = new Date("2024-06-01T00:00:00Z");
 
     // Helper function for consistent date formatting
     const formatMonth = (date: Date) => {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${months[date.getMonth()]} ${date.getFullYear()}`;
     };
 
     // Initialize months from network start to now
     const iter = new Date(Date.UTC(networkStart.getFullYear(), networkStart.getMonth(), 1));
-    const nowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    const nowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
     while (iter <= nowUTC) {
       const monthKey = formatMonth(iter);
       monthlyData[monthKey] = 0;
@@ -130,11 +130,11 @@ const Stats = () => {
     }
 
     // Calculate join dates for validators using firstCollectedInRound
-    recentValidators.forEach(validator => {
+    recentValidators.forEach((validator) => {
       const firstRound = validator.firstCollectedInRound ?? 0;
       const roundsAgo = currentRound - firstRound;
       const daysAgo = roundsAgo / roundsPerDay;
-      const joinDate = new Date(now.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
+      const joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
       if (joinDate >= networkStart) {
         const monthKey = formatMonth(joinDate);
@@ -146,7 +146,7 @@ const Stats = () => {
 
     return Object.entries(monthlyData).map(([month, count]) => ({
       month,
-      validators: count
+      validators: count,
     }));
   };
 
@@ -156,9 +156,9 @@ const Stats = () => {
 
   // Fetch validator liveness data for health/uptime metrics
   const { data: validatorLivenessData } = useQuery({
-    queryKey: ["validatorLiveness", validatorsList.slice(0, 50).map(v => v.provider)],
+    queryKey: ["validatorLiveness", validatorsList.slice(0, 50).map((v) => v.provider)],
     queryFn: async () => {
-      const validatorIds = validatorsList.slice(0, 50).map(v => v.provider);
+      const validatorIds = validatorsList.slice(0, 50).map((v) => v.provider);
       if (validatorIds.length === 0) return null;
       return scanApi.fetchValidatorLiveness(validatorIds);
     },
@@ -168,21 +168,21 @@ const Stats = () => {
 
   // Create a map of validator health data
   const validatorHealthMap = new Map(
-    (validatorLivenessData?.validatorsReceivedFaucets || []).map(v => [
+    (validatorLivenessData?.validatorsReceivedFaucets || []).map((v) => [
       v.validator,
       {
         collected: v.numRoundsCollected,
         missed: v.numRoundsMissed,
-        uptime: v.numRoundsCollected / (v.numRoundsCollected + v.numRoundsMissed) * 100,
+        uptime: (v.numRoundsCollected / (v.numRoundsCollected + v.numRoundsMissed)) * 100,
       },
-    ])
+    ]),
   );
 
   // Get real Super Validator count from config
   const superValidatorCount = configData?.superValidators.length || 0;
 
   // Calculate inactive validators (missed more than 1 round)
-  const inactiveValidators = recentValidators.filter(v => {
+  const inactiveValidators = recentValidators.filter((v) => {
     const healthData = validatorHealthMap.get(v.provider);
     return healthData && healthData.missed > 1;
   });
@@ -199,52 +199,56 @@ const Stats = () => {
     try {
       // Prepare CSV content
       const csvRows = [];
-      
+
       // Header
-      csvRows.push(['Canton Network Validator Statistics']);
-      csvRows.push(['Generated:', new Date().toISOString()]);
-      csvRows.push(['Current Round:', currentRound]);
+      csvRows.push(["Canton Network Validator Statistics"]);
+      csvRows.push(["Generated:", new Date().toISOString()]);
+      csvRows.push(["Current Round:", currentRound]);
       csvRows.push([]);
-      
+
       // Summary statistics
-      csvRows.push(['Summary Statistics']);
-      csvRows.push(['Period', 'New Validators']);
-      csvRows.push(['Last 24 Hours', newValidators.length]);
-      csvRows.push(['Last 7 Days', weeklyValidators.length + newValidators.length]);
-      csvRows.push(['Last 30 Days', monthlyValidators.length + weeklyValidators.length + newValidators.length]);
-      csvRows.push(['Last 6 Months', sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length]);
-      csvRows.push(['Last Year', yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length]);
-      csvRows.push(['All Time', allTimeValidators.length]);
+      csvRows.push(["Summary Statistics"]);
+      csvRows.push(["Period", "New Validators"]);
+      csvRows.push(["Last 24 Hours", newValidators.length]);
+      csvRows.push(["Last 7 Days", weeklyValidators.length + newValidators.length]);
+      csvRows.push(["Last 30 Days", monthlyValidators.length + weeklyValidators.length + newValidators.length]);
+      csvRows.push([
+        "Last 6 Months",
+        sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length,
+      ]);
+      csvRows.push([
+        "Last Year",
+        yearlyValidators.length +
+          sixMonthValidators.length +
+          monthlyValidators.length +
+          weeklyValidators.length +
+          newValidators.length,
+      ]);
+      csvRows.push(["All Time", allTimeValidators.length]);
       csvRows.push([]);
-      
+
       // Detailed validator list
-      csvRows.push(['All Active Validators']);
-      csvRows.push(['Provider Name', 'Provider ID', 'Rounds Collected']);
-      
-      allTimeValidators.forEach(validator => {
-        csvRows.push([
-          formatPartyId(validator.provider),
-          validator.provider,
-          parseFloat(validator.rewards).toFixed(0)
-        ]);
+      csvRows.push(["All Active Validators"]);
+      csvRows.push(["Provider Name", "Provider ID", "Rounds Collected"]);
+
+      allTimeValidators.forEach((validator) => {
+        csvRows.push([formatPartyId(validator.provider), validator.provider, parseFloat(validator.rewards).toFixed(0)]);
       });
-      
+
       // Convert to CSV string
-      const csvContent = csvRows.map(row => 
-        row.map(cell => `"${cell}"`).join(',')
-      ).join('\n');
-      
+      const csvContent = csvRows.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+
       // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `validator-stats-${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
+      link.setAttribute("href", url);
+      link.setAttribute("download", `validator-stats-${new Date().toISOString().split("T")[0]}.csv`);
+      link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       toast({
         title: "Export successful",
         description: "Statistics have been exported to CSV",
@@ -258,26 +262,30 @@ const Stats = () => {
     }
   };
 
-  const ValidatorList = ({ validators, title }: { validators: any[], title: string }) => (
+  const ValidatorList = ({ validators, title }: { validators: any[]; title: string }) => (
     <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-muted-foreground">{title} ({validators.length})</h4>
+      <h4 className="text-sm font-semibold text-muted-foreground">
+        {title} ({validators.length})
+      </h4>
       {validators.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">No validators in this period</p>
       ) : (
         <div className="space-y-2">
           {validators.slice(0, 10).map((validator, index) => {
             // Check if validator is actually a Super Validator by matching address
-            const isSuperValidator = configData?.superValidators.some(
-              sv => sv.address === validator.provider
-            ) || false;
+            const isSuperValidator =
+              configData?.superValidators.some((sv) => sv.address === validator.provider) || false;
             const healthData = validatorHealthMap.get(validator.provider);
             const uptime = healthData ? healthData.uptime : null;
-            const healthColor = uptime !== null 
-              ? uptime >= 95 ? "text-success" 
-              : uptime >= 85 ? "text-warning" 
-              : "text-destructive"
-              : "text-muted-foreground";
-            
+            const healthColor =
+              uptime !== null
+                ? uptime >= 95
+                  ? "text-success"
+                  : uptime >= 85
+                    ? "text-warning"
+                    : "text-destructive"
+                : "text-muted-foreground";
+
             return (
               <div
                 key={validator.provider}
@@ -292,9 +300,7 @@ const Stats = () => {
                       </Badge>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground font-mono truncate">
-                    {validator.provider}
-                  </p>
+                  <p className="text-xs text-muted-foreground font-mono truncate">{validator.provider}</p>
                 </div>
                 <div className="flex items-center gap-3 ml-4">
                   {healthData && (
@@ -302,14 +308,16 @@ const Stats = () => {
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Health</p>
                         <p className={`text-sm font-bold ${healthColor}`}>
-                          {uptime !== null ? `${uptime.toFixed(1)}%` : 'N/A'}
+                          {uptime !== null ? `${uptime.toFixed(1)}%` : "N/A"}
                         </p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Missed</p>
-                        <Badge 
-                          variant="outline" 
-                          className={healthData.missed > 1 ? "bg-destructive/10 text-destructive border-destructive/20" : ""}
+                        <Badge
+                          variant="outline"
+                          className={
+                            healthData.missed > 1 ? "bg-destructive/10 text-destructive border-destructive/20" : ""
+                          }
                         >
                           {healthData.missed}
                         </Badge>
@@ -327,9 +335,7 @@ const Stats = () => {
             );
           })}
           {validators.length > 10 && (
-            <p className="text-sm text-muted-foreground text-center">
-              +{validators.length - 10} more
-            </p>
+            <p className="text-sm text-muted-foreground text-center">+{validators.length - 10} more</p>
           )}
         </div>
       )}
@@ -343,15 +349,11 @@ const Stats = () => {
           <div>
             <h2 className="text-3xl font-bold mb-2">Validator Statistics</h2>
             <p className="text-muted-foreground">
-              Track validator growth and onboarding trends • {nonSvValidatorCount} validators (excluding {superValidatorCount} Super Validators) • {inactiveValidators.length} inactive
+              Track validator growth and onboarding trends • {nonSvValidatorCount} validators (excluding{" "}
+              {superValidatorCount} Super Validators) • {inactiveValidators.length} inactive
             </p>
           </div>
-          <Button 
-            onClick={exportToCSV}
-            disabled={validatorsLoading}
-            variant="outline"
-            className="gap-2"
-          >
+          <Button onClick={exportToCSV} disabled={validatorsLoading} variant="outline" className="gap-2">
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
@@ -369,9 +371,7 @@ const Stats = () => {
                 <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-3xl font-bold text-primary mb-1">
-                    {newValidators.length}
-                  </p>
+                  <p className="text-3xl font-bold text-primary mb-1">{newValidators.length}</p>
                   <p className="text-xs text-muted-foreground">New validators</p>
                 </>
               )}
@@ -427,7 +427,10 @@ const Stats = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-chart-4 mb-1">
-                    {sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                    {sixMonthValidators.length +
+                      monthlyValidators.length +
+                      weeklyValidators.length +
+                      newValidators.length}
                   </p>
                   <p className="text-xs text-muted-foreground">New validators</p>
                 </>
@@ -446,7 +449,11 @@ const Stats = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-chart-5 mb-1">
-                    {yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                    {yearlyValidators.length +
+                      sixMonthValidators.length +
+                      monthlyValidators.length +
+                      weeklyValidators.length +
+                      newValidators.length}
                   </p>
                   <p className="text-xs text-muted-foreground">New validators</p>
                 </>
@@ -464,9 +471,7 @@ const Stats = () => {
                 <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-3xl font-bold gradient-text mb-1">
-                    {allTimeValidators.length}
-                  </p>
+                  <p className="text-3xl font-bold gradient-text mb-1">{allTimeValidators.length}</p>
                   <p className="text-xs text-muted-foreground">Total validators</p>
                 </>
               )}
@@ -493,21 +498,10 @@ const Stats = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyChartData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis 
-                      dataKey="month" 
-                      className="text-xs"
-                      tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <YAxis 
-                      className="text-xs"
-                      tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                    />
+                    <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar 
-                      dataKey="validators" 
-                      fill="hsl(var(--primary))"
-                      radius={[4, 4, 0, 0]}
-                    />
+                    <Bar dataKey="validators" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartContainer>
@@ -539,34 +533,37 @@ const Stats = () => {
                   <ValidatorList validators={newValidators} title="Validators with < 1 day of activity" />
                 </TabsContent>
                 <TabsContent value="week" className="mt-6">
-                  <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators]} 
-                    title="Validators with < 7 days of activity" 
+                  <ValidatorList
+                    validators={[...newValidators, ...weeklyValidators]}
+                    title="Validators with < 7 days of activity"
                   />
                 </TabsContent>
                 <TabsContent value="month" className="mt-6">
-                  <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators]} 
-                    title="Validators with < 30 days of activity" 
+                  <ValidatorList
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators]}
+                    title="Validators with < 30 days of activity"
                   />
                 </TabsContent>
                 <TabsContent value="6months" className="mt-6">
-                  <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators]} 
-                    title="Validators with < 6 months of activity" 
+                  <ValidatorList
+                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators]}
+                    title="Validators with < 6 months of activity"
                   />
                 </TabsContent>
                 <TabsContent value="year" className="mt-6">
-                  <ValidatorList 
-                    validators={[...newValidators, ...weeklyValidators, ...monthlyValidators, ...sixMonthValidators, ...yearlyValidators]} 
-                    title="Validators with < 1 year of activity" 
+                  <ValidatorList
+                    validators={[
+                      ...newValidators,
+                      ...weeklyValidators,
+                      ...monthlyValidators,
+                      ...sixMonthValidators,
+                      ...yearlyValidators,
+                    ]}
+                    title="Validators with < 1 year of activity"
                   />
                 </TabsContent>
                 <TabsContent value="all" className="mt-6">
-                  <ValidatorList 
-                    validators={allTimeValidators} 
-                    title="All active validators" 
-                  />
+                  <ValidatorList validators={allTimeValidators} title="All active validators" />
                 </TabsContent>
               </Tabs>
             )}
@@ -584,9 +581,7 @@ const Stats = () => {
               </div>
               <div className="p-4 rounded-lg bg-chart-2/5 border border-chart-2/10">
                 <p className="text-xs text-muted-foreground mb-1">Weekly</p>
-                <p className="text-2xl font-bold text-chart-2">
-                  {weeklyValidators.length + newValidators.length}
-                </p>
+                <p className="text-2xl font-bold text-chart-2">{weeklyValidators.length + newValidators.length}</p>
               </div>
               <div className="p-4 rounded-lg bg-chart-3/5 border border-chart-3/10">
                 <p className="text-xs text-muted-foreground mb-1">Monthly</p>
@@ -597,13 +592,20 @@ const Stats = () => {
               <div className="p-4 rounded-lg bg-chart-4/5 border border-chart-4/10">
                 <p className="text-xs text-muted-foreground mb-1">6 Months</p>
                 <p className="text-2xl font-bold text-chart-4">
-                  {sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                  {sixMonthValidators.length +
+                    monthlyValidators.length +
+                    weeklyValidators.length +
+                    newValidators.length}
                 </p>
               </div>
               <div className="p-4 rounded-lg bg-chart-5/5 border border-chart-5/10">
                 <p className="text-xs text-muted-foreground mb-1">Yearly</p>
                 <p className="text-2xl font-bold text-chart-5">
-                  {yearlyValidators.length + sixMonthValidators.length + monthlyValidators.length + weeklyValidators.length + newValidators.length}
+                  {yearlyValidators.length +
+                    sixMonthValidators.length +
+                    monthlyValidators.length +
+                    weeklyValidators.length +
+                    newValidators.length}
                 </p>
               </div>
               <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
@@ -634,26 +636,24 @@ const Stats = () => {
               </Badge>
             )}
           </div>
-          
+
           {usageError && (
             <Card className="glass-card border-destructive/20">
               <div className="p-4">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-destructive animate-pulse" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-destructive mb-1">
-                      Unable to fetch usage statistics
-                    </p>
+                    <p className="text-sm font-medium text-destructive mb-1">Unable to fetch usage statistics</p>
                     <p className="text-xs text-muted-foreground">
-                      The transaction API is currently unavailable or timing out. 
-                      This may be due to network connectivity or API rate limits.
+                      The transaction API is currently unavailable or timing out. This may be due to network
+                      connectivity or API rate limits.
                     </p>
                   </div>
                 </div>
               </div>
             </Card>
           )}
-          
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Cumulative Unique Parties */}
             <Card className="glass-card">
@@ -672,9 +672,7 @@ const Stats = () => {
                   <div className="h-[250px] flex items-center justify-center">
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground mb-2">No data available</p>
-                      <p className="text-xs text-muted-foreground">
-                        Total Parties: {usageChartData.totalParties || 0}
-                      </p>
+                      <p className="text-xs text-muted-foreground">Total Parties: {usageChartData.totalParties || 0}</p>
                     </div>
                   </div>
                 ) : (
@@ -691,35 +689,39 @@ const Stats = () => {
                       <AreaChart data={usageChartData.cumulativeParties}>
                         <defs>
                           <linearGradient id="colorParties" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
-                        <XAxis 
-                          dataKey="date" 
+                        <XAxis
+                          dataKey="date"
                           className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
                           tickFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
                           }}
                         />
-                        <YAxis 
+                        <YAxis
                           className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
                           tickFormatter={(value) => value.toLocaleString()}
                         />
-                        <ChartTooltip 
+                        <ChartTooltip
                           content={<ChartTooltipContent />}
                           labelFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            return date.toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            });
                           }}
                         />
-                        <Area 
+                        <Area
                           type="monotone"
-                          dataKey="parties" 
+                          dataKey="parties"
                           stroke="hsl(var(--chart-1))"
                           fill="url(#colorParties)"
                           strokeWidth={2}
@@ -748,9 +750,7 @@ const Stats = () => {
                   <div className="h-[250px] flex items-center justify-center">
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground mb-2">No data available</p>
-                      <p className="text-xs text-muted-foreground">
-                        Avg Users: {usageChartData.totalDailyUsers || 0}
-                      </p>
+                      <p className="text-xs text-muted-foreground">Avg Users: {usageChartData.totalDailyUsers || 0}</p>
                     </div>
                   </div>
                 ) : (
@@ -771,45 +771,46 @@ const Stats = () => {
                       <AreaChart data={usageChartData.dailyActiveUsers}>
                         <defs>
                           <linearGradient id="colorDaily" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0} />
                           </linearGradient>
                           <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--chart-3))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--chart-3))" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="hsl(var(--chart-3))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--chart-3))" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
-                        <XAxis 
-                          dataKey="date" 
+                        <XAxis
+                          dataKey="date"
                           className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
                           tickFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
                           }}
                         />
-                        <YAxis 
-                          className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                        />
-                        <ChartTooltip 
+                        <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                        <ChartTooltip
                           content={<ChartTooltipContent />}
                           labelFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            return date.toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            });
                           }}
                         />
-                        <Area 
+                        <Area
                           type="monotone"
-                          dataKey="daily" 
+                          dataKey="daily"
                           stroke="hsl(var(--chart-2))"
                           fill="url(#colorDaily)"
                           strokeWidth={2}
                         />
-                        <Area 
+                        <Area
                           type="monotone"
-                          dataKey="avg7d" 
+                          dataKey="avg7d"
                           stroke="hsl(var(--chart-3))"
                           fill="url(#colorAvg)"
                           strokeWidth={2}
@@ -861,46 +862,50 @@ const Stats = () => {
                       <AreaChart data={usageChartData.dailyTransactions}>
                         <defs>
                           <linearGradient id="colorTxDaily" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--chart-4))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--chart-4))" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="hsl(var(--chart-4))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--chart-4))" stopOpacity={0} />
                           </linearGradient>
                           <linearGradient id="colorTxAvg" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--chart-5))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--chart-5))" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="hsl(var(--chart-5))" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="hsl(var(--chart-5))" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
-                        <XAxis 
-                          dataKey="date" 
+                        <XAxis
+                          dataKey="date"
                           className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
                           tickFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
                           }}
                         />
-                        <YAxis 
+                        <YAxis
                           className="text-xs"
-                          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
                           tickFormatter={(value) => value.toLocaleString()}
                         />
-                        <ChartTooltip 
+                        <ChartTooltip
                           content={<ChartTooltipContent />}
                           labelFormatter={(value) => {
                             const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            return date.toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            });
                           }}
                         />
-                        <Area 
+                        <Area
                           type="monotone"
-                          dataKey="daily" 
+                          dataKey="daily"
                           stroke="hsl(var(--chart-4))"
                           fill="url(#colorTxDaily)"
                           strokeWidth={2}
                         />
-                        <Area 
+                        <Area
                           type="monotone"
-                          dataKey="avg7d" 
+                          dataKey="avg7d"
                           stroke="hsl(var(--chart-5))"
                           fill="url(#colorTxAvg)"
                           strokeWidth={2}
