@@ -15,7 +15,7 @@ const navigation = [
   { name: "Mining Rounds", href: "/mining-rounds", icon: TrendingUp },
   { name: "Round Stats", href: "/round-stats", icon: Layers },
   { name: "ANS", href: "/ans", icon: Globe },
-  { name: "Apps", href: "/apps", icon: Package },
+  { name: "Featured Apps", href: "/apps", icon: Package },
   { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
