@@ -507,34 +507,54 @@ export const scanApi = {
   },
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint
-  async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
+// src/lib/api-client.ts
+
+import { API_BASE } from "@/config"; // ensure this import exists
+import type { GetTopProvidersByAppRewardsResponse } from "@/types"; // adjust path as needed
+
+export const scanApi = {
+  async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
+    const latestRound = await this.fetchLatestRound();
+    const params = new URLSearchParams();
+    params.append("round", latestRound.round.toString());
+    params.append("limit", limit.toString());
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
+
     try {
-      const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
-        mode: 'cors',
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("Failed to fetch top validators");
-      const data: TopValidatorsByFaucetsResponse = await response.json();
-      
-      // Transform the response to match expected format, preserving join data
-      return {
-        validatorsAndRewards: data.validatorsByReceivedFaucets.map(v => ({
-          provider: v.validator,
-          rewards: v.numRoundsCollected.toString(),
-          firstCollectedInRound: v.firstCollectedInRound,
-        })),
-      };
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
+      const response = await fetch(
+        `${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`,
+        { mode: "cors", signal: controller.signal }
+      );
+
+      if (!response.ok)
+        throw new Error("Failed to fetch top providers by app rewards");
+
+      const data = await response.json();
+
+      if (!data.providersAndRewards || !Array.isArray(data.providersAndRewards)) {
+        throw new Error("Unexpected response format for top providers by app rewards");
       }
+
+      return data as GetTopProvidersByAppRewardsResponse;
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw new Error("Request timed out");
       throw err;
     } finally {
       clearTimeout(timeout);
     }
   },
+
+  // You can safely add other methods here
+  async fetchLatestRound() {
+    // implement this if it's used above
+    const response = await fetch(`${API_BASE}/v0/latest-round`, { mode: "cors" });
+    if (!response.ok) throw new Error("Failed to fetch latest round");
+    return response.json();
+  },
+};
+
 
   // Get provider rewards from recent round totals
 export const scanApi = {
