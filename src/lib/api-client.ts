@@ -537,24 +537,33 @@ export const scanApi = {
   },
 
   // Get provider rewards from recent round totals
-  async fetchTopProviders(): Promise<GetTopProvidersByAppRewardsResponse> {
+export const scanApi = {
+  async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
     const latestRound = await this.fetchLatestRound();
-    const roundTotals = await this.fetchRoundTotals({
-      start_round: Math.max(0, latestRound.round - 10),
-      end_round: latestRound.round,
-    });
-    
-    if (roundTotals.entries.length > 0) {
-      const latest = roundTotals.entries[roundTotals.entries.length - 1];
-      return {
-        providersAndRewards: [{
-          provider: "Network Total",
-          rewards: latest.cumulative_app_rewards,
-        }],
-      };
+    const params = new URLSearchParams();
+    params.append("round", latestRound.round.toString());
+    params.append("limit", limit.toString());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(
+        `${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`,
+        { mode: "cors", signal: controller.signal }
+      );
+      if (!response.ok) throw new Error("Failed to fetch top providers by app rewards");
+      const data = await response.json();
+      if (!data.providersAndRewards || !Array.isArray(data.providersAndRewards)) {
+        throw new Error("Unexpected response format for top providers by app rewards");
+      }
+      return data as GetTopProvidersByAppRewardsResponse;
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw new Error("Request timed out");
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw new Error("Failed to fetch top providers");
   },
+};
 
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
     const controller = new AbortController();
