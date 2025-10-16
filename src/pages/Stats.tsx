@@ -129,10 +129,11 @@ const Stats = () => {
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // Calculate join dates for validators
+    // Calculate join dates for validators using firstCollectedInRound
     recentValidators.forEach(validator => {
-      const roundsCollected = parseFloat(validator.rewards);
-      const daysAgo = roundsCollected / roundsPerDay;
+      const firstRound = validator.firstCollectedInRound ?? 0;
+      const roundsAgo = currentRound - firstRound;
+      const daysAgo = roundsAgo / roundsPerDay;
       const joinDate = new Date(now.getTime() - (daysAgo * 24 * 60 * 60 * 1000));
 
       if (joinDate >= networkStart) {

@@ -188,6 +188,7 @@ export interface GetTopProvidersByAppRewardsResponse {
 export interface PartyAndRewards {
   provider: string;
   rewards: string;
+  firstCollectedInRound?: number;
 }
 
 export interface GetOpenAndIssuingMiningRoundsRequest {
@@ -517,11 +518,12 @@ export const scanApi = {
       if (!response.ok) throw new Error("Failed to fetch top validators");
       const data: TopValidatorsByFaucetsResponse = await response.json();
       
-      // Transform the response to match expected format
+      // Transform the response to match expected format, preserving join data
       return {
         validatorsAndRewards: data.validatorsByReceivedFaucets.map(v => ({
           provider: v.validator,
           rewards: v.numRoundsCollected.toString(),
+          firstCollectedInRound: v.firstCollectedInRound,
         })),
       };
     } catch (err: any) {
