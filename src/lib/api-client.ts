@@ -2,7 +2,8 @@
 const DEFAULT_API_BASE = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
 // Get API base URL from environment or use default
-const API_BASE = import.meta.env.VITE_SCAN_API_URL || DEFAULT_API_BASE;
+import { API_BASE } from "@/config";
+import type { GetTopProvidersByAppRewardsResponse } from "@/types";
 
 export interface UpdateHistoryRequest {
   after?: {
@@ -508,9 +509,6 @@ export const scanApi = {
 
   // Use validator faucets endpoint instead of non-existent rewards endpoint
 // src/lib/api-client.ts
-
-import { API_BASE } from "@/config";
-import type { GetTopProvidersByAppRewardsResponse } from "@/types";
 
 export const scanApi = {
   async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
