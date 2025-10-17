@@ -17,7 +17,10 @@ import { useEffect } from "react";
 const Stats = () => {
   // Schedule daily sync for config data
   useEffect(() => {
-    scheduleDailySync();
+    const dispose = scheduleDailySync();
+    return () => {
+      dispose?.();
+    };
   }, []);
 
   // Fetch real Super Validator configuration

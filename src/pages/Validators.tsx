@@ -16,7 +16,10 @@ const Validators = () => {
 
   // Schedule daily config sync
   useEffect(() => {
-    scheduleDailySync();
+    const dispose = scheduleDailySync();
+    return () => {
+      dispose?.();
+    };
   }, []);
   const {
     data: topValidators,

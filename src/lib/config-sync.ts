@@ -184,8 +184,7 @@ export async function fetchConfigData(forceRefresh = false): Promise<ConfigData>
 
 // Schedule daily sync
 export function scheduleDailySync() {
-  // Check every hour if we need to refresh
-  setInterval(() => {
+  const checkAndSync = () => {
     const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
     if (cachedTimestamp) {
       const timestamp = parseInt(cachedTimestamp);
@@ -194,5 +193,15 @@ export function scheduleDailySync() {
         fetchConfigData(true).catch(console.error);
       }
     }
-  }, 60 * 60 * 1000); // Check every hour
+  };
+
+  // Run an initial check so callers don't wait an hour to refresh an expired cache
+  checkAndSync();
+
+  // Check every hour if we need to refresh
+  const intervalId = window.setInterval(checkAndSync, 60 * 60 * 1000);
+
+  return () => {
+    window.clearInterval(intervalId);
+  };
 }
