@@ -61,26 +61,18 @@ function buildSeriesFromDaily(
 function isTransaction(u: Transaction | Reassignment): u is Transaction {
   return (u as Transaction).events_by_id !== undefined;
 }
-
 function isReassignment(u: Transaction | Reassignment): u is Reassignment {
   return (u as Reassignment).event !== undefined;
 }
 
 /**
- * Uses /v2/updates as the canonical data source for historical activity.
- * - Each update record_time marks a transaction day.
- * - The `submitter` or `events_by_id` parties are used as daily-active senders.
+ * useUsageStats — fetches **entire ledger history** from /v2/updates,
+ * aggregates daily activity, and returns chart-ready metrics.
  */
-export function useUsageStats(days: number = 90) {
+export function useUsageStats() {
   return useQuery<UsageCharts>({
-    queryKey: ["usage-stats", days],
+    queryKey: ["usage-stats-alltime"],
     queryFn: async () => {
-      const end = new Date();
-      const start = new Date(end);
-      start.setDate(end.getDate() - days);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
 
       let after:
@@ -93,7 +85,9 @@ export function useUsageStats(days: number = 90) {
       let totalUpdates = 0;
       let page = 0;
 
-      while (page < 50) {
+      console.log("Starting full-history scan via /v2/updates ...");
+
+      while (true) {
         const res = await scanApi.fetchUpdates({
           after,
           page_size: 500,
@@ -101,32 +95,28 @@ export function useUsageStats(days: number = 90) {
         });
 
         const updates = res.transactions ?? [];
-        if (updates.length === 0) break;
+        if (updates.length === 0) {
+          console.log(`No more updates after page ${page}.`);
+          break;
+        }
 
         for (const update of updates) {
           const recordTime = isTransaction(update) || isReassignment(update) ? update.record_time : undefined;
           if (!recordTime) continue;
 
           const d = new Date(recordTime);
-          if (d < start) {
-            page = 999;
-            break;
-          }
-
           const dateKey = toDateKey(d);
           if (!perDay[dateKey]) perDay[dateKey] = { partySet: new Set(), txCount: 0 };
 
           const parties = new Set<string>();
 
           if (isTransaction(update)) {
-            // Collect signatories/observers from events
             for (const ev of Object.values(update.events_by_id || {})) {
               if (Array.isArray((ev as any).signatories))
                 (ev as any).signatories.forEach((p: string) => parties.add(p));
               if (Array.isArray((ev as any).observers)) (ev as any).observers.forEach((p: string) => parties.add(p));
             }
           } else if (isReassignment(update)) {
-            // Handle reassignment events (assignment/unassignment)
             const e = update.event;
             if (e.submitter) parties.add(e.submitter);
             if ((e as any).contract?.signatories)
@@ -149,9 +139,22 @@ export function useUsageStats(days: number = 90) {
         }
 
         page++;
+        console.debug(`Fetched page ${page}, updates: ${updates.length}, oldest: ${updates.at(-1)?.record_time}`);
+
+        // Safety: stop if API paginates indefinitely
+        if (page > 2000) {
+          console.warn("Stopped after 2000 pages to prevent infinite loop.");
+          break;
+        }
       }
 
-      if (totalUpdates === 0) throw new Error("No updates fetched from /v2/updates");
+      console.log(`Completed history scan: ${totalUpdates} updates across ${Object.keys(perDay).length} days`);
+
+      const dates = Object.keys(perDay)
+        .map((d) => new Date(d))
+        .sort((a, b) => a.getTime() - b.getTime());
+      const start = dates[0] ?? new Date();
+      const end = dates.at(-1) ?? new Date();
 
       return buildSeriesFromDaily(perDay, start, end);
     },
