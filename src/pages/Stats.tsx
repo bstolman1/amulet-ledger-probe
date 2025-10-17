@@ -110,40 +110,44 @@ const Stats = () => {
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
   const getMonthlyJoinData = () => {
-    const monthlyData: { [key: string]: number } = {};
+    const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date("2024-06-01T00:00:00Z");
+    const networkStart = new Date(Date.UTC(2024, 5, 1)); // June 1, 2024 UTC
 
+    // Month labels helper
     const formatMonth = (date: Date) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
     };
 
-    // ✅ Initialize from *networkStart month* to *current month inclusive*
+    // Initialize all months up to and including the current month
     const iter = new Date(Date.UTC(networkStart.getUTCFullYear(), networkStart.getUTCMonth(), 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)); // start of *next* month
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)); // next month start
     while (iter < end) {
-      // strictly less than end, includes current month
       monthlyData[formatMonth(iter)] = 0;
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // ✅ Count joins per month
+    // Count joins (clamped)
     recentValidators.forEach((validator) => {
       const firstRound = validator.firstCollectedInRound ?? 0;
       const roundsAgo = currentRound - firstRound;
       const daysAgo = roundsAgo / roundsPerDay;
-      const joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
-      if (joinDate >= networkStart) {
-        const key = formatMonth(joinDate);
-        if (monthlyData[key] !== undefined) monthlyData[key]++;
-      }
+      // Reconstruct approximate join date
+      let joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+
+      // ✅ Clamp join date to never be before networkStart
+      if (joinDate < networkStart) joinDate = networkStart;
+
+      const key = formatMonth(joinDate);
+      if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
 
-    return Object.entries(monthlyData).map(([month, count]) => ({
+    // Return in chart-friendly format
+    return Object.entries(monthlyData).map(([month, validators]) => ({
       month,
-      validators: count,
+      validators,
     }));
   };
 
