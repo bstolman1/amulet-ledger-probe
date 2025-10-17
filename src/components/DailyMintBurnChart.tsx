@@ -70,22 +70,6 @@ export const DailyMintBurnChart = () => {
   });
 
   const chartData = (() => {
-    if (!yearlyTotals?.entries?.length && !yearlyBurnTotals?.entries?.length) return [];
-
-    const byDay: Record<string, { minted: number; burned: number; date: Date }> = {};
-    
-    // Build round-to-date mapping from yearlyTotals
-    const roundToDate: Record<number, string> = {};
-    if (yearlyTotals?.entries?.length) {
-      for (const e of yearlyTotals.entries) {
-        const d = new Date(e.closed_round_effective_at);
-        if (d.getFullYear() === new Date().getFullYear()) {
-          roundToDate[e.closed_round] = d.toISOString().slice(0, 10);
-        }
-      }
-    }
-
-  const chartData = (() => {
     const totalsLen = yearlyTotals?.entries?.length || 0;
     const burnLen = yearlyBurnTotals?.entries?.length || 0;
     
@@ -189,18 +173,7 @@ export const DailyMintBurnChart = () => {
     return result;
   })();
 
-    return Object.values(byDay)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .map((d) => ({
-        date: d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        minted: Math.round(d.minted),
-        burned: Math.round(d.burned),
-      }));
-  })();
-
   const isLoading = mintLoading || burnLoading;
-
-  const hasError = !mintLoading && !burnLoading && !yearlyTotals && !yearlyBurnTotals;
 
   return (
     <Card className="glass-card">

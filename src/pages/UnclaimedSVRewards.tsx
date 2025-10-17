@@ -16,7 +16,10 @@ import { Label } from "@/components/ui/label";
 const UnclaimedSVRewards = () => {
   // Schedule daily sync for config data
   useEffect(() => {
-    scheduleDailySync();
+    const dispose = scheduleDailySync();
+    return () => {
+      dispose?.();
+    };
   }, []);
 
   // Query parameters state

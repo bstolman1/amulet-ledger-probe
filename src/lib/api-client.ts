@@ -506,6 +506,20 @@ export const scanApi = {
     }
   },
 
+  async fetchTransactionsByParty(party: string, limit: number = 20): Promise<TransactionHistoryResponse> {
+    const params = new URLSearchParams();
+    params.append("party", party);
+    params.append("limit", limit.toString());
+
+    const response = await fetch(`${API_BASE}/v0/transactions/by-party?${params.toString()}`, {
+      mode: "cors",
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch transactions by party");
+    }
+    return response.json();
+  },
+
   // Use validator faucets endpoint instead of non-existent rewards endpoint
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
     const controller = new AbortController();

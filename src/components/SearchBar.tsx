@@ -23,27 +23,42 @@ export const SearchBar = () => {
   const { toast } = useToast();
 
   const handleSearch = async (query: string) => {
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
 
     setIsSearching(true);
     try {
-      // Check if it's a party ID (contains ::)
-      if (query.includes("::")) {
-        // Search for transactions by party
-        const transactions = await scanApi.fetchTransactions({ 
-          page_size: 100, 
-          sort_order: "desc" 
+      if (trimmedQuery.includes("::")) {
+        try {
+          const transactions = await scanApi.fetchTransactionsByParty(trimmedQuery, 20);
+
+          if (transactions.transactions.length > 0) {
+            navigate(`/transactions?search=${encodeURIComponent(trimmedQuery)}`);
+            setOpen(false);
+            toast({
+              title: "Search Results",
+              description: `Found ${transactions.transactions.length} transaction(s) for this party`,
+            });
+            return;
+          }
+        } catch (partyError) {
+          console.warn("Party search via API failed, falling back to local filter", partyError);
+        }
+
+        const fallback = await scanApi.fetchTransactions({
+          page_size: 20,
+          sort_order: "desc"
         });
-        
-        const matchingTxs = transactions.transactions.filter(tx => {
-          const partyMatch = 
-            tx.transfer?.sender?.party?.toLowerCase().includes(query.toLowerCase()) ||
-            tx.transfer?.receivers?.some(r => r.party?.toLowerCase().includes(query.toLowerCase()));
-          return partyMatch;
+
+        const matchingTxs = fallback.transactions.filter(tx => {
+          const lowerQuery = trimmedQuery.toLowerCase();
+          const senderMatch = tx.transfer?.sender?.party?.toLowerCase().includes(lowerQuery);
+          const receiverMatch = tx.transfer?.receivers?.some(r => r.party?.toLowerCase().includes(lowerQuery));
+          return senderMatch || receiverMatch;
         });
 
         if (matchingTxs.length > 0) {
-          navigate(`/transactions?search=${encodeURIComponent(query)}`);
+          navigate(`/transactions?search=${encodeURIComponent(trimmedQuery)}`);
           setOpen(false);
           toast({
             title: "Search Results",
@@ -56,23 +71,19 @@ export const SearchBar = () => {
             variant: "destructive",
           });
         }
-      }
-      // Check if it's an update ID or event ID (starts with #)
-      else if (query.startsWith("#")) {
-        navigate(`/transactions?search=${encodeURIComponent(query)}`);
+      } else if (trimmedQuery.startsWith("#")) {
+        navigate(`/transactions?search=${encodeURIComponent(trimmedQuery)}`);
         setOpen(false);
-      }
-      // Check if it's an ANS name
-      else {
-        // Try ANS search
+      } else {
         try {
-          const ansResults = await scanApi.fetchAnsEntries("");
+          const ansResults = await scanApi.fetchAnsEntries(trimmedQuery.toLowerCase(), 25);
+          const lowerQuery = trimmedQuery.toLowerCase();
           const matchingAns = ansResults.entries.filter(entry =>
-            entry.name.toLowerCase().includes(query.toLowerCase())
+            entry.name.toLowerCase().includes(lowerQuery)
           );
 
           if (matchingAns.length > 0) {
-            navigate(`/ans?search=${encodeURIComponent(query)}`);
+            navigate(`/ans?search=${encodeURIComponent(trimmedQuery)}`);
             setOpen(false);
             toast({
               title: "Search Results",
@@ -86,6 +97,7 @@ export const SearchBar = () => {
             });
           }
         } catch (error) {
+          console.error("ANS search failed", error);
           toast({
             title: "Search Error",
             description: "Unable to search ANS entries",
@@ -94,6 +106,7 @@ export const SearchBar = () => {
         }
       }
     } catch (error) {
+      console.error("Search failed", error);
       toast({
         title: "Search Failed",
         description: "An error occurred while searching",
