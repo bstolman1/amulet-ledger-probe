@@ -112,14 +112,14 @@ const Stats = () => {
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 24)); // June 24 2024 UTC
+    const networkStart = new Date(Date.UTC(2024, 5, 24)); // June 24, 2024 UTC
 
     const monthLabel = (d: Date) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
-    // Seed months June 2024 → current month inclusive
+    // Initialize month keys from launch → current month
     const iter = new Date(Date.UTC(2024, 5, 1));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     while (iter <= end) {
@@ -127,7 +127,10 @@ const Stats = () => {
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // Convert round count into approximate date
+    // Gather info for debugging
+    const firstRounds: number[] = [];
+    const joinDates: Date[] = [];
+
     recentValidators.forEach((v) => {
       const firstRound = v.firstCollectedInRound ?? 0;
       const rewards = parseFloat(v.rewards ?? "0");
@@ -135,23 +138,51 @@ const Stats = () => {
       let joinDate: Date;
 
       if (firstRound > 0 && currentRound > firstRound) {
-        // 🕒 Historical method — use actual first collected round
+        // Historical method — use actual first collected round
         const roundsAgo = currentRound - firstRound;
         const daysAgo = roundsAgo / roundsPerDay;
         joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+        firstRounds.push(firstRound);
       } else if (rewards > 0) {
-        // 🟢 Modern method — infer from rewards
+        // Fallback for modern validators
         const daysActive = rewards / roundsPerDay;
         joinDate = new Date(now.getTime() - daysActive * 24 * 60 * 60 * 1000);
       } else {
-        // 🟡 Brand new validator (0 rewards, 0 first round)
+        // Brand new (no rewards yet)
         joinDate = now;
       }
 
-      if (joinDate < networkStart) joinDate = networkStart; // clamp to network start
+      if (joinDate < networkStart) joinDate = networkStart;
+      joinDates.push(joinDate);
+
       const key = monthLabel(joinDate);
       if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
+
+    // ---- DEBUG OUTPUT ----
+    if (firstRounds.length) {
+      const earliestRound = Math.min(...firstRounds);
+      const roundsAgo = currentRound - earliestRound;
+      const daysAgo = roundsAgo / roundsPerDay;
+      const earliestDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+
+      console.log("📊 DEBUG — Validator Join Date Analysis");
+      console.log("Earliest firstCollectedInRound:", earliestRound);
+      console.log("Current round:", currentRound);
+      console.log("Rounds per day:", roundsPerDay);
+      console.log("Estimated earliest join date:", earliestDate.toISOString());
+      console.log("Expected network start:", networkStart.toISOString());
+    } else {
+      console.warn("⚠️ No firstCollectedInRound values found in recentValidators");
+    }
+
+    // Show monthly totals in the console
+    console.table(
+      Object.entries(monthlyData).map(([month, count]) => ({
+        month,
+        validators: count,
+      })),
+    );
 
     return Object.entries(monthlyData).map(([month, validators]) => ({
       month,
