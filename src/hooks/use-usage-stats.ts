@@ -14,7 +14,7 @@ export type UsageCharts = {
 
 function toDateKey(dateStr: string | Date): string {
   const d = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
-  // use UTC to avoid timezone shifts in day buckets
+  // Use UTC day key to avoid timezone shifts
   return d.toISOString().split("T")[0];
 }
 
@@ -100,7 +100,7 @@ export function useUsageStats(days: number = 400) {
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
       let pageEnd: string | undefined = undefined;
       let pagesFetched = 0;
-      const maxPages = 500; // allow deeper history
+      const maxPages = 500; // Allow deep history
       let totalTransactions = 0;
       let reachedCutoff = false;
 
@@ -121,8 +121,14 @@ export function useUsageStats(days: number = 400) {
           }
 
           for (const tx of txs) {
-            // ✅ Use the real event timestamp if available
-            const rawTime = tx.event_time || tx.block_time || tx.timestamp || tx.date;
+            // ✅ Safely check optional timestamp fields (no TS errors)
+            const t = tx as TransactionHistoryItem & {
+              event_time?: string;
+              block_time?: string;
+              timestamp?: string;
+            };
+
+            const rawTime = t.event_time || t.block_time || t.timestamp || t.date;
             const d = new Date(rawTime);
 
             if (d < start) {
