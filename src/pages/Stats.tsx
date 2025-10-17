@@ -109,44 +109,46 @@ const Stats = () => {
   const allTimeValidators = recentValidators;
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
-  // Use the SAME logic as the cards: infer join date from rounds collected (v.rewards)
+  // Use the same logic as summary cards (rewards / roundsPerDay)
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 1)); // Jun 1, 2024 UTC
+    const networkStart = new Date(Date.UTC(2024, 5, 1)); // June 1, 2024 UTC
 
-    const monthLabelUTC = (d: Date) => {
-      const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${m[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const monthLabel = (d: Date) => {
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
-    // Seed months from launch → current month (inclusive)
-    {
-      const iter = new Date(Date.UTC(2024, 5, 1)); // start of June 2024
-      const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); // start of current month
-      while (iter <= end) {
-        monthlyData[monthLabelUTC(iter)] = 0;
-        iter.setUTCMonth(iter.getUTCMonth() + 1);
-      }
+    // Seed months from launch → current month inclusive
+    const iter = new Date(Date.UTC(2024, 5, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    while (iter <= end) {
+      monthlyData[monthLabel(iter)] = 0;
+      iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // Bucket by inferred join date based on rounds collected (same as cards)
+    // Estimate join dates based on rewards / roundsPerDay
     recentValidators.forEach((v) => {
-      const roundsCollected = Number.parseFloat(v.rewards); // this is what the cards use
+      const roundsCollected = Number.parseFloat(v.rewards);
       if (!Number.isFinite(roundsCollected) || roundsCollected <= 0) return;
 
-      const daysActive = roundsCollected / roundsPerDay; // SAME basis as cards
+      const daysActive = roundsCollected / roundsPerDay;
       let joinTs = now.getTime() - daysActive * 24 * 60 * 60 * 1000;
 
-      // Clamp to launch so tiny drift doesn't push into May 2024
+      // Clamp to launch month
       if (joinTs < networkStart.getTime()) joinTs = networkStart.getTime();
 
       const joinDate = new Date(joinTs);
-      const key = monthLabelUTC(joinDate);
-      if (monthlyData[key] !== undefined) monthlyData[key] += 1;
+      const key = monthLabel(joinDate);
+      if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
 
-    return Object.entries(monthlyData).map(([month, validators]) => ({ month, validators }));
+    // Return ordered list for the chart
+    return Object.entries(monthlyData).map(([month, validators]) => ({
+      month,
+      validators,
+    }));
   };
 
   const monthlyChartData = getMonthlyJoinData();
