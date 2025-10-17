@@ -109,7 +109,6 @@ const Stats = () => {
   const allTimeValidators = recentValidators;
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
-  // Use the same logic as summary cards (rewards / roundsPerDay)
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
@@ -128,15 +127,21 @@ const Stats = () => {
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // Estimate join dates based on rewards / roundsPerDay
     recentValidators.forEach((v) => {
-      const roundsCollected = Number.parseFloat(v.rewards);
-      if (!Number.isFinite(roundsCollected) || roundsCollected <= 0) return;
+      const roundsCollected = Number.parseFloat(v.rewards ?? "0");
+      const hasRewards = roundsCollected > 0;
 
-      const daysActive = roundsCollected / roundsPerDay;
-      let joinTs = now.getTime() - daysActive * 24 * 60 * 60 * 1000;
+      let joinTs: number;
 
-      // Clamp to launch month
+      if (hasRewards) {
+        // same method as cards
+        const daysActive = roundsCollected / roundsPerDay;
+        joinTs = now.getTime() - daysActive * 24 * 60 * 60 * 1000;
+      } else {
+        // brand-new validator (0 rewards): treat as joined now
+        joinTs = now.getTime();
+      }
+
       if (joinTs < networkStart.getTime()) joinTs = networkStart.getTime();
 
       const joinDate = new Date(joinTs);
@@ -144,11 +149,7 @@ const Stats = () => {
       if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
 
-    // Return ordered list for the chart
-    return Object.entries(monthlyData).map(([month, validators]) => ({
-      month,
-      validators,
-    }));
+    return Object.entries(monthlyData).map(([month, validators]) => ({ month, validators }));
   };
 
   const monthlyChartData = getMonthlyJoinData();
