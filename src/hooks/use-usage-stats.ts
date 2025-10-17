@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { scanApi, TransactionHistoryItem } from "@/lib/api-client";
+import { scanApi } from "@/lib/api-client";
 
 export type UsageCharts = {
   cumulativeParties: { date: string; parties: number }[];
@@ -10,38 +10,21 @@ export type UsageCharts = {
   totalTransactions: number;
 };
 
-// Utility — format date into YYYY-MM-DD
-function toDateKey(dateStr: string | Date): string {
-  const d = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function toDateKey(date: string | Date): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toISOString().slice(0, 10);
 }
 
-// Extract unique sender parties for positive-value transfers
-function extractParties(tx: TransactionHistoryItem): string[] {
-  const t = tx as any;
-  if (!t.transfer || !t.transfer.sender?.party) return [];
-  const totalSent = (Array.isArray(t.transfer.receivers) ? t.transfer.receivers : []).reduce(
-    (sum: number, r: any) => sum + (parseFloat(r?.amount ?? "0") || 0),
-    0,
-  );
-  return totalSent > 0 ? [t.transfer.sender.party] : [];
-}
-
-// Turn daily data into chart-friendly series
 function buildSeriesFromDaily(
   perDay: Record<string, { partySet: Set<string>; txCount: number }>,
-  startDate: Date,
-  endDate: Date,
+  start: Date,
+  end: Date,
 ): UsageCharts {
   const allDates: string[] = [];
-  const cursor = new Date(startDate);
-  const end = new Date(endDate);
-  cursor.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-
-  while (cursor <= end) {
-    allDates.push(toDateKey(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+  const cur = new Date(start);
+  while (cur <= end) {
+    allDates.push(toDateKey(cur));
+    cur.setDate(cur.getDate() + 1);
   }
 
   const cumulativeParties: { date: string; parties: number }[] = [];
@@ -50,19 +33,18 @@ function buildSeriesFromDaily(
   const seen = new Set<string>();
 
   allDates.forEach((dateKey, idx) => {
-    const dayEntry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
-    dayEntry.partySet.forEach((p) => seen.add(p));
-
-    const daily = dayEntry.partySet.size;
-    const start = Math.max(0, idx - 6);
-    const window = allDates.slice(start, idx + 1);
-
-    const avg7d = Math.round(window.reduce((sum, d) => sum + (perDay[d]?.partySet.size || 0), 0) / window.length);
-    const txAvg7 = Math.round(window.reduce((sum, d) => sum + (perDay[d]?.txCount || 0), 0) / window.length);
-
+    const entry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
+    entry.partySet.forEach((p) => seen.add(p));
     cumulativeParties.push({ date: dateKey, parties: seen.size });
+
+    const daily = entry.partySet.size;
+    const win = allDates.slice(Math.max(0, idx - 6), idx + 1);
+    const avg7d = Math.round(win.reduce((s, d) => s + (perDay[d]?.partySet.size || 0), 0) / win.length);
     dailyActiveUsers.push({ date: dateKey, daily, avg7d });
-    dailyTransactions.push({ date: dateKey, daily: dayEntry.txCount, avg7d: txAvg7 });
+
+    const txDaily = entry.txCount;
+    const txAvg7 = Math.round(win.reduce((s, d) => s + (perDay[d]?.txCount || 0), 0) / win.length);
+    dailyTransactions.push({ date: dateKey, daily: txDaily, avg7d: txAvg7 });
   });
 
   return {
@@ -76,75 +58,71 @@ function buildSeriesFromDaily(
 }
 
 /**
- * useUsageStats
- *
- * Fetches and aggregates transaction data into usage metrics.
- *
- * @param days Optional. Number of days to include (default: 90)
- *             Pass 0 or leave empty for all-time data.
- * @param maxPages Optional. Limits pagination depth (default: 500)
+ * Uses /v2/updates as the canonical data source for historical activity.
+ * - Each update record_time marks a transaction day.
+ * - The `submitter` or `events_by_id` parties are used as daily-active senders.
  */
-export function useUsageStats(days?: number, maxPages: number = 500) {
+export function useUsageStats(days: number = 90) {
   return useQuery<UsageCharts>({
-    queryKey: ["usage-stats", days ?? "all"],
+    queryKey: ["usage-stats", days],
     queryFn: async () => {
       const end = new Date();
-      const start = new Date();
+      const start = new Date(end);
+      start.setDate(end.getDate() - days);
       start.setHours(0, 0, 0, 0);
-      end.setHours(0, 0, 0, 0);
-
-      // Determine range — all time or limited window
-      if (!days || days <= 0) {
-        console.log("🕒 Fetching all-time transaction history...");
-        start.setTime(0); // Epoch start for all-time
-      } else {
-        start.setDate(end.getDate() - days);
-        console.log(`🕒 Fetching last ${days} days (from ${start.toISOString()} to ${end.toISOString()})`);
-      }
+      end.setHours(23, 59, 59, 999);
 
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
-      let pageEnd: string | undefined = undefined;
-      let pagesFetched = 0;
-      let totalTransactions = 0;
-      let reachedCutoff = false;
 
-      // Paginate through transactions
-      while (pagesFetched < maxPages && !reachedCutoff) {
-        const res = await scanApi.fetchTransactions({
-          page_end_event_id: pageEnd,
-          sort_order: "desc",
+      let after: { after_migration_id: number; after_record_time: string } | undefined = undefined;
+      let totalUpdates = 0;
+      let page = 0;
+
+      while (page < 50) {
+        const res = await scanApi.fetchUpdates({
+          after,
           page_size: 500,
+          daml_value_encoding: "compact_json",
         });
 
-        const txs = res.transactions || [];
-        if (txs.length === 0) break;
+        const updates = res.transactions ?? [];
+        if (updates.length === 0) break;
 
-        for (const tx of txs) {
-          const d = new Date(tx.date);
-          if (days && days > 0 && d < start) {
-            reachedCutoff = true;
+        for (const update of updates) {
+          const d = new Date(update.record_time);
+          if (d < start) {
+            // Stop if we’ve gone beyond the requested date window
+            page = 999;
             break;
           }
 
-          const key = toDateKey(d);
-          if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+          const dateKey = toDateKey(d);
+          if (!perDay[dateKey]) perDay[dateKey] = { partySet: new Set(), txCount: 0 };
 
-          const senders = extractParties(tx);
-          senders.forEach((p) => perDay[key].partySet.add(p));
-          if (senders.length > 0) perDay[key].txCount++;
-          totalTransactions++;
+          // Count the submitter or any event party as active
+          const parties = new Set<string>();
+          if ((update as any).submitter) parties.add((update as any).submitter);
+          for (const ev of Object.values(update.events_by_id || {})) {
+            if (Array.isArray((ev as any).signatories)) (ev as any).signatories.forEach((p: string) => parties.add(p));
+            if (Array.isArray((ev as any).observers)) (ev as any).observers.forEach((p: string) => parties.add(p));
+          }
+
+          parties.forEach((p) => perDay[dateKey].partySet.add(p));
+          perDay[dateKey].txCount += 1;
+          totalUpdates++;
         }
 
-        pageEnd = txs.at(-1)?.event_id;
-        pagesFetched++;
+        const last = updates.at(-1);
+        if (!last) break;
 
-        console.log(
-          `📄 Page ${pagesFetched}/${maxPages} — ${txs.length} txs, total ${totalTransactions}, oldest: ${txs.at(-1)?.date}`,
-        );
+        after = {
+          after_migration_id: last.migration_id,
+          after_record_time: last.record_time,
+        };
+        page++;
       }
 
-      console.log(`✅ Done: ${totalTransactions} transactions across ${Object.keys(perDay).length} days`);
-      if (totalTransactions === 0) throw new Error("No transactions fetched");
+      if (totalUpdates === 0) throw new Error("No updates fetched from /v2/updates");
 
       return buildSeriesFromDaily(perDay, start, end);
     },
