@@ -112,14 +112,14 @@ const Stats = () => {
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 1)); // June 1, 2024 UTC
+    const networkStart = new Date(Date.UTC(2024, 5, 24)); // June 24 2024 UTC
 
     const monthLabel = (d: Date) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
-    // Seed months from launch → current month inclusive
+    // Seed months June 2024 → current month inclusive
     const iter = new Date(Date.UTC(2024, 5, 1));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     while (iter <= end) {
@@ -127,29 +127,36 @@ const Stats = () => {
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
+    // Convert round count into approximate date
     recentValidators.forEach((v) => {
-      const roundsCollected = Number.parseFloat(v.rewards ?? "0");
-      const hasRewards = roundsCollected > 0;
+      const firstRound = v.firstCollectedInRound ?? 0;
+      const rewards = parseFloat(v.rewards ?? "0");
 
-      let joinTs: number;
+      let joinDate: Date;
 
-      if (hasRewards) {
-        // same method as cards
-        const daysActive = roundsCollected / roundsPerDay;
-        joinTs = now.getTime() - daysActive * 24 * 60 * 60 * 1000;
+      if (firstRound > 0 && currentRound > firstRound) {
+        // 🕒 Historical method — use actual first collected round
+        const roundsAgo = currentRound - firstRound;
+        const daysAgo = roundsAgo / roundsPerDay;
+        joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      } else if (rewards > 0) {
+        // 🟢 Modern method — infer from rewards
+        const daysActive = rewards / roundsPerDay;
+        joinDate = new Date(now.getTime() - daysActive * 24 * 60 * 60 * 1000);
       } else {
-        // brand-new validator (0 rewards): treat as joined now
-        joinTs = now.getTime();
+        // 🟡 Brand new validator (0 rewards, 0 first round)
+        joinDate = now;
       }
 
-      if (joinTs < networkStart.getTime()) joinTs = networkStart.getTime();
-
-      const joinDate = new Date(joinTs);
+      if (joinDate < networkStart) joinDate = networkStart; // clamp to network start
       const key = monthLabel(joinDate);
       if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
 
-    return Object.entries(monthlyData).map(([month, validators]) => ({ month, validators }));
+    return Object.entries(monthlyData).map(([month, validators]) => ({
+      month,
+      validators,
+    }));
   };
 
   const monthlyChartData = getMonthlyJoinData();
