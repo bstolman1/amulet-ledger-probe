@@ -109,60 +109,40 @@ const Stats = () => {
   const allTimeValidators = recentValidators;
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
-  // Accurate month bucketing using avg seconds/round from roundTotals.entries
+  // Use the SAME logic as the cards: infer join date from rounds collected (v.rewards)
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
+    const networkStart = new Date(Date.UTC(2024, 5, 1)); // Jun 1, 2024 UTC
 
-    // Launch date (UTC) – month is 0-based: 5 => June
-    const networkStart = new Date(Date.UTC(2024, 5, 1));
-
-    // --- helpers (UTC everywhere) ---
-    const monthLabel = (d: Date) => {
+    const monthLabelUTC = (d: Date) => {
       const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${m[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
     // Seed months from launch → current month (inclusive)
     {
-      const iter = new Date(Date.UTC(2024, 5, 1));
+      const iter = new Date(Date.UTC(2024, 5, 1)); // start of June 2024
       const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); // start of current month
       while (iter <= end) {
-        monthlyData[monthLabel(iter)] = 0;
+        monthlyData[monthLabelUTC(iter)] = 0;
         iter.setUTCMonth(iter.getUTCMonth() + 1);
       }
     }
 
-    // --- derive avg seconds per round from your recent roundTotals timestamps ---
-    // (more precise than using rounded roundsPerDay)
-    let avgSecPerRound = 600; // fallback: ~10 min
-    const rt = roundTotals?.entries ?? [];
-    if (rt.length >= 2) {
-      const first = rt[0];
-      const last = rt[rt.length - 1];
-      const t0 = new Date(first.closed_round_effective_at).getTime();
-      const t1 = new Date(last.closed_round_effective_at).getTime();
-      const r0 = first.closed_round;
-      const r1 = last.closed_round;
-      const dr = Math.max(1, r1 - r0);
-      const dtSec = Math.max(1, (t1 - t0) / 1000);
-      avgSecPerRound = dtSec / dr; // <-- use this for conversion
-    }
-
-    // --- bucket each validator by month using time, not "days" ---
+    // Bucket by inferred join date based on rounds collected (same as cards)
     recentValidators.forEach((v) => {
-      const firstRound: number = v.firstCollectedInRound ?? 0;
-      if (!Number.isFinite(firstRound)) return;
+      const roundsCollected = Number.parseFloat(v.rewards); // this is what the cards use
+      if (!Number.isFinite(roundsCollected) || roundsCollected <= 0) return;
 
-      const roundsAgo = currentRound - firstRound;
-      // Join timestamp = now - roundsAgo * (seconds per round)
-      let joinTs = now.getTime() - roundsAgo * avgSecPerRound * 1000;
+      const daysActive = roundsCollected / roundsPerDay; // SAME basis as cards
+      let joinTs = now.getTime() - daysActive * 24 * 60 * 60 * 1000;
 
-      // clamp to launch so early drift doesn't fall into May
+      // Clamp to launch so tiny drift doesn't push into May 2024
       if (joinTs < networkStart.getTime()) joinTs = networkStart.getTime();
 
       const joinDate = new Date(joinTs);
-      const key = monthLabel(joinDate);
+      const key = monthLabelUTC(joinDate);
       if (monthlyData[key] !== undefined) monthlyData[key] += 1;
     });
 
