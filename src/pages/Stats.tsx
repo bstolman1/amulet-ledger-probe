@@ -109,48 +109,64 @@ const Stats = () => {
   const allTimeValidators = recentValidators;
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
+  // Accurate month bucketing using avg seconds/round from roundTotals.entries
   const getMonthlyJoinData = () => {
     const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 1)); // June 1, 2024 UTC
 
-    const formatMonth = (date: Date) => {
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+    // Launch date (UTC) – month is 0-based: 5 => June
+    const networkStart = new Date(Date.UTC(2024, 5, 1));
+
+    // --- helpers (UTC everywhere) ---
+    const monthLabel = (d: Date) => {
+      const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${m[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
-    // ✅ Initialize all months June 2024 → current month inclusive
-    const iter = new Date(Date.UTC(2024, 5, 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-    while (iter < end) {
-      monthlyData[formatMonth(iter)] = 0;
-      iter.setUTCMonth(iter.getUTCMonth() + 1);
+    // Seed months from launch → current month (inclusive)
+    {
+      const iter = new Date(Date.UTC(2024, 5, 1));
+      const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); // start of current month
+      while (iter <= end) {
+        monthlyData[monthLabel(iter)] = 0;
+        iter.setUTCMonth(iter.getUTCMonth() + 1);
+      }
     }
 
-    // ✅ Estimate join dates based on round offsets with smoothing
-    recentValidators.forEach((validator) => {
-      const firstRound = validator.firstCollectedInRound ?? 0;
+    // --- derive avg seconds per round from your recent roundTotals timestamps ---
+    // (more precise than using rounded roundsPerDay)
+    let avgSecPerRound = 600; // fallback: ~10 min
+    const rt = roundTotals?.entries ?? [];
+    if (rt.length >= 2) {
+      const first = rt[0];
+      const last = rt[rt.length - 1];
+      const t0 = new Date(first.closed_round_effective_at).getTime();
+      const t1 = new Date(last.closed_round_effective_at).getTime();
+      const r0 = first.closed_round;
+      const r1 = last.closed_round;
+      const dr = Math.max(1, r1 - r0);
+      const dtSec = Math.max(1, (t1 - t0) / 1000);
+      avgSecPerRound = dtSec / dr; // <-- use this for conversion
+    }
+
+    // --- bucket each validator by month using time, not "days" ---
+    recentValidators.forEach((v) => {
+      const firstRound: number = v.firstCollectedInRound ?? 0;
+      if (!Number.isFinite(firstRound)) return;
+
       const roundsAgo = currentRound - firstRound;
+      // Join timestamp = now - roundsAgo * (seconds per round)
+      let joinTs = now.getTime() - roundsAgo * avgSecPerRound * 1000;
 
-      // Adjust roundsPerDay slightly for early validators to spread them more evenly
-      // Validators from earlier in the network get a bit fewer rounds/day (network was slower early on)
-      const ageFactor = Math.min(1, roundsAgo / (currentRound * 0.5));
-      const effectiveRoundsPerDay = roundsPerDay * (1 - 0.3 * ageFactor); // up to 30% slower early on
+      // clamp to launch so early drift doesn't fall into May
+      if (joinTs < networkStart.getTime()) joinTs = networkStart.getTime();
 
-      const daysAgo = roundsAgo / effectiveRoundsPerDay;
-      let joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-
-      // Clamp joinDate to not predate networkStart
-      if (joinDate < networkStart) joinDate = networkStart;
-
-      const key = formatMonth(joinDate);
-      if (monthlyData[key] !== undefined) monthlyData[key]++;
+      const joinDate = new Date(joinTs);
+      const key = monthLabel(joinDate);
+      if (monthlyData[key] !== undefined) monthlyData[key] += 1;
     });
 
-    return Object.entries(monthlyData).map(([month, validators]) => ({
-      month,
-      validators,
-    }));
+    return Object.entries(monthlyData).map(([month, validators]) => ({ month, validators }));
   };
 
   const monthlyChartData = getMonthlyJoinData();
