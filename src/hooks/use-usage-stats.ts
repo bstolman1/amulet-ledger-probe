@@ -1,164 +1,125 @@
-import { useQuery } from "@tanstack/react-query";
-import { scanApi, Transaction, Reassignment } from "@/lib/api-client";
+import React from "react";
+import { useUsageStats } from "@/hooks/use-usage-stats";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 
-export type UsageCharts = {
-  cumulativeParties: { date: string; parties: number }[];
-  dailyActiveUsers: { date: string; daily: number; avg7d: number }[];
-  dailyTransactions: { date: string; daily: number; avg7d: number }[];
-  totalParties: number;
-  totalDailyUsers: number;
-  totalTransactions: number;
-};
+export default function StatsPage() {
+  const { data, isLoading, error } = useUsageStats(); // ✅ No arguments (all-time data)
 
-function toDateKey(date: string | Date): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toISOString().slice(0, 10);
-}
-
-function buildSeriesFromDaily(
-  perDay: Record<string, { partySet: Set<string>; txCount: number }>,
-  start: Date,
-  end: Date,
-): UsageCharts {
-  const allDates: string[] = [];
-  const cur = new Date(start);
-  while (cur <= end) {
-    allDates.push(toDateKey(cur));
-    cur.setDate(cur.getDate() + 1);
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-gray-400">
+        <Loader2 className="w-6 h-6 animate-spin mb-2" />
+        <p>Loading usage statistics…</p>
+      </div>
+    );
   }
 
-  const cumulativeParties: { date: string; parties: number }[] = [];
-  const dailyActiveUsers: { date: string; daily: number; avg7d: number }[] = [];
-  const dailyTransactions: { date: string; daily: number; avg7d: number }[] = [];
-  const seen = new Set<string>();
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-red-400">
+        <p className="text-lg font-medium">Failed to load usage statistics.</p>
+        <p className="text-sm text-gray-500 mt-1">{(error as Error).message || "Unknown error"}</p>
+      </div>
+    );
+  }
 
-  allDates.forEach((dateKey, idx) => {
-    const entry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
-    entry.partySet.forEach((p) => seen.add(p));
-    cumulativeParties.push({ date: dateKey, parties: seen.size });
+  if (!data) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-gray-400">
+        <p>No data available.</p>
+      </div>
+    );
+  }
 
-    const daily = entry.partySet.size;
-    const win = allDates.slice(Math.max(0, idx - 6), idx + 1);
-    const avg7d = Math.round(win.reduce((s, d) => s + (perDay[d]?.partySet.size || 0), 0) / win.length);
-    dailyActiveUsers.push({ date: dateKey, daily, avg7d });
+  return (
+    <div className="p-6 min-h-screen bg-gray-950 text-gray-100">
+      <h1 className="text-xl font-semibold mb-6">Usage Statistics</h1>
 
-    const txDaily = entry.txCount;
-    const txAvg7 = Math.round(win.reduce((s, d) => s + (perDay[d]?.txCount || 0), 0) / win.length);
-    dailyTransactions.push({ date: dateKey, daily: txDaily, avg7d: txAvg7 });
-  });
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Cumulative Unique Parties */}
+        <Card className="bg-gray-900 border-gray-800">
+          <CardContent className="p-4">
+            <h2 className="text-sm font-medium mb-2 text-gray-300">Cumulative Unique Parties</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={data.cumulativeParties}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                <XAxis dataKey="date" tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} minTickGap={20} />
+                <YAxis tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#111",
+                    border: "none",
+                    color: "#fff",
+                  }}
+                />
+                <Line type="monotone" dataKey="parties" stroke="#4f9eff" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
-  return {
-    cumulativeParties,
-    dailyActiveUsers,
-    dailyTransactions,
-    totalParties: seen.size,
-    totalDailyUsers: dailyActiveUsers.at(-1)?.avg7d ?? 0,
-    totalTransactions: dailyTransactions.reduce((sum, d) => sum + d.daily, 0),
-  };
-}
+        {/* Daily Active Users */}
+        <Card className="bg-gray-900 border-gray-800">
+          <CardContent className="p-4">
+            <h2 className="text-sm font-medium mb-2 text-gray-300">Daily Active Users</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={data.dailyActiveUsers}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                <XAxis dataKey="date" tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} minTickGap={20} />
+                <YAxis tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#111",
+                    border: "none",
+                    color: "#fff",
+                  }}
+                />
+                <Line type="monotone" dataKey="daily" stroke="#00e0ff" strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="avg7d"
+                  stroke="#ffaa00"
+                  strokeDasharray="4 2"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
-// --- type guards for mixed union type ---
-function isTransaction(u: Transaction | Reassignment): u is Transaction {
-  return (u as Transaction).events_by_id !== undefined;
-}
-function isReassignment(u: Transaction | Reassignment): u is Reassignment {
-  return (u as Reassignment).event !== undefined;
-}
-
-/**
- * useUsageStats — fetches **entire ledger history** from /v2/updates,
- * aggregates daily activity, and returns chart-ready metrics.
- */
-export function useUsageStats() {
-  return useQuery<UsageCharts>({
-    queryKey: ["usage-stats-alltime"],
-    queryFn: async () => {
-      const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
-
-      let after:
-        | {
-            after_migration_id: number;
-            after_record_time: string;
-          }
-        | undefined = undefined;
-
-      let totalUpdates = 0;
-      let page = 0;
-
-      console.log("Starting full-history scan via /v2/updates ...");
-
-      while (true) {
-        const res = await scanApi.fetchUpdates({
-          after,
-          page_size: 500,
-          daml_value_encoding: "compact_json",
-        });
-
-        const updates = res.transactions ?? [];
-        if (updates.length === 0) {
-          console.log(`No more updates after page ${page}.`);
-          break;
-        }
-
-        for (const update of updates) {
-          const recordTime = isTransaction(update) || isReassignment(update) ? update.record_time : undefined;
-          if (!recordTime) continue;
-
-          const d = new Date(recordTime);
-          const dateKey = toDateKey(d);
-          if (!perDay[dateKey]) perDay[dateKey] = { partySet: new Set(), txCount: 0 };
-
-          const parties = new Set<string>();
-
-          if (isTransaction(update)) {
-            for (const ev of Object.values(update.events_by_id || {})) {
-              if (Array.isArray((ev as any).signatories))
-                (ev as any).signatories.forEach((p: string) => parties.add(p));
-              if (Array.isArray((ev as any).observers)) (ev as any).observers.forEach((p: string) => parties.add(p));
-            }
-          } else if (isReassignment(update)) {
-            const e = update.event;
-            if (e.submitter) parties.add(e.submitter);
-            if ((e as any).contract?.signatories)
-              (e as any).contract.signatories.forEach((p: string) => parties.add(p));
-          }
-
-          parties.forEach((p) => perDay[dateKey].partySet.add(p));
-          perDay[dateKey].txCount += 1;
-          totalUpdates++;
-        }
-
-        const lastTx = updates.at(-1);
-        if (lastTx && isTransaction(lastTx)) {
-          after = {
-            after_migration_id: lastTx.migration_id,
-            after_record_time: lastTx.record_time,
-          };
-        } else {
-          after = undefined;
-        }
-
-        page++;
-        console.debug(`Fetched page ${page}, updates: ${updates.length}, oldest: ${updates.at(-1)?.record_time}`);
-
-        // Safety: stop if API paginates indefinitely
-        if (page > 2000) {
-          console.warn("Stopped after 2000 pages to prevent infinite loop.");
-          break;
-        }
-      }
-
-      console.log(`Completed history scan: ${totalUpdates} updates across ${Object.keys(perDay).length} days`);
-
-      const dates = Object.keys(perDay)
-        .map((d) => new Date(d))
-        .sort((a, b) => a.getTime() - b.getTime());
-      const start = dates[0] ?? new Date();
-      const end = dates.at(-1) ?? new Date();
-
-      return buildSeriesFromDaily(perDay, start, end);
-    },
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
+        {/* Daily Transactions */}
+        <Card className="bg-gray-900 border-gray-800">
+          <CardContent className="p-4">
+            <h2 className="text-sm font-medium mb-2 text-gray-300">Daily Transactions</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={data.dailyTransactions}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                <XAxis dataKey="date" tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} minTickGap={20} />
+                <YAxis tick={{ fill: "#8884d8", fontSize: 11 }} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#111",
+                    border: "none",
+                    color: "#fff",
+                  }}
+                />
+                <Line type="monotone" dataKey="daily" stroke="#8fff6d" strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="avg7d"
+                  stroke="#ffaa00"
+                  strokeDasharray="4 2"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }
