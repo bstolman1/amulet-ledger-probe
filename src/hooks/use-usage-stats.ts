@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { scanApi } from "@/lib/api-client";
+import { scanApi, Transaction, Reassignment } from "@/lib/api-client";
 
 export type UsageCharts = {
   cumulativeParties: { date: string; parties: number }[];
@@ -57,6 +57,15 @@ function buildSeriesFromDaily(
   };
 }
 
+// --- type guards for mixed union type ---
+function isTransaction(u: Transaction | Reassignment): u is Transaction {
+  return (u as Transaction).events_by_id !== undefined;
+}
+
+function isReassignment(u: Transaction | Reassignment): u is Reassignment {
+  return (u as Reassignment).event !== undefined;
+}
+
 /**
  * Uses /v2/updates as the canonical data source for historical activity.
  * - Each update record_time marks a transaction day.
@@ -74,7 +83,13 @@ export function useUsageStats(days: number = 90) {
 
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
 
-      let after: { after_migration_id: number; after_record_time: string } | undefined = undefined;
+      let after:
+        | {
+            after_migration_id: number;
+            after_record_time: string;
+          }
+        | undefined = undefined;
+
       let totalUpdates = 0;
       let page = 0;
 
@@ -89,9 +104,11 @@ export function useUsageStats(days: number = 90) {
         if (updates.length === 0) break;
 
         for (const update of updates) {
-          const d = new Date(update.record_time);
+          const recordTime = isTransaction(update) || isReassignment(update) ? update.record_time : undefined;
+          if (!recordTime) continue;
+
+          const d = new Date(recordTime);
           if (d < start) {
-            // Stop if we’ve gone beyond the requested date window
             page = 999;
             break;
           }
@@ -99,12 +116,21 @@ export function useUsageStats(days: number = 90) {
           const dateKey = toDateKey(d);
           if (!perDay[dateKey]) perDay[dateKey] = { partySet: new Set(), txCount: 0 };
 
-          // Count the submitter or any event party as active
           const parties = new Set<string>();
-          if ((update as any).submitter) parties.add((update as any).submitter);
-          for (const ev of Object.values(update.events_by_id || {})) {
-            if (Array.isArray((ev as any).signatories)) (ev as any).signatories.forEach((p: string) => parties.add(p));
-            if (Array.isArray((ev as any).observers)) (ev as any).observers.forEach((p: string) => parties.add(p));
+
+          if (isTransaction(update)) {
+            // Collect signatories/observers from events
+            for (const ev of Object.values(update.events_by_id || {})) {
+              if (Array.isArray((ev as any).signatories))
+                (ev as any).signatories.forEach((p: string) => parties.add(p));
+              if (Array.isArray((ev as any).observers)) (ev as any).observers.forEach((p: string) => parties.add(p));
+            }
+          } else if (isReassignment(update)) {
+            // Handle reassignment events (assignment/unassignment)
+            const e = update.event;
+            if (e.submitter) parties.add(e.submitter);
+            if ((e as any).contract?.signatories)
+              (e as any).contract.signatories.forEach((p: string) => parties.add(p));
           }
 
           parties.forEach((p) => perDay[dateKey].partySet.add(p));
@@ -112,13 +138,16 @@ export function useUsageStats(days: number = 90) {
           totalUpdates++;
         }
 
-        const last = updates.at(-1);
-        if (!last) break;
+        const lastTx = updates.at(-1);
+        if (lastTx && isTransaction(lastTx)) {
+          after = {
+            after_migration_id: lastTx.migration_id,
+            after_record_time: lastTx.record_time,
+          };
+        } else {
+          after = undefined;
+        }
 
-        after = {
-          after_migration_id: last.migration_id,
-          after_record_time: last.record_time,
-        };
         page++;
       }
 
