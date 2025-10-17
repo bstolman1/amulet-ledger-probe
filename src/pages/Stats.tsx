@@ -108,7 +108,7 @@ const Stats = () => {
   });
   const allTimeValidators = recentValidators;
 
-  // Calculate monthly join data for all time since network launch
+  // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
   const getMonthlyJoinData = () => {
     const monthlyData: { [key: string]: number } = {};
     const now = new Date();
@@ -120,10 +120,10 @@ const Stats = () => {
       return `${months[date.getMonth()]} ${date.getFullYear()}`;
     };
 
-    // Initialize months from network start to now
+    // ✅ Initialize months from network start to *current month inclusive*
     const iter = new Date(Date.UTC(networkStart.getFullYear(), networkStart.getMonth(), 1));
-    const nowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
-    while (iter <= nowUTC) {
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)); // start of current month
+    while (iter <= end) {
       const monthKey = formatMonth(iter);
       monthlyData[monthKey] = 0;
       iter.setUTCMonth(iter.getUTCMonth() + 1);
@@ -138,7 +138,7 @@ const Stats = () => {
 
       if (joinDate >= networkStart) {
         const monthKey = formatMonth(joinDate);
-        if (monthlyData.hasOwnProperty(monthKey)) {
+        if (Object.prototype.hasOwnProperty.call(monthlyData, monthKey)) {
           monthlyData[monthKey]++;
         }
       }
