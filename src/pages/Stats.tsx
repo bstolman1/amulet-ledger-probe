@@ -110,80 +110,117 @@ const Stats = () => {
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
   const getMonthlyJoinData = () => {
+    console.group("📊 DEBUG — Validator Join Date Analysis");
+
     const monthlyData: Record<string, number> = {};
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 24)); // June 24, 2024 UTC
-
+    const networkStart = new Date(Date.UTC(2024, 5, 24)); // June 24 2024 UTC
     const monthLabel = (d: Date) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     };
 
-    // Initialize month keys from launch → current month
-    const iter = new Date(Date.UTC(2024, 5, 1));
+    // Initialize months from launch to now
+    const iter = new Date(Date.UTC(networkStart.getUTCFullYear(), networkStart.getUTCMonth(), 1));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     while (iter <= end) {
       monthlyData[monthLabel(iter)] = 0;
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
 
-    // Gather info for debugging
-    const firstRounds: number[] = [];
-    const joinDates: Date[] = [];
+    // === Diagnostic: Inspect validator sample ===
+    if (recentValidators && recentValidators.length > 0) {
+      console.log(`Inspecting ${recentValidators.length} validators...`);
+      recentValidators.slice(0, 3).forEach((v, i) => {
+        console.log(`\nValidator ${i + 1}:`);
+        console.log(v);
 
+        const possibleKeys = [
+          "created_at",
+          "joined_at",
+          "firstSeenRound",
+          "firstCollectedInRound",
+          "registered_at",
+          "registeredAt",
+          "addedAt",
+          "timestamp",
+          "joined",
+        ];
+
+        possibleKeys.forEach((key) => {
+          if (key in v) {
+            console.log(`  • ${key}:`, v[key]);
+          }
+        });
+
+        console.log("  • rewards:", v.rewards);
+      });
+    } else {
+      console.warn("⚠️ recentValidators is empty or undefined.");
+    }
+
+    // === Actual join-date calculation ===
     recentValidators.forEach((v) => {
-      const firstRound = v.firstCollectedInRound ?? 0;
-      const rewards = parseFloat(v.rewards ?? "0");
+      // Prefer the real join field if it exists
+      const createdAt = v.created_at ?? v.joined_at;
+      const firstSeenRound = v.firstSeenRound ?? 0;
+      const firstCollectedInRound = v.firstCollectedInRound ?? 0;
 
-      let joinDate: Date;
+      let joinDate: Date | null = null;
 
-      if (firstRound > 0 && currentRound > firstRound) {
-        // Historical method — use actual first collected round
-        const roundsAgo = currentRound - firstRound;
+      if (createdAt) {
+        joinDate = new Date(createdAt);
+      } else if (firstSeenRound > 0 && currentRound > firstSeenRound) {
+        const roundsAgo = currentRound - firstSeenRound;
         const daysAgo = roundsAgo / roundsPerDay;
         joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-        firstRounds.push(firstRound);
-      } else if (rewards > 0) {
-        // Fallback for modern validators
-        const daysActive = rewards / roundsPerDay;
-        joinDate = new Date(now.getTime() - daysActive * 24 * 60 * 60 * 1000);
+      } else if (firstCollectedInRound > 0 && currentRound > firstCollectedInRound) {
+        const roundsAgo = currentRound - firstCollectedInRound;
+        const daysAgo = roundsAgo / roundsPerDay;
+        joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
       } else {
-        // Brand new (no rewards yet)
-        joinDate = now;
+        const rewards = parseFloat(v.rewards ?? "0");
+        if (rewards > 0) {
+          const daysActive = rewards / roundsPerDay;
+          joinDate = new Date(now.getTime() - daysActive * 24 * 60 * 60 * 1000);
+        }
       }
 
+      if (!joinDate) return;
       if (joinDate < networkStart) joinDate = networkStart;
-      joinDates.push(joinDate);
 
       const key = monthLabel(joinDate);
       if (monthlyData[key] !== undefined) monthlyData[key]++;
     });
 
-    // ---- DEBUG OUTPUT ----
-    if (firstRounds.length) {
-      const earliestRound = Math.min(...firstRounds);
+    // === Summary logs ===
+    console.log("\nGeneral Stats:");
+    console.log("Current round:", currentRound);
+    console.log("Rounds per day:", roundsPerDay);
+
+    // earliest join estimate from firstCollectedInRound
+    const firstRounds = recentValidators
+      .map((v) => v.firstCollectedInRound ?? 0)
+      .filter((r) => r > 0)
+      .sort((a, b) => a - b);
+
+    if (firstRounds.length > 0) {
+      const earliestRound = firstRounds[0];
       const roundsAgo = currentRound - earliestRound;
       const daysAgo = roundsAgo / roundsPerDay;
-      const earliestDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-
-      console.log("📊 DEBUG — Validator Join Date Analysis");
+      const joinDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
       console.log("Earliest firstCollectedInRound:", earliestRound);
-      console.log("Current round:", currentRound);
-      console.log("Rounds per day:", roundsPerDay);
-      console.log("Estimated earliest join date:", earliestDate.toISOString());
-      console.log("Expected network start:", networkStart.toISOString());
+      console.log("Estimated earliest join date:", joinDate.toISOString());
     } else {
-      console.warn("⚠️ No firstCollectedInRound values found in recentValidators");
+      console.log("⚠️ No firstCollectedInRound data available.");
     }
 
-    // Show monthly totals in the console
-    console.table(
-      Object.entries(monthlyData).map(([month, count]) => ({
-        month,
-        validators: count,
-      })),
-    );
+    console.log("\n📅 Monthly join distribution:");
+    console.table(Object.entries(monthlyData).map(([month, validators]) => ({ month, validators })));
 
+    console.groupEnd();
+
+    // Return formatted data for Recharts
     return Object.entries(monthlyData).map(([month, validators]) => ({
       month,
       validators,
