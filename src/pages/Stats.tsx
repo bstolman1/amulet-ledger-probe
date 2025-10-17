@@ -51,7 +51,7 @@ const Stats = () => {
   });
 
   // Usage statistics via transactions API
-  const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
+  const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats();
 
   // Calculate rounds per day based on recent data using timestamps
   const roundsPerDay = (() => {
@@ -617,7 +617,6 @@ const Stats = () => {
         </Card>
 
         {/* Usage Statistics Section */}
-<div className="space-y-6">
   <div className="flex flex-col md:flex-row md:items-center md:justify-between">
     <div>
       <h3 className="text-2xl font-bold mb-1">Usage Statistics</h3>
@@ -985,3 +984,8 @@ const Stats = () => {
     </Card>
   </div>
 </div>
+</DashboardLayout>
+  );
+};
+
+export default Stats;
