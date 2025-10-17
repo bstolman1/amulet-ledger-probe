@@ -114,16 +114,16 @@ const Stats = () => {
     const now = new Date();
     const networkStart = new Date("2024-06-01T00:00:00Z");
 
-    // Format helper
     const formatMonth = (date: Date) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${months[date.getMonth()]} ${date.getFullYear()}`;
+      return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
     };
 
-    // ✅ Seed months from network start → *inclusive current month*
-    const iter = new Date(Date.UTC(networkStart.getFullYear(), networkStart.getMonth(), 1));
-    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)); // start of current month
-    while (iter <= end) {
+    // ✅ Initialize from *networkStart month* to *current month inclusive*
+    const iter = new Date(Date.UTC(networkStart.getUTCFullYear(), networkStart.getUTCMonth(), 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)); // start of *next* month
+    while (iter < end) {
+      // strictly less than end, includes current month
       monthlyData[formatMonth(iter)] = 0;
       iter.setUTCMonth(iter.getUTCMonth() + 1);
     }
