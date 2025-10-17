@@ -1,157 +1,165 @@
 import { useQuery } from "@tanstack/react-query";
-import { scanApi } from "@/lib/api-client";
+import { scanApi, TransactionHistoryItem } from "@/lib/api-client";
 
-interface UsageStatsData {
-  cumulativeParties: Array<{ date: string; parties: number }>;
-  dailyActiveUsers: Array<{ date: string; daily: number; avg7d: number }>;
-  dailyTransactions: Array<{ date: string; daily: number; avg7d: number }>;
-  totalParties?: number;
-  totalDailyUsers?: number;
-  totalTransactions?: number;
+export type UsageCharts = {
+  cumulativeParties: { date: string; parties: number }[];
+  dailyActiveUsers: { date: string; daily: number; avg7d: number }[];
+  dailyTransactions: { date: string; daily: number; avg7d: number }[];
+  totalParties: number;
+  totalDailyUsers: number;
+  totalTransactions: number;
+};
+
+function toDateKey(dateStr: string | Date): string {
+  const d = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-const CACHE_KEY = "usage-stats-v1";
+function extractParties(tx: TransactionHistoryItem): string[] {
+  const t = tx as any;
+  if (!t.transfer || !t.transfer.sender?.party) return [];
 
-export function useUsageStats() {
-  // Read cached results for instant first paint
-  const cached: UsageStatsData | undefined = (() => {
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      return raw ? (JSON.parse(raw) as UsageStatsData) : undefined;
-    } catch {
-      return undefined;
-    }
-  })();
+  const totalSent = (Array.isArray(t.transfer.receivers) ? t.transfer.receivers : []).reduce((sum: number, r: any) => {
+    const n = parseFloat(r?.amount ?? "0");
+    return sum + (isNaN(n) ? 0 : n);
+  }, 0);
 
-  return useQuery<UsageStatsData>({
-    queryKey: ["usage-stats"],
-    initialData: cached,
-    staleTime: 24 * 60 * 60 * 1000, // 24h
-    gcTime: 7 * 24 * 60 * 60 * 1000, // 7 days
-    refetchOnWindowFocus: false,
+  return totalSent > 0 ? [t.transfer.sender.party] : [];
+}
+
+function buildSeriesFromDaily(
+  perDay: Record<string, { partySet: Set<string>; txCount: number }>,
+  startDate: Date,
+  endDate: Date,
+): UsageCharts {
+  const allDates: string[] = [];
+  const cursor = new Date(startDate);
+  const end = new Date(endDate);
+  cursor.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+
+  while (cursor <= end) {
+    allDates.push(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const cumulativeParties: { date: string; parties: number }[] = [];
+  const dailyActiveUsers: { date: string; daily: number; avg7d: number }[] = [];
+  const dailyTransactions: { date: string; daily: number; avg7d: number }[] = [];
+  const seen = new Set<string>();
+
+  allDates.forEach((dateKey, idx) => {
+    const dayEntry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
+
+    // cumulative
+    dayEntry.partySet.forEach((p) => seen.add(p));
+    cumulativeParties.push({ date: dateKey, parties: seen.size });
+
+    // daily users + 7d avg
+    const daily = dayEntry.partySet.size;
+    const start = Math.max(0, idx - 6);
+    const window = allDates.slice(start, idx + 1);
+    const avg7d = Math.round(window.reduce((sum, d) => sum + (perDay[d]?.partySet.size || 0), 0) / window.length);
+    dailyActiveUsers.push({ date: dateKey, daily, avg7d });
+
+    // daily tx + 7d avg
+    const txDaily = dayEntry.txCount;
+    const txAvg7 = Math.round(window.reduce((sum, d) => sum + (perDay[d]?.txCount || 0), 0) / window.length);
+    dailyTransactions.push({ date: dateKey, daily: txDaily, avg7d: txAvg7 });
+  });
+
+  return {
+    cumulativeParties,
+    dailyActiveUsers,
+    dailyTransactions,
+    totalParties: seen.size,
+    totalDailyUsers: dailyActiveUsers.length > 0 ? dailyActiveUsers[dailyActiveUsers.length - 1].avg7d : 0,
+    totalTransactions: dailyTransactions.reduce((sum, d) => sum + d.daily, 0),
+  };
+}
+
+export function useUsageStats(days: number = 90) {
+  return useQuery<UsageCharts>({
+    queryKey: ["usage-stats", days],
     queryFn: async () => {
-      console.info("Starting full-history scan via /v2/updates ...");
+      const end = new Date();
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      start.setDate(end.getDate() - Math.max(1, days));
 
-      const allParties = new Set<string>();
-      const dailyPartiesMap = new Map<string, Set<string>>();
-      const dailyTxCountMap = new Map<string, number>();
-
-      let afterRecordTime = "2024-06-24T00:00:00.000Z"; // Network start
-      let hasMore = true;
+      const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
+      let pageEnd: string | undefined = undefined;
+      let pagesFetched = 0;
+      const maxPages = 200;
       let totalTransactions = 0;
+      let reachedCutoff = false;
 
-      // Fetch all transaction pages (use larger page size to reduce calls)
-      while (hasMore) {
-        const response = await scanApi.fetchUpdates({
-          after: {
-            after_migration_id: 0,
-            after_record_time: afterRecordTime,
-          },
-          page_size: 2000,
-          daml_value_encoding: "compact_json",
-        });
+      console.log(`Fetching usage stats for ${days} days (${start.toISOString()} → ${end.toISOString()})`);
 
-        const transactions = response.transactions;
-        if (!transactions || transactions.length === 0) {
-          hasMore = false;
-          break;
-        }
+      while (pagesFetched < maxPages && !reachedCutoff) {
+        try {
+          const res = await scanApi.fetchTransactions({
+            page_end_event_id: pageEnd,
+            sort_order: "desc",
+            page_size: 500,
+          });
 
-        totalTransactions += transactions.length;
-
-        // Process each transaction
-        transactions.forEach((tx: any) => {
-          if (!tx.record_time) return;
-
-          const date = tx.record_time.split("T")[0];
-
-          // Count transactions per day
-          dailyTxCountMap.set(date, (dailyTxCountMap.get(date) || 0) + 1);
-
-          // Extract unique parties from events
-          if (tx.events_by_id) {
-            Object.values(tx.events_by_id).forEach((event: any) => {
-              const parties: string[] = [];
-
-              if (event.acting_parties) parties.push(...event.acting_parties);
-              if (event.signatories) parties.push(...event.signatories);
-
-              parties.forEach((party) => {
-                allParties.add(party);
-                if (!dailyPartiesMap.has(date)) dailyPartiesMap.set(date, new Set());
-                dailyPartiesMap.get(date)!.add(party);
-              });
-            });
+          const txs = res.transactions || [];
+          if (txs.length === 0) {
+            console.log(`No more transactions found after ${pagesFetched} pages`);
+            break;
           }
-        });
 
-        // Update after cursor
-        const lastTx = transactions[transactions.length - 1];
-        afterRecordTime = lastTx.record_time;
+          for (const tx of txs) {
+            const d = new Date(tx.date);
+            if (d < start) {
+              reachedCutoff = true;
+              break; // stop processing this page
+            }
 
-        // Safety cap to avoid very long client scans
-        if (totalTransactions > 200000) {
-          console.warn("Reached transaction scan cap; consider backend aggregation for faster loads.");
-          hasMore = false;
+            const key = toDateKey(tx.date);
+            if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+
+            const senders = extractParties(tx);
+            senders.forEach((p) => perDay[key].partySet.add(p));
+            if (senders.length > 0) perDay[key].txCount += 1;
+
+            totalTransactions++;
+          }
+
+          // ✅ stop paginating if cutoff reached
+          if (reachedCutoff) {
+            console.log(`Reached date cutoff after page ${pagesFetched + 1}`);
+            break;
+          }
+
+          pageEnd = txs[txs.length - 1].event_id;
+          pagesFetched++;
+
+          console.log(
+            `Page ${pagesFetched}: processed ${txs.length} txs (total: ${totalTransactions}), oldest=${txs[txs.length - 1]?.date}`,
+          );
+        } catch (error) {
+          console.error(`Error fetching page ${pagesFetched}:`, error);
+          break;
         }
       }
 
-      console.info(`Processed ${totalTransactions} transactions`);
-
-      // Build date list
-      const sortedDates = Array.from(new Set([...dailyPartiesMap.keys(), ...dailyTxCountMap.keys()])).sort();
-
-      // Build cumulative parties in order
-      const cumulativeParties: Array<{ date: string; parties: number }> = [];
-      const seenParties = new Set<string>();
-      sortedDates.forEach((date) => {
-        const parties = dailyPartiesMap.get(date) || new Set();
-        parties.forEach((p) => seenParties.add(p));
-        cumulativeParties.push({ date, parties: seenParties.size });
-      });
-
-      // Daily active users with 7-day avg
-      const dailyActiveUsers: Array<{ date: string; daily: number; avg7d: number }> = [];
-      sortedDates.forEach((date, idx) => {
-        const daily = dailyPartiesMap.get(date)?.size || 0;
-        const startIdx = Math.max(0, idx - 6);
-        const last7Days = sortedDates.slice(startIdx, idx + 1);
-        const sum = last7Days.reduce((acc, d) => acc + (dailyPartiesMap.get(d)?.size || 0), 0);
-        const avg7d = Math.round(sum / (last7Days.length || 1));
-        dailyActiveUsers.push({ date, daily, avg7d });
-      });
-
-      // Daily transactions with 7-day avg
-      const dailyTransactions: Array<{ date: string; daily: number; avg7d: number }> = [];
-      sortedDates.forEach((date, idx) => {
-        const daily = dailyTxCountMap.get(date) || 0;
-        const startIdx = Math.max(0, idx - 6);
-        const last7Days = sortedDates.slice(startIdx, idx + 1);
-        const sum = last7Days.reduce((acc, d) => acc + (dailyTxCountMap.get(d) || 0), 0);
-        const avg7d = Math.round(sum / (last7Days.length || 1));
-        dailyTransactions.push({ date, daily, avg7d });
-      });
-
-      // Summary
-      const recentDays = sortedDates.slice(-7);
-      const totalDailyUsers = Math.round(
-        (recentDays.reduce((acc, d) => acc + (dailyPartiesMap.get(d)?.size || 0), 0) / (recentDays.length || 1)) || 0
+      console.log(
+        `Finished fetching usage stats. Total: ${totalTransactions} txs across ${Object.keys(perDay).length} days.`,
       );
 
-      const result: UsageStatsData = {
-        cumulativeParties,
-        dailyActiveUsers,
-        dailyTransactions,
-        totalParties: seenParties.size,
-        totalDailyUsers,
-        totalTransactions,
-      };
+      if (totalTransactions === 0) {
+        throw new Error("No transactions fetched");
+      }
 
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(result));
-      } catch {}
-
-      return result;
+      return buildSeriesFromDaily(perDay, start, end);
     },
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
   });
 }
