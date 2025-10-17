@@ -110,45 +110,53 @@ const Stats = () => {
 
   // ✅ Fixed: Calculate monthly join data for all time since network launch, including current month
   const getMonthlyJoinData = () => {
-    const monthlyData: Record<string, number> = {};
+    // Always work in UTC to avoid TZ drift in labels and bucketing
     const now = new Date();
-    const networkStart = new Date(Date.UTC(2024, 5, 1)); // June 1, 2024 UTC
+    const networkStartUTC = new Date(Date.UTC(2024, 5, 1)); // 2024-06-01T00:00:00Z  (month is 0-based)
 
-    // Month labels helper
-    const formatMonth = (date: Date) => {
+    const monthLabelUTC = (y: number, m: number) => {
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+      return `${months[m]} ${y}`;
     };
 
-    // Initialize all months up to and including the current month
-    const iter = new Date(Date.UTC(networkStart.getUTCFullYear(), networkStart.getUTCMonth(), 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)); // next month start
-    while (iter < end) {
-      monthlyData[formatMonth(iter)] = 0;
-      iter.setUTCMonth(iter.getUTCMonth() + 1);
+    // Seed months from June 2024 through the CURRENT month inclusive, in UTC
+    const monthlyData: Record<string, number> = {};
+    let y = networkStartUTC.getUTCFullYear();
+    let m = networkStartUTC.getUTCMonth();
+
+    const endY = now.getUTCFullYear();
+    const endM = now.getUTCMonth(); // inclusive
+
+    while (y < endY || (y === endY && m <= endM)) {
+      monthlyData[monthLabelUTC(y, m)] = 0;
+      m += 1;
+      if (m === 12) {
+        m = 0;
+        y += 1;
+      }
     }
 
-    // Count joins (clamped)
-    recentValidators.forEach((validator) => {
-      const firstRound = validator.firstCollectedInRound ?? 0;
+    // Bucket each validator by month (UTC). Clamp to network start to prevent
+    // tiny numerical drift pushing early joins to May 2024.
+    recentValidators.forEach((v) => {
+      const firstRound = v.firstCollectedInRound ?? 0;
       const roundsAgo = currentRound - firstRound;
       const daysAgo = roundsAgo / roundsPerDay;
 
-      // Reconstruct approximate join date
-      let joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      // Approximate join timestamp
+      let join = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
-      // ✅ Clamp join date to never be before networkStart
-      if (joinDate < networkStart) joinDate = networkStart;
+      // Clamp to network start (UTC)
+      if (join.getTime() < networkStartUTC.getTime()) join = new Date(networkStartUTC);
 
-      const key = formatMonth(joinDate);
-      if (monthlyData[key] !== undefined) monthlyData[key]++;
+      const key = monthLabelUTC(join.getUTCFullYear(), join.getUTCMonth());
+      if (monthlyData[key] !== undefined) monthlyData[key] += 1;
     });
 
-    // Return in chart-friendly format
-    return Object.entries(monthlyData).map(([month, validators]) => ({
-      month,
-      validators,
-    }));
+    // Optional sanity logging during debugging:
+    // console.log("first,last:", Object.keys(monthlyData)[0], Object.keys(monthlyData).slice(-1)[0]);
+
+    return Object.entries(monthlyData).map(([month, validators]) => ({ month, validators }));
   };
 
   const monthlyChartData = getMonthlyJoinData();
