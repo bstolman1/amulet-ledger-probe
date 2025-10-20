@@ -1,207 +1,112 @@
-import { scanApi } from './api-client';
+import YAML from "yaml";
 
-const CONFIG_URL = 'https://raw.githubusercontent.com/global-synchronizer-foundation/configs/main/configs/MainNet/approved-sv-id-values.yaml';
-const CACHE_KEY = 'sv_config_cache';
-const CACHE_TIMESTAMP_KEY = 'sv_config_timestamp';
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-
-export interface SuperValidator {
-  name: string;
-  address: string;
-  weight: number;
-  operatorName: string;
-  operatorPublicKey: string;
-  joinRound?: number;
-  isGhost?: boolean;
-}
+const CONFIG_URL =
+  "https://raw.githubusercontent.com/global-synchronizer-foundation/configs/refs/heads/main/configs/MainNet/approved-sv-id-values.yaml";
 
 export interface ConfigData {
-  superValidators: SuperValidator[];
-  operators: Array<{
+  superValidators: {
     name: string;
-    publicKey: string;
+    address: string;
+    operatorName: string;
+    weight: number;
+    parentWeight: number;
+    joinRound?: number | null;
+    isGhost: boolean;
+  }[];
+  operators: {
+    name: string;
     rewardWeightBps: number;
-  }>;
+    joinRound?: number | null;
+    extraBeneficiaries: {
+      beneficiary: string;
+      weight: number;
+    }[];
+  }[];
+  totalRewardBps: number;
   lastUpdated: number;
 }
 
-async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
-  const lines = yamlText.split('\n');
-  const superValidators: SuperValidator[] = [];
-  const operators: Array<{ name: string; publicKey: string; rewardWeightBps: number }> = [];
-  
-  let currentOperator: { name: string; publicKey: string; rewardWeightBps: number } | null = null;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Parse operator name
-    if (line.trim().startsWith('- name:')) {
-      const name = line.split('name:')[1].trim();
-      currentOperator = { name, publicKey: '', rewardWeightBps: 0 };
-      operators.push(currentOperator);
-    }
-    
-    // Parse public key
-    if (line.trim().startsWith('publicKey:') && currentOperator) {
-      currentOperator.publicKey = line.split('publicKey:')[1].trim();
-    }
-    
-    // Parse reward weight
-    if (line.trim().startsWith('rewardWeightBps:') && currentOperator) {
-      const weight = line.split('rewardWeightBps:')[1].trim().replace(/_/g, '');
-      currentOperator.rewardWeightBps = parseInt(weight);
-    }
-    
-    // Parse beneficiaries (actual SVs)
-    if (line.trim().startsWith('- beneficiary:') && currentOperator) {
-      const beneficiaryLine = line.split('beneficiary:')[1].trim();
-      const address = beneficiaryLine.replace(/"/g, '').split('#')[0].trim();
-      const comment = beneficiaryLine.includes('#') ? beneficiaryLine.split('#')[1].trim() : '';
-      
-      // Get weight from next line
-      let weight = 0;
-      if (i + 1 < lines.length && lines[i + 1].trim().startsWith('weight:')) {
-        const weightStr = lines[i + 1].split('weight:')[1].trim().replace(/_/g, '');
-        weight = parseInt(weightStr);
-      }
-      
-      const svName = address.split('::')[0];
-      const isGhost = svName.toLowerCase().includes('ghost');
-      
-      superValidators.push({
-        name: comment || svName,
-        address,
-        weight,
-        operatorName: currentOperator.name,
-        operatorPublicKey: currentOperator.publicKey,
-        isGhost
+export async function fetchConfigData(forceRefresh = false): Promise<ConfigData> {
+  const cacheKey = "sv-config-cache-v3";
+
+  // ─────────────────────────────
+  // Cache
+  // ─────────────────────────────
+  if (!forceRefresh) {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) return JSON.parse(cached);
+  }
+
+  // ─────────────────────────────
+  // Fetch YAML from GitHub
+  // ─────────────────────────────
+  const res = await fetch(CONFIG_URL);
+  if (!res.ok) throw new Error("Failed to fetch config file from GitHub");
+  const text = await res.text();
+  const parsed = YAML.parse(text);
+
+  const approved = parsed.approvedSvIdentities || [];
+
+  // ─────────────────────────────
+  // Build Operators and Flatten Beneficiaries
+  // ─────────────────────────────
+  const operators: ConfigData["operators"] = [];
+  const flattened: ConfigData["superValidators"] = [];
+  let totalRewardBps = 0;
+
+  for (const sv of approved) {
+    const operatorName = sv.name;
+    const rewardWeightBps = Number(String(sv.rewardWeightBps).replace(/_/g, ""));
+    totalRewardBps += rewardWeightBps;
+
+    const extras = sv.extraBeneficiaries || [];
+    const normalizedExtras = extras.map((ex: any) => ({
+      beneficiary: ex.beneficiary,
+      weight: Number(String(ex.weight).replace(/_/g, "")),
+    }));
+
+    // Save operator entry
+    operators.push({
+      name: operatorName,
+      rewardWeightBps,
+      joinRound: sv.joinRound ?? null,
+      extraBeneficiaries: normalizedExtras,
+    });
+
+    // Flatten beneficiaries for UI tables
+    for (const ex of normalizedExtras) {
+      const [beneficiaryName, address] = ex.beneficiary.split("::");
+      flattened.push({
+        name: beneficiaryName,
+        address: address || "",
+        operatorName,
+        weight: ex.weight,
+        parentWeight: rewardWeightBps,
+        joinRound: sv.joinRound ?? null,
+        isGhost: beneficiaryName.toLowerCase().includes("ghost"),
       });
     }
   }
-  
-  return {
-    superValidators,
+
+  // ─────────────────────────────
+  // Compose Final Data
+  // ─────────────────────────────
+  const data: ConfigData = {
+    superValidators: flattened,
     operators,
-    lastUpdated: Date.now()
+    totalRewardBps,
+    lastUpdated: Date.now(),
   };
+
+  // Cache locally
+  localStorage.setItem(cacheKey, JSON.stringify(data));
+  return data;
 }
 
-async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperValidator[]> {
-  try {
-    console.log(`Fetching join rounds for ${validators.length} supervalidators...`);
-    
-    // Fetch all top validators by faucets (which includes supervalidators)
-    const topValidators = await scanApi.fetchTopValidatorsByFaucets(1000);
-    
-    // Create a map of validator ID to first collected round
-    const validatorJoinRounds = new Map<string, number>();
-    topValidators.validatorsByReceivedFaucets.forEach(info => {
-      validatorJoinRounds.set(info.validator, info.firstCollectedInRound);
-    });
-    
-    // Update validators with join round information
-    const validatorsWithRounds = validators.map((validator) => {
-      // Try to find by exact match first
-      let joinRound = validatorJoinRounds.get(validator.address);
-      
-      // If not found, try to find by matching the address hash (party ID without prefix)
-      if (!joinRound) {
-        const addressHash = validator.address.split('::')[1];
-        if (addressHash) {
-          // Search through all validators for a match
-          for (const [validatorId, round] of validatorJoinRounds.entries()) {
-            if (validatorId.includes(addressHash)) {
-              joinRound = round;
-              break;
-            }
-          }
-        }
-      }
-      
-      if (joinRound) {
-        console.log(`Found supervalidator ${validator.name} joined in round ${joinRound}`);
-        return {
-          ...validator,
-          joinRound
-        };
-      }
-      
-      console.log(`Could not find join round for ${validator.name} (${validator.address})`);
-      return validator;
-    });
-    
-    return validatorsWithRounds;
-  } catch (error) {
-    console.error('Error determining join rounds:', error);
-    return validators;
-  }
-}
-
-export async function fetchConfigData(forceRefresh = false): Promise<ConfigData> {
-  // Check cache
-  if (!forceRefresh) {
-    const cachedData = localStorage.getItem(CACHE_KEY);
-    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
-    
-    if (cachedData && cachedTimestamp) {
-      const timestamp = parseInt(cachedTimestamp);
-      if (Date.now() - timestamp < CACHE_DURATION) {
-        return JSON.parse(cachedData);
-      }
-    }
-  }
-  
-  try {
-    // Fetch fresh config
-    const response = await fetch(CONFIG_URL);
-    const yamlText = await response.text();
-    
-    // Parse YAML
-    const configData = await parseYamlConfig(yamlText);
-    
-    // Determine join rounds (this might take a while)
-    console.log('Determining validator join rounds...');
-    configData.superValidators = await determineJoinRounds(configData.superValidators);
-    
-    // Cache the result
-    localStorage.setItem(CACHE_KEY, JSON.stringify(configData));
-    localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-    
-    return configData;
-  } catch (error) {
-    console.error('Error fetching config data:', error);
-    
-    // Return cached data if available
-    const cachedData = localStorage.getItem(CACHE_KEY);
-    if (cachedData) {
-      return JSON.parse(cachedData);
-    }
-    
-    throw error;
-  }
-}
-
-// Schedule daily sync
+// ─────────────────────────────
+// Schedule periodic background refresh
+// ─────────────────────────────
 export function scheduleDailySync() {
-  const checkAndSync = () => {
-    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
-    if (cachedTimestamp) {
-      const timestamp = parseInt(cachedTimestamp);
-      if (Date.now() - timestamp >= CACHE_DURATION) {
-        console.log('Cache expired, fetching fresh config...');
-        fetchConfigData(true).catch(console.error);
-      }
-    }
-  };
-
-  // Run an initial check so callers don't wait an hour to refresh an expired cache
-  checkAndSync();
-
-  // Check every hour if we need to refresh
-  const intervalId = window.setInterval(checkAndSync, 60 * 60 * 1000);
-
-  return () => {
-    window.clearInterval(intervalId);
-  };
+  const interval = setInterval(fetchConfigData, 24 * 60 * 60 * 1000);
+  return () => clearInterval(interval);
 }
