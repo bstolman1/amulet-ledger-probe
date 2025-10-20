@@ -1,3 +1,5 @@
+import { parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
+
 import { scanApi } from './api-client';
 
 const CONFIG_URL = 'https://raw.githubusercontent.com/global-synchronizer-foundation/configs/main/configs/MainNet/approved-sv-id-values.yaml';
@@ -40,82 +42,139 @@ type ParsedOperator = {
   beneficiaries: ParsedBeneficiary[];
 };
 
-async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
-  const lines = yamlText.split('\n');
-  const parsedOperators: ParsedOperator[] = [];
+const parseNumericValue = (value: unknown): number => {
+  if (typeof value === 'number') {
+    return value;
+  }
 
-  let currentOperator: ParsedOperator | null = null;
-  let currentBeneficiary: ParsedBeneficiary | null = null;
+  if (value instanceof Scalar) {
+    return parseNumericValue(value.value ?? 0);
+  }
 
-  const parseNumericValue = (value: string) => {
+  if (typeof value === 'string') {
     const normalized = value.trim().replace(/_/g, '');
     const parsed = parseInt(normalized, 10);
     return Number.isNaN(parsed) ? 0 : parsed;
-  };
+  }
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  return 0;
+};
 
-    if (trimmed.startsWith('- name:')) {
-      const name = trimmed.split('name:')[1].trim();
-      currentOperator = {
-        name,
-        publicKey: '',
-        rewardWeightBps: 0,
-        beneficiaries: []
-      };
-      parsedOperators.push(currentOperator);
-      currentBeneficiary = null;
-      continue;
-    }
+const scalarToString = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
 
-    if (!currentOperator) {
-      continue;
-    }
+  if (typeof value === 'number') {
+    return value.toString();
+  }
 
-    if (trimmed.startsWith('publicKey:')) {
-      currentOperator.publicKey = trimmed.split('publicKey:')[1].trim();
-      continue;
-    }
+  if (value instanceof Scalar) {
+    const scalarValue = value.value;
+    return scalarValue == null ? '' : scalarToString(scalarValue);
+  }
 
-    if (trimmed.startsWith('rewardWeightBps:')) {
-      const weightStr = trimmed.split('rewardWeightBps:')[1];
-      const weightValue = parseNumericValue(weightStr);
+  return '';
+};
 
-      if (currentBeneficiary) {
-        currentBeneficiary.weight = weightValue;
-      } else {
-        currentOperator.rewardWeightBps = weightValue;
-      }
-
-      continue;
-    }
-
-    if (trimmed.startsWith('- beneficiary:') || trimmed.startsWith('beneficiary:')) {
-      const beneficiaryLine = trimmed.split('beneficiary:')[1].trim();
-      const address = beneficiaryLine.replace(/"/g, '').split('#')[0].trim();
-      const comment = beneficiaryLine.includes('#') ? beneficiaryLine.split('#')[1].trim() : '';
-      const svName = address.split('::')[0];
-      const isGhost = svName.toLowerCase().includes('ghost');
-      const isPrimary = !trimmed.startsWith('- beneficiary:');
-
-      currentBeneficiary = {
-        name: comment || svName,
-        address,
-        weight: 0,
-        isGhost,
-        isPrimary
-      };
-      currentOperator.beneficiaries.push(currentBeneficiary);
-      continue;
-    }
-
-    if (trimmed.startsWith('weight:') && currentBeneficiary) {
-      const weightStr = trimmed.split('weight:')[1];
-      currentBeneficiary.weight = parseNumericValue(weightStr);
-      continue;
+const extractCommentLabel = (value: unknown): string | undefined => {
+  if (value instanceof Scalar && typeof value.comment === 'string') {
+    const comment = value.comment.trim();
+    if (comment.length > 0) {
+      return comment.split('\n')[0].trim();
     }
   }
+
+  return undefined;
+};
+
+const parseBeneficiaryMap = (beneficiaryMap: YAMLMap, operatorName: string, isPrimary: boolean): ParsedBeneficiary | null => {
+  const beneficiaryNode = beneficiaryMap.get('beneficiary', true);
+  if (!beneficiaryNode) {
+    return null;
+  }
+
+  const address = scalarToString(beneficiaryNode).replace(/"/g, '').trim();
+  if (!address) {
+    return null;
+  }
+
+  const commentLabel = extractCommentLabel(beneficiaryNode);
+  const [prefix] = address.split('::');
+  const name = commentLabel || prefix || operatorName;
+  const weight = parseNumericValue(beneficiaryMap.get('weight', true));
+  const isGhost = prefix ? prefix.toLowerCase().includes('ghost') : false;
+
+  return {
+    name,
+    address,
+    weight,
+    isGhost,
+    isPrimary
+  };
+};
+
+const collectBeneficiaries = (
+  node: unknown,
+  operatorName: string,
+  isPrimary: boolean,
+  bucket: ParsedBeneficiary[]
+) => {
+  if (!node) {
+    return;
+  }
+
+  if (node instanceof YAMLMap) {
+    const parsed = parseBeneficiaryMap(node, operatorName, isPrimary);
+    if (parsed) {
+      bucket.push(parsed);
+    }
+    return;
+  }
+
+  if (node instanceof YAMLSeq) {
+    node.items.forEach(item => collectBeneficiaries(item, operatorName, isPrimary, bucket));
+    return;
+  }
+
+  if (Array.isArray(node)) {
+    node.forEach(item => collectBeneficiaries(item, operatorName, isPrimary, bucket));
+  }
+};
+
+async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
+  const doc = parseDocument(yamlText);
+  const operatorsNode = doc.get('approvedSvIdentities', true);
+
+  if (!(operatorsNode instanceof YAMLSeq)) {
+    throw new Error('Invalid SV config: missing approvedSvIdentities list');
+  }
+
+  const parsedOperators: ParsedOperator[] = [];
+
+  operatorsNode.items.forEach((operatorNode) => {
+    if (!(operatorNode instanceof YAMLMap)) {
+      return;
+    }
+
+    const name = scalarToString(operatorNode.get('name', true)) || 'Unknown Operator';
+    const publicKey = scalarToString(operatorNode.get('publicKey', true));
+    const rewardWeightBps = parseNumericValue(operatorNode.get('rewardWeightBps', true));
+    const beneficiaries: ParsedBeneficiary[] = [];
+
+    collectBeneficiaries(operatorNode.get('beneficiary', true), name, true, beneficiaries);
+    collectBeneficiaries(operatorNode.get('primaryBeneficiary', true), name, true, beneficiaries);
+    collectBeneficiaries(operatorNode.get('primaryBeneficiaries', true), name, true, beneficiaries);
+    collectBeneficiaries(operatorNode.get('extraBeneficiaries', true), name, false, beneficiaries);
+    collectBeneficiaries(operatorNode.get('beneficiaries', true), name, false, beneficiaries);
+
+    parsedOperators.push({
+      name,
+      publicKey,
+      rewardWeightBps,
+      beneficiaries
+    });
+  });
 
   const superValidators: SuperValidator[] = [];
 
