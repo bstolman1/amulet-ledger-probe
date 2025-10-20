@@ -33,15 +33,20 @@ const Stats = () => {
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
     retry: 1,
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchInterval: 5 * 60 * 1000, // Auto-refetch every 5 minutes
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
   });
 
   const { data: latestRound } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchInterval: 5 * 60 * 1000, // Auto-refetch every 5 minutes
   });
 
   const { data: roundTotals } = useQuery({
-    queryKey: ["recentRoundTotals"],
+    queryKey: ["recentRoundTotals", latestRound?.round],
     queryFn: async () => {
       if (!latestRound) return null;
       // Fetch last 30 rounds to get timing data
@@ -51,6 +56,7 @@ const Stats = () => {
       });
     },
     enabled: !!latestRound,
+    staleTime: 2 * 60 * 1000, // 2 minutes
   });
 
   // Usage statistics via transactions API
