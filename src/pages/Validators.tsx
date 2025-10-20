@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap } from "lucide-react";
-import { fetchConfigData } from "@/lib/config-sync";
+import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap, Award, Download, TrendingUp } from "lucide-react";
+import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 
 // ─────────────────────────────
 // Helpers
@@ -27,6 +29,12 @@ const bpsToPercent = (bps: number) => (bps / 10000).toFixed(2) + "%";
 // ─────────────────────────────
 const Validators = () => {
   const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Schedule daily config sync
+  useEffect(() => {
+    scheduleDailySync();
+  }, []);
 
   const {
     data: configData,
@@ -37,35 +45,6 @@ const Validators = () => {
     queryKey: ["sv-config", "v5"],
     queryFn: () => fetchConfigData(true),
     staleTime: 24 * 60 * 60 * 1000,
-  });
-
-  // NEW QUERY for Active Validators
-  const {
-    data: topValidators,
-    isLoading: isLoadingValidators,
-    isError: isErrorValidators,
-  } = useQuery({
-    queryKey: ["active-validators"],
-    queryFn: async () => {
-      const data = await scanApi.fetchTopValidators();
-      const validatorIds = data.validatorsAndRewards.map((v: any) => v.provider);
-      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
-      const latestRound = await scanApi.fetchLatestRound();
-
-      // Enrich with last active date
-      const validators = data.validatorsAndRewards.map((validator: any) => {
-        const livenessInfo = livenessData.validatorsReceivedFaucets.find(
-          (v: any) => v.validator === validator.provider,
-        );
-        return {
-          ...validator,
-          lastActiveRound: livenessInfo?.lastCollectedInRound,
-          lastActiveDate: livenessInfo?.lastCollectedInRound ? new Date().toISOString() : null,
-        };
-      });
-      return validators;
-    },
-    retry: 1,
   });
 
   if (isLoading) {
@@ -269,10 +248,9 @@ const Validators = () => {
                           <p className="text-xs text-muted-foreground">Joined Round: {b.joinedRound}</p>
                         </div>
                         <div className="text-right mt-1 sm:mt-0">
-                          <span className={`text-sm ${b.isGhost ? "text-yellow-400" : "text-gray-200"}`}>
+                          <span className="text-sm text-gray-200">
                             {b.weightPct} ({b.weightBps.toLocaleString()} bps)
                           </span>
-                          {b.isGhost && <p className="text-xs text-yellow-500">Ghost (Escrow)</p>}
                         </div>
                       </div>
                     ))}
@@ -284,22 +262,106 @@ const Validators = () => {
         </Card>
 
         {/* ───────────────────────────── */}
-        {/* New Active Validators Section */}
+        {/* ACTIVE VALIDATORS SECTION (Appended) */}
         {/* ───────────────────────────── */}
-        <Card className="glass-card p-6 mt-8">
-          <h3 className="text-2xl font-bold mb-4">Active Validators</h3>
+        <ActiveValidatorsSection />
+      </div>
+    </DashboardLayout>
+  );
+};
 
-          {isLoadingValidators ? (
+// ─────────────────────────────
+// Subcomponent for Active Validators Section
+// ─────────────────────────────
+const ActiveValidatorsSection = () => {
+  const { toast } = useToast();
+
+  const {
+    data: topValidators,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["topValidators"],
+    queryFn: async () => {
+      const data = await scanApi.fetchTopValidators();
+      const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
+      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+      const latestRound = await scanApi.fetchLatestRound();
+      const startRound = Math.max(0, latestRound.round - 200);
+      const roundTotals = await scanApi.fetchRoundTotals({
+        start_round: startRound,
+        end_round: latestRound.round,
+      });
+
+      const roundDates = new Map<number, string>();
+      roundTotals.entries.forEach((entry) => {
+        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
+      });
+
+      return {
+        ...data,
+        validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
+          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
+          const lastActiveDate = livenessInfo?.lastCollectedInRound
+            ? roundDates.get(livenessInfo.lastCollectedInRound)
+            : undefined;
+          return { ...validator, lastActiveDate };
+        }),
+      };
+    },
+    retry: 1,
+  });
+
+  const getRankColor = (rank: number) => {
+    switch (rank) {
+      case 1:
+        return "gradient-primary text-primary-foreground";
+      case 2:
+        return "bg-chart-2/20 text-chart-2";
+      case 3:
+        return "bg-chart-3/20 text-chart-3";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
+  };
+
+  const formatPartyId = (partyId: string) => {
+    const parts = partyId.split("::");
+    return parts[0] || partyId;
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mt-8">
+        <div>
+          <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
+          <p className="text-muted-foreground">
+            All {topValidators?.validatorsAndRewards?.length || 0} active validators on the Canton Network
+          </p>
+        </div>
+      </div>
+
+      <Card className="glass-card">
+        <div className="p-6">
+          {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-32 w-full" />
+                <Skeleton key={i} className="h-40 w-full" />
               ))}
             </div>
-          ) : isErrorValidators ? (
-            <div className="text-red-400">Error loading active validator data.</div>
+          ) : isError ? (
+            <div className="text-center p-8">
+              <p className="text-muted-foreground">
+                Unable to load validator data. The API endpoint may be unavailable.
+              </p>
+            </div>
+          ) : !topValidators?.validatorsAndRewards?.length ? (
+            <div className="text-center p-8">
+              <p className="text-muted-foreground">No validator data available</p>
+            </div>
           ) : (
             <div className="space-y-4">
-              {topValidators?.map((validator: any, index: number) => {
+              {topValidators.validatorsAndRewards.map((validator, index) => {
                 const rank = index + 1;
                 return (
                   <div
@@ -308,27 +370,40 @@ const Validators = () => {
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 rounded-lg flex items-center justify-center font-bold bg-primary/20 text-primary">
+                        <div
+                          className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold ${getRankColor(
+                            rank,
+                          )}`}
+                        >
                           {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold mb-1">{validator.provider}</h3>
+                          <h3 className="text-xl font-bold mb-1">{formatPartyId(validator.provider)}</h3>
                           <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
                             {validator.provider}
                           </p>
                         </div>
                       </div>
-                      <Badge className="bg-success/10 text-success border-success/20">
-                        <Zap className="h-3 w-3 mr-1" />
-                        Active
-                      </Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge className="bg-success/10 text-success border-success/20">
+                          <Zap className="h-3 w-3 mr-1" />
+                          active
+                        </Badge>
+                        {validator.lastActiveDate && (
+                          <span className="text-xs text-muted-foreground">
+                            Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
                         <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          {parseFloat(validator.rewards).toLocaleString(undefined, {
+                            maximumFractionDigits: 0,
+                          })}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
@@ -336,12 +411,8 @@ const Validators = () => {
                         <p className="text-2xl font-bold text-foreground">#{rank}</p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Last Active</p>
-                        <p className="text-2xl font-bold text-chart-3">
-                          {validator.lastActiveDate
-                            ? new Date(validator.lastActiveDate).toLocaleDateString()
-                            : "Unknown"}
-                        </p>
+                        <p className="text-sm text-muted-foreground mb-1">Status</p>
+                        <p className="text-2xl font-bold text-success">Active</p>
                       </div>
                     </div>
                   </div>
@@ -349,9 +420,9 @@ const Validators = () => {
               })}
             </div>
           )}
-        </Card>
-      </div>
-    </DashboardLayout>
+        </div>
+      </Card>
+    </>
   );
 };
 
