@@ -35,6 +35,15 @@ export interface ConfigData {
 }
 
 // ──────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────
+function parseNumberLike(value: any): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value.replace(/[_,]/g, "").trim()) || 0;
+  return 0;
+}
+
+// ──────────────────────────────────────────────
 // YAML PARSING
 // ──────────────────────────────────────────────
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
@@ -46,11 +55,13 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
     throw err;
   }
 
-  // Handle flexible YAML schema (GSF sometimes renames root keys)
-  const identities = (doc?.approvedSvIdentities ??
-    doc?.approvedSuperValidators ??
-    doc?.superValidators ??
-    doc?.identities ??
+  console.log("🔎 YAML root keys:", Object.keys(doc || {}));
+
+  const main = doc?.MainNet || doc?.configs || doc; // catch nested YAMLs
+  const identities = (main?.approvedSvIdentities ??
+    main?.approvedSuperValidators ??
+    main?.superValidators ??
+    main?.identities ??
     []) as any[];
 
   console.log(`📘 Loaded YAML: found ${identities.length} identities`);
@@ -59,48 +70,52 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const superValidators: SuperValidator[] = [];
 
   for (const op of identities) {
-    const name = op?.name?.trim() ?? "Unknown Operator";
-    const publicKey = op?.publicKey?.trim() ?? "";
-    const rewardWeightBps = Number((op?.rewardWeightBps ?? "0").toString().replace(/_/g, ""));
+    const name = (op?.name ?? "Unknown Operator").trim();
+    const publicKey = (op?.publicKey ?? "").trim();
+    const rewardWeightBps = parseNumberLike(op?.rewardWeightBps);
 
     const beneficiaries = Array.isArray(op?.extraBeneficiaries) ? op.extraBeneficiaries : [];
 
     // Record operator
     operators.push({ name, publicKey, rewardWeightBps });
 
+    // Process beneficiaries
     if (beneficiaries.length > 0) {
       let totalAllocated = 0;
 
       for (const ben of beneficiaries) {
-        const address = ben?.beneficiary?.replace(/"/g, "") ?? "";
-        const comment = ben?.beneficiary?.includes("#") ? ben.beneficiary.split("#")[1].trim() : "";
-        const weight = Number((ben?.weight ?? "0").toString().replace(/_/g, ""));
-        totalAllocated += weight;
+        const beneficiaryRaw = ben?.beneficiary ?? "";
+        const address = beneficiaryRaw.split("#")[0].replace(/"/g, "").trim();
 
+        // Extract optional name/comment (like `# Copper`)
+        const commentMatch = beneficiaryRaw.match(/#\s*(.+)$/);
+        const comment = commentMatch ? commentMatch[1].trim() : "";
         const svName = comment || address.split("::")[0];
-        const isGhost = svName.toLowerCase().includes("ghost");
+        const weight = parseNumberLike(ben?.weight);
+
+        totalAllocated += weight;
 
         superValidators.push({
           name: svName,
-          address: address.split("#")[0],
+          address,
           weight,
           operatorName: name,
           operatorPublicKey: publicKey,
-          isGhost,
+          isGhost: svName.toLowerCase().includes("ghost"),
         });
       }
 
-      // Sanity check on weight allocation
+      // Sanity check
       if (Math.abs(totalAllocated - rewardWeightBps) > 1) {
         console.warn(
-          `⚠️  Weight mismatch for ${name}: beneficiaries ${totalAllocated} bps (expected ${rewardWeightBps})`,
+          `⚠️ Weight mismatch for ${name}: beneficiaries ${totalAllocated} bps (expected ${rewardWeightBps})`,
         );
       }
 
       const opIndex = operators.findIndex((o) => o.name === name);
       if (opIndex !== -1) operators[opIndex].totalBeneficiaryWeight = totalAllocated;
     } else {
-      // Operator with no extraBeneficiaries counts as one SV
+      // Operator with no beneficiaries = one SV
       superValidators.push({
         name,
         address: "",
@@ -186,12 +201,13 @@ export async function fetchConfigData(forceRefresh = false): Promise<ConfigData>
     const configData = await parseYamlConfig(yamlText);
     configData.superValidators = await determineJoinRounds(configData.superValidators);
 
-    // Cache it
+    // Cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(configData));
     localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
 
     const totalBps = configData.superValidators.reduce((sum, sv) => sum + sv.weight, 0);
     const ghostCount = configData.superValidators.filter((sv) => sv.isGhost).length;
+
     console.log(`📊 Parsed ${configData.superValidators.length} SVs from ${configData.operators.length} operators`);
     console.log(`🌐 Total weight: ${(totalBps / 100).toFixed(2)}% (${ghostCount} ghost SVs)`);
 
@@ -223,6 +239,6 @@ export function scheduleDailySync() {
   };
 
   checkAndSync();
-  const intervalId = window.setInterval(checkAndSync, 60 * 60 * 1000); // check every hour
+  const intervalId = window.setInterval(checkAndSync, 60 * 60 * 1000);
   return () => window.clearInterval(intervalId);
 }
