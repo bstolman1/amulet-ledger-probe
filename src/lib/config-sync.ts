@@ -30,12 +30,11 @@ export interface ConfigData {
   lastUpdated: number;
 }
 
-// Utility to safely use localStorage
+// Universal safe storage (works in browser or Node)
 function safeLocalStorage() {
   if (typeof window !== "undefined" && window.localStorage) {
     return window.localStorage;
   }
-  // fallback mock (for SSR or Node)
   const memoryStore = new Map<string, string>();
   return {
     getItem: (k: string) => memoryStore.get(k) || null,
@@ -46,7 +45,7 @@ function safeLocalStorage() {
 const storage = safeLocalStorage();
 
 /**
- * Parse the official YAML configuration from GSF repo
+ * Parse YAML config from the GSF GitHub repo
  */
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const doc = yaml.load(yamlText) as any;
@@ -90,14 +89,13 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
         });
       }
 
-      // Sanity check for weight mismatch
       if (Math.abs(totalWeight - rewardWeightBps) > 1) {
         console.warn(`⚠️ Operator ${name} weights sum to ${totalWeight} bps (expected ${rewardWeightBps})`);
       }
 
       operators[operators.length - 1].totalBeneficiaryWeight = totalWeight;
     } else {
-      // No beneficiaries → operator is a single SV
+      // Operator is also a validator
       superValidators.push({
         name,
         address: "",
@@ -117,11 +115,10 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 }
 
 /**
- * Lookup join rounds via scan API
+ * Optionally determine join rounds via Scan API
  */
 async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperValidator[]> {
   try {
-    console.log(`🔍 Fetching join rounds for ${validators.length} validators`);
     const topValidators = await scanApi.fetchTopValidatorsByFaucets(1000);
     const roundMap = new Map<string, number>();
 
@@ -149,7 +146,7 @@ async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperV
 }
 
 /**
- * Fetch config with caching and fallback
+ * Fetch config data (cached + live)
  */
 export async function fetchConfigData(forceRefresh = false): Promise<ConfigData> {
   const cached = storage.getItem(CACHE_KEY);
@@ -164,42 +161,32 @@ export async function fetchConfigData(forceRefresh = false): Promise<ConfigData>
   }
 
   console.log("🔄 Fetching latest SV config...");
-  try {
-    const res = await fetch(CONFIG_URL);
-    if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
-    const yamlText = await res.text();
+  const res = await fetch(CONFIG_URL);
+  if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
+  const yamlText = await res.text();
 
-    const config = await parseYamlConfig(yamlText);
-    config.superValidators = await determineJoinRounds(config.superValidators);
+  const config = await parseYamlConfig(yamlText);
+  config.superValidators = await determineJoinRounds(config.superValidators);
 
-    storage.setItem(CACHE_KEY, JSON.stringify(config));
-    storage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+  storage.setItem(CACHE_KEY, JSON.stringify(config));
+  storage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
 
-    console.log(`✅ Parsed ${config.superValidators.length} supervalidators (${config.operators.length} operators)`);
-    return config;
-  } catch (err) {
-    console.error("❌ Config fetch failed:", err);
-    if (cached) {
-      console.warn("⚠️ Using cached config as fallback");
-      return JSON.parse(cached);
-    }
-    throw err;
-  }
+  console.log(`✅ Parsed ${config.superValidators.length} supervalidators (${config.operators.length} operators)`);
+  return config;
 }
 
 /**
- * Daily cache refresh scheduler
+ * Auto-refresh cache daily
  */
 export function scheduleDailySync() {
-  const runCheck = () => {
+  const check = () => {
     const ts = storage.getItem(CACHE_TIMESTAMP_KEY);
     if (ts && Date.now() - parseInt(ts) >= CACHE_DURATION) {
       console.log("🕐 Refreshing SV config (daily sync)...");
       fetchConfigData(true).catch(console.error);
     }
   };
-
-  runCheck(); // run immediately
-  const interval = setInterval(runCheck, 60 * 60 * 1000); // every hour
+  check();
+  const interval = setInterval(check, 60 * 60 * 1000);
   return () => clearInterval(interval);
 }
