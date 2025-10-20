@@ -97,24 +97,40 @@ const Stats = () => {
     return roundsCollected > 0 && !svParticipantIds.has(v.provider);
   });
 
-  // Categorize validators by activity duration
-  const newValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
-  const weeklyValidators = recentValidators.filter((v) => {
-    const rounds = parseFloat(v.rewards);
-    return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
-  });
-  const monthlyValidators = recentValidators.filter((v) => {
-    const rounds = parseFloat(v.rewards);
-    return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
-  });
-  const sixMonthValidators = recentValidators.filter((v) => {
-    const rounds = parseFloat(v.rewards);
-    return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
-  });
-  const yearlyValidators = recentValidators.filter((v) => {
-    const rounds = parseFloat(v.rewards);
-    return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
-  });
+  const getRoundsSinceJoin = (validator: (typeof recentValidators)[number]) => {
+    const firstRound = validator.firstCollectedInRound;
+    if (
+      typeof firstRound === "number" &&
+      !Number.isNaN(firstRound) &&
+      firstRound >= 0 &&
+      currentRound > 0 &&
+      firstRound <= currentRound
+    ) {
+      return currentRound - firstRound;
+    }
+
+    const rewards = parseFloat(validator.rewards);
+    return Number.isFinite(rewards) ? rewards : 0;
+  };
+
+  const isInRange = (validator: (typeof recentValidators)[number], minRounds: number, maxRounds?: number) => {
+    const roundsSinceJoin = getRoundsSinceJoin(validator);
+    if (!Number.isFinite(roundsSinceJoin)) return false;
+
+    const min = Math.max(0, minRounds);
+    const max = maxRounds === undefined ? undefined : Math.max(min, maxRounds);
+
+    if (roundsSinceJoin < min) return false;
+    if (max !== undefined && roundsSinceJoin >= max) return false;
+    return true;
+  };
+
+  // Categorize validators by activity duration using join round when available
+  const newValidators = recentValidators.filter((v) => isInRange(v, 0, roundsPerDay));
+  const weeklyValidators = recentValidators.filter((v) => isInRange(v, roundsPerDay, roundsPerDay * 7));
+  const monthlyValidators = recentValidators.filter((v) => isInRange(v, roundsPerDay * 7, roundsPerDay * 30));
+  const sixMonthValidators = recentValidators.filter((v) => isInRange(v, roundsPerDay * 30, roundsPerDay * 180));
+  const yearlyValidators = recentValidators.filter((v) => isInRange(v, roundsPerDay * 180, roundsPerDay * 365));
   const allTimeValidators = recentValidators;
 
   // Calculate monthly join data for all time since network launch
@@ -140,10 +156,9 @@ const Stats = () => {
 
     // Calculate join dates for validators using firstCollectedInRound
     recentValidators.forEach((validator) => {
-      const firstRound = validator.firstCollectedInRound ?? 0;
-      const roundsAgo = currentRound - firstRound;
-      const daysAgo = roundsAgo / roundsPerDay;
-      const joinDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      const roundsSinceJoin = getRoundsSinceJoin(validator);
+      const daysSinceJoin = roundsSinceJoin / roundsPerDay;
+      const joinDate = new Date(now.getTime() - Math.max(0, daysSinceJoin) * 24 * 60 * 60 * 1000);
 
       if (joinDate >= networkStart) {
         const monthKey = formatMonth(joinDate);
