@@ -20,23 +20,19 @@ function toDateKey(dateStr: string | Date): string {
 }
 
 function extractParties(tx: TransactionHistoryItem): string[] {
-  // Count ALL parties involved in transactions (senders, receivers, acting parties)
+  // Count only parties that SENT tokens (positive-value transfers) on this day
   const t = tx as any;
-  const parties = new Set<string>();
+  if (!t.transfer || !t.transfer.sender?.party) return [];
 
-  // Extract sender
-  if (t.transfer?.sender?.party) {
-    parties.add(t.transfer.sender.party);
-  }
+  const totalSent = (Array.isArray(t.transfer.receivers) ? t.transfer.receivers : []).reduce(
+    (sum: number, r: any) => {
+      const n = parseFloat(r?.amount ?? "0");
+      return sum + (isNaN(n) ? 0 : n);
+    },
+    0,
+  );
 
-  // Extract receivers
-  if (Array.isArray(t.transfer?.receivers)) {
-    t.transfer.receivers.forEach((r: any) => {
-      if (r?.party) parties.add(r.party);
-    });
-  }
-
-  return Array.from(parties);
+  return totalSent > 0 ? [t.transfer.sender.party] : [];
 }
 
 function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; txCount: number }>, startDate: Date, endDate: Date): UsageCharts {
@@ -114,7 +110,7 @@ export function useUsageStats(days: number = 90) {
           const res = await scanApi.fetchTransactions({
             page_end_event_id: pageEnd,
             sort_order: "desc",
-            page_size: 500,
+            page_size: 500, // Reduced page size to improve reliability
           });
           const txs = res.transactions || [];
           if (txs.length === 0) {
@@ -129,18 +125,17 @@ export function useUsageStats(days: number = 90) {
             const d = new Date(tx.date);
             if (d < start) {
               reachedCutoff = true;
-              break;
+              break; // Stop processing this page once we reach the cutoff
             }
             const key = toDateKey(tx.date);
-            if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
-            
-            const parties = extractParties(tx);
-            parties.forEach((p) => perDay[key].partySet.add(p));
-            if (parties.length > 0) {
-              perDay[key].txCount += 1;
-            }
-            txProcessedThisPage++;
-            totalTransactions++;
+if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+const senders = extractParties(tx);
+senders.forEach((p) => perDay[key].partySet.add(p));
+if (senders.length > 0) {
+  perDay[key].txCount += 1; // count only positive-value transfer transactions
+}
+txProcessedThisPage++;
+totalTransactions++;
           }
 
           pageEnd = txs[txs.length - 1].event_id;
@@ -158,27 +153,14 @@ export function useUsageStats(days: number = 90) {
           }
         } catch (error) {
           console.error(`Error fetching page ${pagesFetched}:`, error);
-          // Continue with partial data instead of breaking
-          if (totalTransactions > 0) {
-            console.log(`Continuing with ${totalTransactions} transactions collected so far`);
-            break;
-          }
+          break;
         }
       }
 
       console.log(`Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days`);
       
-      // Return empty data instead of throwing if no transactions
       if (totalTransactions === 0) {
-        console.warn("No transactions fetched, returning empty data");
-        return {
-          cumulativeParties: [],
-          dailyActiveUsers: [],
-          dailyTransactions: [],
-          totalParties: 0,
-          totalDailyUsers: 0,
-          totalTransactions: 0,
-        };
+        throw new Error("No transactions fetched");
       }
 
       return buildSeriesFromDaily(perDay, start, end);
