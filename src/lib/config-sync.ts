@@ -25,16 +25,19 @@ export interface ConfigData {
   lastUpdated: number;
 }
 
+type ParsedBeneficiary = {
+  name: string;
+  address: string;
+  weight: number;
+  isGhost: boolean;
+  isPrimary: boolean;
+};
+
 type ParsedOperator = {
   name: string;
   publicKey: string;
   rewardWeightBps: number;
-  beneficiaries: Array<{
-    name: string;
-    address: string;
-    weight: number;
-    isGhost: boolean;
-  }>;
+  beneficiaries: ParsedBeneficiary[];
 };
 
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
@@ -42,7 +45,7 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const parsedOperators: ParsedOperator[] = [];
 
   let currentOperator: ParsedOperator | null = null;
-  let currentBeneficiary: { name: string; address: string; weight: number; isGhost: boolean } | null = null;
+  let currentBeneficiary: ParsedBeneficiary | null = null;
 
   const parseNumericValue = (value: string) => {
     const normalized = value.trim().replace(/_/g, '');
@@ -77,22 +80,31 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 
     if (trimmed.startsWith('rewardWeightBps:')) {
       const weightStr = trimmed.split('rewardWeightBps:')[1];
-      currentOperator.rewardWeightBps = parseNumericValue(weightStr);
+      const weightValue = parseNumericValue(weightStr);
+
+      if (currentBeneficiary) {
+        currentBeneficiary.weight = weightValue;
+      } else {
+        currentOperator.rewardWeightBps = weightValue;
+      }
+
       continue;
     }
 
-    if (trimmed.startsWith('- beneficiary:')) {
+    if (trimmed.startsWith('- beneficiary:') || trimmed.startsWith('beneficiary:')) {
       const beneficiaryLine = trimmed.split('beneficiary:')[1].trim();
       const address = beneficiaryLine.replace(/"/g, '').split('#')[0].trim();
       const comment = beneficiaryLine.includes('#') ? beneficiaryLine.split('#')[1].trim() : '';
       const svName = address.split('::')[0];
       const isGhost = svName.toLowerCase().includes('ghost');
+      const isPrimary = !trimmed.startsWith('- beneficiary:');
 
       currentBeneficiary = {
         name: comment || svName,
         address,
         weight: 0,
-        isGhost
+        isGhost,
+        isPrimary
       };
       currentOperator.beneficiaries.push(currentBeneficiary);
       continue;
@@ -109,29 +121,29 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 
   parsedOperators.forEach(operator => {
     const totalBeneficiaryWeight = operator.beneficiaries.reduce((sum, beneficiary) => sum + beneficiary.weight, 0);
-    let remainingWeight = operator.rewardWeightBps;
+    const remainingWeight = Math.max(operator.rewardWeightBps - totalBeneficiaryWeight, 0);
 
-    operator.beneficiaries.forEach((beneficiary, index) => {
-      let rewardWeight = 0;
-
-      if (totalBeneficiaryWeight > 0) {
-        if (index === operator.beneficiaries.length - 1) {
-          rewardWeight = remainingWeight;
-        } else {
-          rewardWeight = Math.round(operator.rewardWeightBps * (beneficiary.weight / totalBeneficiaryWeight));
-          remainingWeight -= rewardWeight;
-        }
-      }
-
+    operator.beneficiaries.forEach((beneficiary) => {
       superValidators.push({
         name: beneficiary.name,
         address: beneficiary.address,
-        weight: rewardWeight,
+        weight: beneficiary.weight,
         operatorName: operator.name,
         operatorPublicKey: operator.publicKey,
         isGhost: beneficiary.isGhost
       });
     });
+
+    if (remainingWeight > 0 && !operator.beneficiaries.some(beneficiary => beneficiary.isPrimary)) {
+      superValidators.push({
+        name: operator.name,
+        address: operator.publicKey,
+        weight: remainingWeight,
+        operatorName: operator.name,
+        operatorPublicKey: operator.publicKey,
+        isGhost: false
+      });
+    }
   });
 
   const operators = parsedOperators.map(({ name, publicKey, rewardWeightBps }) => ({
