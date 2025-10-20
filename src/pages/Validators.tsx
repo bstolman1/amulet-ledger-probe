@@ -1,38 +1,31 @@
+import { useEffect, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trophy, Zap, Award, Download, TrendingUp } from "lucide-react";
+import { Trophy, Zap, Award, Download, TrendingUp, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
-import { useEffect } from "react";
+import { cn } from "@/lib/utils"; // if you don't have cn, replace with a simple string concat
+
+const bpsToPercent = (bps: number) => (bps / 10000).toFixed(2) + "%";
+const fmt = (n: number | string) => (typeof n === "number" ? n.toLocaleString() : n);
 
 const Validators = () => {
   const { toast } = useToast();
 
-  // 🔄 Schedule daily config sync
+  // Schedule daily config sync
   useEffect(() => {
     const dispose = scheduleDailySync();
-    return () => {
-      dispose?.();
-    };
+    return () => dispose?.();
   }, []);
 
-  // 🧩 Load SuperValidator config from GitHub YAML
-  const {
-    data: configData,
-    isLoading: configLoading,
-    isError: configError,
-  } = useQuery({
-    queryKey: ["sv-config"],
-    queryFn: () => fetchConfigData(),
-    staleTime: 24 * 60 * 60 * 1000, // 24 hours
-  });
-
-  // 🧠 Load chain-level data for DSO offboarding + active validators
+  // ---------------------------
+  // API: DSO rules & validators
+  // ---------------------------
   const {
     data: topValidators,
     isLoading,
@@ -41,7 +34,9 @@ const Validators = () => {
     queryKey: ["topValidators"],
     queryFn: async () => {
       const data = await scanApi.fetchTopValidators();
-      const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
+
+      // Liveness & latest round dates
+      const validatorIds = data.validatorsAndRewards.map((v: any) => v.provider);
       const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
       const latestRound = await scanApi.fetchLatestRound();
       const startRound = Math.max(0, latestRound.round - 200);
@@ -51,21 +46,20 @@ const Validators = () => {
       });
 
       const roundDates = new Map<number, string>();
-      roundTotals.entries.forEach((entry) => {
-        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
+      roundTotals.entries.forEach((e: any) => {
+        roundDates.set(e.closed_round, e.closed_round_effective_at);
       });
 
+      // enhance with last active date
       return {
         ...data,
-        validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
-          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
-          const lastActiveDate = livenessInfo?.lastCollectedInRound
-            ? roundDates.get(livenessInfo.lastCollectedInRound)
-            : undefined;
+        validatorsAndRewards: data.validatorsAndRewards.map((validator: any) => {
+          const live = livenessData.validatorsReceivedFaucets.find((v: any) => v.validator === validator.provider);
+          const lastActiveDate = live?.lastCollectedInRound ? roundDates.get(live.lastCollectedInRound) : undefined;
           return {
             ...validator,
             lastActiveDate,
-            lastCollectedInRound: livenessInfo?.lastCollectedInRound,
+            lastCollectedInRound: live?.lastCollectedInRound,
           };
         }),
       };
@@ -79,37 +73,148 @@ const Validators = () => {
     retry: 1,
   });
 
-  // ─────────────────────────────
-  // 🔍 Parse Config SuperValidators
-  // ─────────────────────────────
-  const configSuperValidators = configData?.superValidators || [];
+  // ---------------------------
+  // CONFIG: Operators & SVs (YAML)
+  // ---------------------------
+  const { data: configData, isLoading: configLoading } = useQuery({
+    queryKey: ["sv-config"],
+    queryFn: () => fetchConfigData(),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  // DSO fields
+  const dsoRules = dsoInfo?.dso_rules?.contract?.payload;
+  const offboardedSvs: Array<[string, any]> = dsoRules?.offboardedSvs || [];
+
+  // Config fields
   const operators = configData?.operators || [];
-  const offboardedSvs = dsoInfo?.dso_rules?.contract?.payload?.offboardedSvs || [];
+  const allSVs = configData?.superValidators || [];
 
-  const superValidators = configSuperValidators
-    .map((sv) => ({
-      id: sv.address,
-      name: sv.name,
-      participantId: sv.address,
-      rewardWeight: sv.weight,
-      joinedRound: sv.joinRound,
-      svProvider: sv.operatorName,
-      isGhost: sv.isGhost,
-      offboarded: sv.offboarded || false,
-    }))
-    .sort((a, b) => b.rewardWeight - a.rewardWeight);
+  // ---------------------------
+  // Build Operator -> Beneficiaries map from config
+  // ---------------------------
+  const operatorsView = useMemo(() => {
+    // For each operator, gather its SVs from config.superValidators
+    return (
+      operators
+        .map((op) => {
+          const beneficiaries = allSVs
+            .filter((sv) => sv.operatorName === op.name)
+            .map((sv) => ({
+              name: sv.name,
+              address: sv.address,
+              weightBps: sv.weight,
+              weightPct: bpsToPercent(sv.weight),
+              isGhost: sv.isGhost ?? false,
+              joinedRound: sv.joinRound,
+            }))
+            // sort by weight desc
+            .sort((a, b) => b.weightBps - a.weightBps);
 
-  const totalRewardWeight = superValidators.reduce((sum, sv) => sum + sv.rewardWeight, 0);
-  const totalSuperValidators = superValidators.length;
+          const beneficiariesTotal = beneficiaries.reduce((sum, b) => sum + (b.weightBps || 0), 0);
+          const operatorWeight = op.rewardWeightBps || 0;
+          const mismatch = Math.abs(beneficiariesTotal - operatorWeight) > 1; // 1 bps tolerance
+
+          return {
+            name: op.name,
+            publicKey: op.publicKey,
+            operatorWeightBps: operatorWeight,
+            operatorWeightPct: bpsToPercent(operatorWeight),
+            beneficiaries,
+            beneficiariesTotalBps: beneficiariesTotal,
+            beneficiariesTotalPct: bpsToPercent(beneficiariesTotal),
+            mismatch,
+          };
+        })
+        // sort operators by total weight (operatorWeightBps) desc
+        .sort((a, b) => b.operatorWeightBps - a.operatorWeightBps)
+    );
+  }, [operators, allSVs]);
+
+  // Overall stats for summary cards
+  const totalSuperValidators = allSVs.length;
   const primaryOperatorsCount = operators.length;
+  const totalRewardWeightBps = operators.reduce((sum, o) => sum + (o.rewardWeightBps || 0), 0);
 
-  // Filter out SVs from the validator list
-  const svIds = new Set(superValidators.map((sv) => sv.id));
+  // Filter out SVs from the active validators list
+  const svParticipantIds = new Set(allSVs.map((sv) => sv.address));
   const activeValidatorsOnly =
-    topValidators?.validatorsAndRewards?.filter((validator) => !svIds.has(validator.provider)) || [];
+    topValidators?.validatorsAndRewards?.filter((validator: any) => !svParticipantIds.has(validator.provider)) || [];
   const totalValidators = activeValidatorsOnly.length;
 
-  const formatRewardWeight = (bps: number) => (bps / 10000).toFixed(2) + "%";
+  // ---------------------------
+  // CSV Export (operators + beneficiaries)
+  // ---------------------------
+  const exportValidatorData = () => {
+    try {
+      const csvRows: (string | number)[][] = [];
+
+      csvRows.push(["Canton Network Supervalidators"]);
+      csvRows.push(["Generated:", new Date().toISOString()]);
+      csvRows.push([]);
+
+      csvRows.push(["Operators (with Beneficiaries)"]);
+      csvRows.push([
+        "Operator",
+        "Operator Weight (bps)",
+        "Operator Weight (%)",
+        "Beneficiary Name",
+        "Beneficiary ID",
+        "Beneficiary Weight (bps)",
+        "Beneficiary Weight (%)",
+      ]);
+
+      operatorsView.forEach((op) => {
+        if (op.beneficiaries.length === 0) {
+          csvRows.push([op.name, op.operatorWeightBps, op.operatorWeightPct, "", "", "", ""]);
+        } else {
+          op.beneficiaries.forEach((b) => {
+            csvRows.push([
+              op.name,
+              op.operatorWeightBps,
+              op.operatorWeightPct,
+              b.name,
+              b.address,
+              b.weightBps,
+              b.weightPct,
+            ]);
+          });
+        }
+      });
+
+      csvRows.push([]);
+      csvRows.push(["Offboarded Supervalidators"]);
+      csvRows.push(["Name", "ID"]);
+      offboardedSvs.forEach(([id, data]) => {
+        csvRows.push([data?.name ?? "", id]);
+      });
+
+      const csvContent = csvRows.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+
+      const blob = new Blob([csvContent], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `operators-supervalidators-${new Date().toISOString().split("T")[0]}.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({
+        title: "Export successful",
+        description: "Operator and beneficiary data exported to CSV",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting the data",
+        variant: "destructive",
+      });
+    }
+  };
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -124,58 +229,18 @@ const Validators = () => {
     }
   };
 
-  const formatPartyId = (id: string) => id.split("::")[0] || id;
-
-  // ─────────────────────────────
-  // 📤 CSV Export
-  // ─────────────────────────────
-  const exportValidatorData = () => {
-    try {
-      const csvRows = [];
-      csvRows.push(["Canton Network Supervalidators"]);
-      csvRows.push(["Generated:", new Date().toISOString()]);
-      csvRows.push([]);
-      csvRows.push(["Active Supervalidators"]);
-      csvRows.push(["Name", "ID", "Reward Weight (bps)", "Reward Weight (%)", "Joined Round"]);
-      superValidators.forEach((sv) => {
-        csvRows.push([sv.name, sv.id, sv.rewardWeight, formatRewardWeight(sv.rewardWeight), sv.joinedRound]);
-      });
-      csvRows.push([]);
-      csvRows.push(["Offboarded Supervalidators"]);
-      csvRows.push(["Name", "ID"]);
-      offboardedSvs.forEach(([id, data]: [string, any]) => {
-        csvRows.push([data.name, id]);
-      });
-      const csvContent = csvRows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-      const blob = new Blob([csvContent], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `supervalidators-${new Date().toISOString().split("T")[0]}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast({
-        title: "Export successful",
-        description: "Validator data exported to CSV",
-      });
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: "There was an error exporting the data",
-        variant: "destructive",
-      });
-    }
+  const formatPartyId = (partyId: string) => {
+    const parts = partyId.split("::");
+    return parts[0] || partyId;
   };
 
-  // ─────────────────────────────
-  // 🧩 Render
-  // ─────────────────────────────
+  // ---------------------------
+  // Render
+  // ---------------------------
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
+        {/* Header with Stats */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold mb-2">Overview</h2>
@@ -183,7 +248,7 @@ const Validators = () => {
           </div>
           <Button
             onClick={exportValidatorData}
-            disabled={configLoading || !superValidators.length}
+            disabled={dsoLoading || configLoading || !operatorsView.length}
             variant="outline"
             className="gap-2"
           >
@@ -194,216 +259,265 @@ const Validators = () => {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="glass-card p-4">
-            <h3 className="text-xs font-medium text-muted-foreground mb-1">Total SVs</h3>
-            {configLoading ? (
-              <Skeleton className="h-10 w-16" />
-            ) : (
-              <p className="text-3xl font-bold text-primary">{totalSuperValidators}</p>
-            )}
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Total SVs</h3>
+                <Award className="h-4 w-4 text-primary" />
+              </div>
+              {dsoLoading || configLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <p className="text-3xl font-bold text-primary">{fmt(totalSuperValidators)}</p>
+              )}
+            </div>
           </Card>
 
-          <Card className="glass-card p-4">
-            <h3 className="text-xs font-medium text-muted-foreground mb-1">Live SVs</h3>
-            {configLoading ? (
-              <Skeleton className="h-10 w-16" />
-            ) : (
-              <p className="text-3xl font-bold text-chart-2">{primaryOperatorsCount}</p>
-            )}
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Live SVs (Operators)</h3>
+                <Zap className="h-4 w-4 text-chart-2" />
+              </div>
+              {dsoLoading || configLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <p className="text-3xl font-bold text-chart-2">{fmt(primaryOperatorsCount)}</p>
+              )}
+            </div>
           </Card>
 
-          <Card className="glass-card p-4">
-            <h3 className="text-xs font-medium text-muted-foreground mb-1">Total Weight</h3>
-            {configLoading ? (
-              <Skeleton className="h-10 w-16" />
-            ) : (
-              <p className="text-3xl font-bold text-chart-3">{formatRewardWeight(totalRewardWeight)}</p>
-            )}
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Total Weight (operators)</h3>
+                <TrendingUp className="h-4 w-4 text-chart-3" />
+              </div>
+              {dsoLoading || configLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <p className="text-3xl font-bold text-chart-3">{bpsToPercent(totalRewardWeightBps)}</p>
+              )}
+            </div>
           </Card>
 
-          <Card className="glass-card p-4">
-            <h3 className="text-xs font-medium text-muted-foreground mb-1">Offboarded</h3>
-            {dsoLoading ? (
-              <Skeleton className="h-10 w-16" />
-            ) : (
-              <p className="text-3xl font-bold text-muted-foreground">{offboardedSvs.length}</p>
-            )}
+          <Card className="glass-card">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Offboarded</h3>
+                <Award className="h-4 w-4 text-muted-foreground" />
+              </div>
+              {dsoLoading ? (
+                <Skeleton className="h-10 w-16" />
+              ) : (
+                <p className="text-3xl font-bold text-muted-foreground">{fmt(offboardedSvs.length)}</p>
+              )}
+            </div>
           </Card>
         </div>
 
-        {/* Supervalidators */}
-        <Card className="glass-card p-6">
-          <h2 className="text-3xl font-bold mb-4">Supervalidators</h2>
-          {configLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-32 w-full" />
-              ))}
-            </div>
-          ) : configError ? (
-            <p className="text-red-400">Error loading SuperValidators</p>
-          ) : !superValidators.length ? (
-            <p className="text-muted-foreground">No SuperValidators found in config</p>
-          ) : (
-            <div className="space-y-4">
-              {superValidators.map((sv, index) => {
-                const rank = index + 1;
-                return (
-                  <div
-                    key={sv.id}
-                    className={`p-6 rounded-lg border transition-smooth ${
-                      sv.isGhost
-                        ? "border-red-500/40 bg-red-950/10"
-                        : "border-primary/20 hover:border-primary/40 bg-background/50"
-                    }`}
+        {/* ===================== */}
+        {/* Operators + Beneficiaries */}
+        {/* ===================== */}
+        <Card className="glass-card">
+          <div className="p-6">
+            <h3 className="text-2xl font-bold mb-4">Supervalidators</h3>
+            {configLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-24 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {operatorsView.map((op, idx) => (
+                  <details
+                    key={op.name + idx}
+                    className="rounded-lg border border-border/50 bg-muted/20 open:bg-muted/30 transition-colors"
                   >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-4">
-                        <div
-                          className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold ${getRankColor(
-                            rank,
-                          )}`}
-                        >
-                          {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
+                    <summary className="cursor-pointer select-none list-none p-4 flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg font-semibold">{op.name}</span>
+                          {op.mismatch ? (
+                            <Badge variant="destructive">Mismatch</Badge>
+                          ) : (
+                            <Badge variant="secondary">Balanced</Badge>
+                          )}
                         </div>
-                        <div>
-                          <h3 className="text-xl font-bold mb-1">{sv.name}</h3>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-mono text-xs text-muted-foreground">{sv.id}</p>
-                            <Badge variant="outline" className="text-xs">
-                              via {sv.svProvider || "Unknown"}
-                            </Badge>
-                            {sv.isGhost && (
-                              <Badge variant="secondary" className="text-xs text-red-300">
-                                Ghost (Escrow)
-                              </Badge>
-                            )}
-                            {sv.joinedRound && (
-                              <Badge variant="default" className="text-xs">
-                                Joined: Round {sv.joinedRound}
-                              </Badge>
-                            )}
-                          </div>
+                        <div className="text-sm text-muted-foreground mt-1">
+                          Operator Weight:{" "}
+                          <span className="text-foreground font-medium">{fmt(op.operatorWeightBps)} bps</span> (
+                          {op.operatorWeightPct}) • Beneficiaries Total:{" "}
+                          <span className={cn("font-medium", op.mismatch ? "text-red-400" : "text-foreground")}>
+                            {fmt(op.beneficiariesTotalBps)} bps
+                          </span>{" "}
+                          ({op.beneficiariesTotalPct})
                         </div>
                       </div>
-                      <Badge className="bg-primary/20 text-primary border-primary/30">
-                        <Zap className="h-3 w-3 mr-1" />
-                        Supervalidator
-                      </Badge>
-                    </div>
+                      <ChevronDown className="h-5 w-5 opacity-60" />
+                    </summary>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="p-4 rounded-lg bg-background/30">
-                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
-                        <p className="text-2xl font-bold">#{rank}</p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/30">
-                        <p className="text-sm text-muted-foreground mb-1">Reward Weight</p>
-                        <p className="text-2xl font-bold text-primary">{formatRewardWeight(sv.rewardWeight)}</p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/30">
-                        <p className="text-sm text-muted-foreground mb-1">Weight (bps)</p>
-                        <p className="text-2xl font-bold text-chart-2">{sv.rewardWeight.toLocaleString()}</p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/30">
-                        <p className="text-sm text-muted-foreground mb-1">Joined Round</p>
-                        <p className="text-2xl font-bold text-chart-3">{sv.joinedRound || "Unknown"}</p>
-                      </div>
+                    {/* Beneficiaries Table */}
+                    <div className="px-4 pb-4">
+                      {op.beneficiaries.length === 0 ? (
+                        <div className="text-sm text-muted-foreground p-3">
+                          No extraBeneficiaries listed. The operator’s entire weight is a single SV entry associated
+                          with the operator.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-border/40 bg-background/50">
+                          <table className="w-full text-sm">
+                            <thead className="text-muted-foreground">
+                              <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
+                                <th>#</th>
+                                <th>Beneficiary</th>
+                                <th>Party ID</th>
+                                <th className="text-right">Weight (bps)</th>
+                                <th className="text-right">Weight (%)</th>
+                                <th className="text-right">Joined</th>
+                                <th className="text-right">Tags</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {op.beneficiaries.map((b, i) => (
+                                <tr key={b.address + i} className="[&>td]:px-3 [&>td]:py-2 border-t border-border/30">
+                                  <td className="w-10">
+                                    <div
+                                      className={cn(
+                                        "w-8 h-8 rounded-md flex items-center justify-center text-xs font-semibold",
+                                        getRankColor(i + 1),
+                                      )}
+                                    >
+                                      {i + 1}
+                                    </div>
+                                  </td>
+                                  <td className="whitespace-nowrap font-medium">{b.name}</td>
+                                  <td className="font-mono text-xs text-muted-foreground break-all">{b.address}</td>
+                                  <td className="text-right">{fmt(b.weightBps)}</td>
+                                  <td className="text-right">{b.weightPct}</td>
+                                  <td className="text-right">{b.joinedRound ? b.joinedRound.toLocaleString() : "—"}</td>
+                                  <td className="text-right">
+                                    {b.isGhost ? <Badge variant="secondary">Ghost</Badge> : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
 
         {/* Offboarded SVs */}
         {offboardedSvs.length > 0 && (
-          <Card className="glass-card p-6">
-            <h3 className="text-xl font-bold mb-6">Offboarded Supervalidators</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {offboardedSvs.map(([id, data]: [string, any]) => (
-                <div key={id} className="p-4 rounded-lg bg-muted/30 border border-border/50">
-                  <h4 className="font-bold mb-2">{data.name}</h4>
-                  <p className="font-mono text-xs text-muted-foreground truncate">{id}</p>
-                </div>
-              ))}
+          <Card className="glass-card">
+            <div className="p-6">
+              <h3 className="text-xl font-bold mb-6">Offboarded Supervalidators</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {offboardedSvs.map(([id, data]) => (
+                  <div key={id} className="p-4 rounded-lg bg-muted/30 border border-border/50">
+                    <h4 className="font-bold mb-2">{data?.name ?? ""}</h4>
+                    <p className="font-mono text-xs text-muted-foreground truncate">{id}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </Card>
         )}
 
         {/* Active Validators */}
-        <Card className="glass-card p-6">
-          <h2 className="text-3xl font-bold mb-4">Active Validators</h2>
-          {isLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-40 w-full" />
-              ))}
-            </div>
-          ) : isError ? (
-            <p className="text-center text-muted-foreground">Unable to load validator data.</p>
-          ) : !activeValidatorsOnly.length ? (
-            <p className="text-center text-muted-foreground">No non-SV validator data available</p>
-          ) : (
-            <div className="space-y-4">
-              {activeValidatorsOnly.map((validator, index) => {
-                const rank = index + 1;
-                return (
-                  <div
-                    key={validator.provider}
-                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-4">
-                        <div
-                          className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold ${getRankColor(
-                            rank,
-                          )}`}
-                        >
-                          {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
+        <div className="flex items-center justify-between mt-8">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
+            <p className="text-muted-foreground">All {fmt(totalValidators)} active validators on the Canton Network</p>
+          </div>
+        </div>
+
+        <Card className="glass-card">
+          <div className="p-6">
+            {isLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-40 w-full" />
+                ))}
+              </div>
+            ) : isError ? (
+              <div className="text-center p-8">
+                <p className="text-muted-foreground">
+                  Unable to load validator data. The API endpoint may be unavailable.
+                </p>
+              </div>
+            ) : activeValidatorsOnly.length === 0 ? (
+              <div className="text-center p-8">
+                <p className="text-muted-foreground">No non-SV validator data available</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {activeValidatorsOnly.map((validator: any, index: number) => {
+                  const rank = index + 1;
+                  return (
+                    <div
+                      key={validator.provider}
+                      className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center space-x-4">
+                          <div
+                            className={cn(
+                              "w-12 h-12 rounded-lg flex items-center justify-center font-bold",
+                              getRankColor(rank),
+                            )}
+                          >
+                            {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold mb-1">{formatPartyId(validator.provider)}</h3>
+                            <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
+                              {validator.provider}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-xl font-bold mb-1">{formatPartyId(validator.provider)}</h3>
-                          <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
-                            {validator.provider}
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge className="bg-success/10 text-success border-success/20">
+                            <Zap className="h-3 w-3 mr-1" />
+                            active
+                          </Badge>
+                          {validator.lastActiveDate && (
+                            <span className="text-xs text-muted-foreground">
+                              Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="p-4 rounded-lg bg-background/50">
+                          <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
+                          <p className="text-2xl font-bold text-primary">
+                            {parseFloat(validator.rewards).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </p>
                         </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge className="bg-success/10 text-success border-success/20">
-                          <Zap className="h-3 w-3 mr-1" />
-                          active
-                        </Badge>
-                        {validator.lastActiveDate && (
-                          <span className="text-xs text-muted-foreground">
-                            Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
-                          </span>
-                        )}
+                        <div className="p-4 rounded-lg bg-background/50">
+                          <p className="text-sm text-muted-foreground mb-1">Rank</p>
+                          <p className="text-2xl font-bold text-foreground">#{rank}</p>
+                        </div>
+                        <div className="p-4 rounded-lg bg-background/50">
+                          <p className="text-sm text-muted-foreground mb-1">Status</p>
+                          <p className="text-2xl font-bold text-success">Active</p>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
-                        <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
-                        <p className="text-2xl font-bold">#{rank}</p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p className="text-2xl font-bold text-success">Active</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Card>
       </div>
     </DashboardLayout>
