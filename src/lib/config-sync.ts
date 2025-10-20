@@ -25,61 +25,121 @@ export interface ConfigData {
   lastUpdated: number;
 }
 
+type ParsedOperator = {
+  name: string;
+  publicKey: string;
+  rewardWeightBps: number;
+  beneficiaries: Array<{
+    name: string;
+    address: string;
+    weight: number;
+    isGhost: boolean;
+  }>;
+};
+
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const lines = yamlText.split('\n');
-  const superValidators: SuperValidator[] = [];
-  const operators: Array<{ name: string; publicKey: string; rewardWeightBps: number }> = [];
-  
-  let currentOperator: { name: string; publicKey: string; rewardWeightBps: number } | null = null;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Parse operator name
-    if (line.trim().startsWith('- name:')) {
-      const name = line.split('name:')[1].trim();
-      currentOperator = { name, publicKey: '', rewardWeightBps: 0 };
-      operators.push(currentOperator);
+  const parsedOperators: ParsedOperator[] = [];
+
+  let currentOperator: ParsedOperator | null = null;
+  let currentBeneficiary: { name: string; address: string; weight: number; isGhost: boolean } | null = null;
+
+  const parseNumericValue = (value: string) => {
+    const normalized = value.trim().replace(/_/g, '');
+    const parsed = parseInt(normalized, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('- name:')) {
+      const name = trimmed.split('name:')[1].trim();
+      currentOperator = {
+        name,
+        publicKey: '',
+        rewardWeightBps: 0,
+        beneficiaries: []
+      };
+      parsedOperators.push(currentOperator);
+      currentBeneficiary = null;
+      continue;
     }
-    
-    // Parse public key
-    if (line.trim().startsWith('publicKey:') && currentOperator) {
-      currentOperator.publicKey = line.split('publicKey:')[1].trim();
+
+    if (!currentOperator) {
+      continue;
     }
-    
-    // Parse reward weight
-    if (line.trim().startsWith('rewardWeightBps:') && currentOperator) {
-      const weight = line.split('rewardWeightBps:')[1].trim().replace(/_/g, '');
-      currentOperator.rewardWeightBps = parseInt(weight);
+
+    if (trimmed.startsWith('publicKey:')) {
+      currentOperator.publicKey = trimmed.split('publicKey:')[1].trim();
+      continue;
     }
-    
-    // Parse beneficiaries (actual SVs)
-    if (line.trim().startsWith('- beneficiary:') && currentOperator) {
-      const beneficiaryLine = line.split('beneficiary:')[1].trim();
+
+    if (trimmed.startsWith('rewardWeightBps:')) {
+      const weightStr = trimmed.split('rewardWeightBps:')[1];
+      currentOperator.rewardWeightBps = parseNumericValue(weightStr);
+      continue;
+    }
+
+    if (trimmed.startsWith('- beneficiary:')) {
+      const beneficiaryLine = trimmed.split('beneficiary:')[1].trim();
       const address = beneficiaryLine.replace(/"/g, '').split('#')[0].trim();
       const comment = beneficiaryLine.includes('#') ? beneficiaryLine.split('#')[1].trim() : '';
-      
-      // Get weight from next line
-      let weight = 0;
-      if (i + 1 < lines.length && lines[i + 1].trim().startsWith('weight:')) {
-        const weightStr = lines[i + 1].split('weight:')[1].trim().replace(/_/g, '');
-        weight = parseInt(weightStr);
-      }
-      
       const svName = address.split('::')[0];
       const isGhost = svName.toLowerCase().includes('ghost');
-      
-      superValidators.push({
+
+      currentBeneficiary = {
         name: comment || svName,
         address,
-        weight,
-        operatorName: currentOperator.name,
-        operatorPublicKey: currentOperator.publicKey,
+        weight: 0,
         isGhost
-      });
+      };
+      currentOperator.beneficiaries.push(currentBeneficiary);
+      continue;
+    }
+
+    if (trimmed.startsWith('weight:') && currentBeneficiary) {
+      const weightStr = trimmed.split('weight:')[1];
+      currentBeneficiary.weight = parseNumericValue(weightStr);
+      continue;
     }
   }
-  
+
+  const superValidators: SuperValidator[] = [];
+
+  parsedOperators.forEach(operator => {
+    const totalBeneficiaryWeight = operator.beneficiaries.reduce((sum, beneficiary) => sum + beneficiary.weight, 0);
+    let remainingWeight = operator.rewardWeightBps;
+
+    operator.beneficiaries.forEach((beneficiary, index) => {
+      let rewardWeight = 0;
+
+      if (totalBeneficiaryWeight > 0) {
+        if (index === operator.beneficiaries.length - 1) {
+          rewardWeight = remainingWeight;
+        } else {
+          rewardWeight = Math.round(operator.rewardWeightBps * (beneficiary.weight / totalBeneficiaryWeight));
+          remainingWeight -= rewardWeight;
+        }
+      }
+
+      superValidators.push({
+        name: beneficiary.name,
+        address: beneficiary.address,
+        weight: rewardWeight,
+        operatorName: operator.name,
+        operatorPublicKey: operator.publicKey,
+        isGhost: beneficiary.isGhost
+      });
+    });
+  });
+
+  const operators = parsedOperators.map(({ name, publicKey, rewardWeightBps }) => ({
+    name,
+    publicKey,
+    rewardWeightBps
+  }));
+
   return {
     superValidators,
     operators,
