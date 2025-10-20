@@ -1,6 +1,7 @@
 import YAML from "yaml";
 
-const CONFIG_URL = "https://raw.githubusercontent.com/<your-org>/<your-repo>/main/config.yaml"; // <-- update this
+const CONFIG_URL =
+  "https://raw.githubusercontent.com/global-synchronizer-foundation/configs/refs/heads/main/configs/MainNet/approved-sv-id-values.yaml"; // <-- update this
 
 export interface ConfigData {
   superValidators: {
