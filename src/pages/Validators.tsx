@@ -21,8 +21,6 @@ const normalizeBps = (val: any) => {
 const bpsToPercent = (bps: number) => (bps / 10000).toFixed(2) + "%";
 
 // ─────────────────────────────
-// Component
-// ─────────────────────────────
 const Validators = () => {
   const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
 
@@ -34,7 +32,7 @@ const Validators = () => {
   } = useQuery({
     queryKey: ["sv-config"],
     queryFn: () => fetchConfigData(),
-    staleTime: 24 * 60 * 60 * 1000, // 1 day cache
+    staleTime: 24 * 60 * 60 * 1000, // 1 day
   });
 
   if (isLoading) {
@@ -54,21 +52,25 @@ const Validators = () => {
   }
 
   // ─────────────────────────────
-  // Data Processing
+  // Data
   // ─────────────────────────────
-  const allSVs = configData.superValidators || [];
-  const operators = configData.operators || [];
+  const allSVs = configData.superValidators || []; // beneficiaries (flattened)
+  const operators = configData.operators || []; // parents (supervalidators)
 
-  // ✅ Total network weight uses parent (operator) weights
+  // ✅ Total network weight should use parent (operator) weights
   const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
   const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
 
-  // ✅ Live/offboarded based on ghost flag (name or escrow)
-  const totalSVs = allSVs.length;
-  const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
-  const liveSVs = totalSVs - ghostSVs;
+  // ✅ Overview counts must be operator-level (NOT beneficiary-level)
+  const totalSVs = operators.length; // e.g., 13
+  const offboardedSVs = 0; // no operator is marked offboarded in YAML; treat as 0
+  const liveSVs = totalSVs - offboardedSVs; // e.g., 13
 
-  // Total network weight for beneficiaries (for network share %)
+  // (Optional) beneficiary stats if you want to surface elsewhere
+  const totalBeneficiaries = allSVs.length;
+  const ghostBeneficiaries = allSVs.filter((sv: any) => sv.isGhost).length;
+
+  // For network share (%), we keep the denominator as the beneficiary pool sum
   const totalNetworkBeneficiaryBps = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
 
   const operatorsView = operators.map((op: any) => {
@@ -90,6 +92,8 @@ const Validators = () => {
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
     const hasBeneficiaries = beneficiaries.length > 0;
+
+    // ✅ If no beneficiaries, the operator is “Direct” (not a mismatch)
     const mismatch = hasBeneficiaries ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
 
     const networkShare =
@@ -185,19 +189,23 @@ const Validators = () => {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
             <div>
               <p className="text-sm text-muted-foreground">Total SVs</p>
+              {/* ✅ operator-level */}
               <p className="text-xl font-semibold">{totalSVs}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Live SVs</p>
+              {/* ✅ operator-level */}
               <p className="text-xl font-semibold">{liveSVs}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Weight</p>
+              {/* ✅ sum of operator (parent) weights */}
               <p className="text-xl font-semibold">{totalWeightPct}%</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Offboarded</p>
-              <p className="text-xl font-semibold">{ghostSVs}</p>
+              {/* ✅ operator-level offboarding (YAML has none → 0) */}
+              <p className="text-xl font-semibold">{offboardedSVs}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Balanced Operators</p>
