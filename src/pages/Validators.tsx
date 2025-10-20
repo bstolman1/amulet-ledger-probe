@@ -34,7 +34,7 @@ const Validators = () => {
   } = useQuery({
     queryKey: ["sv-config"],
     queryFn: () => fetchConfigData(),
-    staleTime: 24 * 60 * 60 * 1000, // 1 day
+    staleTime: 24 * 60 * 60 * 1000, // 1 day cache
   });
 
   if (isLoading) {
@@ -54,16 +54,26 @@ const Validators = () => {
   }
 
   // ─────────────────────────────
-  // Transform Config → Display Model
+  // Data Processing
   // ─────────────────────────────
   const allSVs = configData.superValidators || [];
   const operators = configData.operators || [];
 
-  // Compute total network weight (for percentages)
-  const totalNetworkWeight = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
+  // ✅ Total network weight uses parent (operator) weights
+  const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
+  const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
+
+  // ✅ Live/offboarded based on ghost flag (name or escrow)
+  const totalSVs = allSVs.length;
+  const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
+  const liveSVs = totalSVs - ghostSVs;
+
+  // Total network weight for beneficiaries (for network share %)
+  const totalNetworkBeneficiaryBps = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
 
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
+
     const beneficiaries = allSVs
       .filter((sv: any) => sv.operatorName === op.name)
       .map((sv: any) => {
@@ -82,9 +92,9 @@ const Validators = () => {
     const hasBeneficiaries = beneficiaries.length > 0;
     const mismatch = hasBeneficiaries ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
 
-    const networkShare = totalNetworkWeight ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
+    const networkShare =
+      totalNetworkBeneficiaryBps > 0 ? ((operatorWeight / totalNetworkBeneficiaryBps) * 100).toFixed(2) + "%" : "0%";
 
-    // Label for UI clarity
     const statusLabel = hasBeneficiaries
       ? mismatch
         ? `⚠️ Mismatch (${bpsToPercent(totalBeneficiaryWeight)} / ${bpsToPercent(operatorWeight)})`
@@ -105,14 +115,6 @@ const Validators = () => {
     };
   });
 
-  // Totals for overview
-  const totalSVs = allSVs.length;
-  const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
-  const liveSVs = totalSVs - ghostSVs;
-  const totalWeight = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
-  const totalWeightPct = (totalWeight / 10000).toFixed(2);
-
-  // Mismatch summary
   const balancedCount = operatorsView.filter((op) => !op.mismatch).length;
   const totalOperators = operatorsView.length;
 
@@ -146,7 +148,6 @@ const Validators = () => {
         ]),
       ),
     ];
-
     const csv = rows.map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const link = document.createElement("a");
