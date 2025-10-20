@@ -3,10 +3,14 @@ import yaml from "js-yaml";
 
 const CONFIG_URL =
   "https://raw.githubusercontent.com/global-synchronizer-foundation/configs/main/configs/MainNet/approved-sv-id-values.yaml";
+
 const CACHE_KEY = "sv_config_cache";
 const CACHE_TIMESTAMP_KEY = "sv_config_timestamp";
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// ──────────────────────────────────────────────
+// TYPES
+// ──────────────────────────────────────────────
 export interface SuperValidator {
   name: string;
   address: string;
@@ -30,26 +34,26 @@ export interface ConfigData {
   lastUpdated: number;
 }
 
-// Universal safe storage (works in browser or Node)
-function safeLocalStorage() {
-  if (typeof window !== "undefined" && window.localStorage) {
-    return window.localStorage;
-  }
-  const memoryStore = new Map<string, string>();
-  return {
-    getItem: (k: string) => memoryStore.get(k) || null,
-    setItem: (k: string, v: string) => memoryStore.set(k, v),
-    removeItem: (k: string) => memoryStore.delete(k),
-  };
-}
-const storage = safeLocalStorage();
-
-/**
- * Parse YAML config from the GSF GitHub repo
- */
+// ──────────────────────────────────────────────
+// YAML PARSING
+// ──────────────────────────────────────────────
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
-  const doc = yaml.load(yamlText) as any;
-  const identities = Array.isArray(doc?.approvedSvIdentities) ? doc.approvedSvIdentities : [];
+  let doc: any;
+  try {
+    doc = yaml.load(yamlText);
+  } catch (err) {
+    console.error("❌ Failed to parse YAML:", err);
+    throw err;
+  }
+
+  // Handle flexible YAML schema (GSF sometimes renames root keys)
+  const identities = (doc?.approvedSvIdentities ??
+    doc?.approvedSuperValidators ??
+    doc?.superValidators ??
+    doc?.identities ??
+    []) as any[];
+
+  console.log(`📘 Loaded YAML: found ${identities.length} identities`);
 
   const operators: Operator[] = [];
   const superValidators: SuperValidator[] = [];
@@ -61,27 +65,24 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
 
     const beneficiaries = Array.isArray(op?.extraBeneficiaries) ? op.extraBeneficiaries : [];
 
+    // Record operator
     operators.push({ name, publicKey, rewardWeightBps });
 
     if (beneficiaries.length > 0) {
-      let totalWeight = 0;
+      let totalAllocated = 0;
 
       for (const ben of beneficiaries) {
-        const address =
-          typeof ben?.beneficiary === "string" ? ben.beneficiary.replace(/"/g, "").split("#")[0].trim() : "";
-        const comment =
-          typeof ben?.beneficiary === "string" && ben.beneficiary.includes("#")
-            ? ben.beneficiary.split("#")[1].trim()
-            : "";
+        const address = ben?.beneficiary?.replace(/"/g, "") ?? "";
+        const comment = ben?.beneficiary?.includes("#") ? ben.beneficiary.split("#")[1].trim() : "";
         const weight = Number((ben?.weight ?? "0").toString().replace(/_/g, ""));
-        totalWeight += weight;
+        totalAllocated += weight;
 
         const svName = comment || address.split("::")[0];
         const isGhost = svName.toLowerCase().includes("ghost");
 
         superValidators.push({
           name: svName,
-          address,
+          address: address.split("#")[0],
           weight,
           operatorName: name,
           operatorPublicKey: publicKey,
@@ -89,13 +90,17 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
         });
       }
 
-      if (Math.abs(totalWeight - rewardWeightBps) > 1) {
-        console.warn(`⚠️ Operator ${name} weights sum to ${totalWeight} bps (expected ${rewardWeightBps})`);
+      // Sanity check on weight allocation
+      if (Math.abs(totalAllocated - rewardWeightBps) > 1) {
+        console.warn(
+          `⚠️  Weight mismatch for ${name}: beneficiaries ${totalAllocated} bps (expected ${rewardWeightBps})`,
+        );
       }
 
-      operators[operators.length - 1].totalBeneficiaryWeight = totalWeight;
+      const opIndex = operators.findIndex((o) => o.name === name);
+      if (opIndex !== -1) operators[opIndex].totalBeneficiaryWeight = totalAllocated;
     } else {
-      // Operator is also a validator
+      // Operator with no extraBeneficiaries counts as one SV
       superValidators.push({
         name,
         address: "",
@@ -114,79 +119,110 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   };
 }
 
-/**
- * Optionally determine join rounds via Scan API
- */
+// ──────────────────────────────────────────────
+// DETERMINE JOIN ROUNDS
+// ──────────────────────────────────────────────
 async function determineJoinRounds(validators: SuperValidator[]): Promise<SuperValidator[]> {
   try {
+    console.log(`🔍 Fetching join rounds for ${validators.length} supervalidators...`);
     const topValidators = await scanApi.fetchTopValidatorsByFaucets(1000);
-    const roundMap = new Map<string, number>();
 
-    topValidators.validatorsByReceivedFaucets.forEach((info: any) =>
-      roundMap.set(info.validator, info.firstCollectedInRound),
-    );
+    const validatorJoinRounds = new Map<string, number>();
+    topValidators.validatorsByReceivedFaucets.forEach((info: any) => {
+      validatorJoinRounds.set(info.validator, info.firstCollectedInRound);
+    });
 
-    return validators.map((v) => {
-      let joinRound = roundMap.get(v.address);
-      if (!joinRound && v.address.includes("::")) {
-        const shortHash = v.address.split("::")[1];
-        for (const [id, round] of roundMap.entries()) {
-          if (id.includes(shortHash)) {
-            joinRound = round;
-            break;
+    return validators.map((validator) => {
+      let joinRound = validatorJoinRounds.get(validator.address);
+
+      if (!joinRound) {
+        const addressHash = validator.address.split("::")[1];
+        if (addressHash) {
+          for (const [validatorId, round] of validatorJoinRounds.entries()) {
+            if (validatorId.includes(addressHash)) {
+              joinRound = round;
+              break;
+            }
           }
         }
       }
-      return joinRound ? { ...v, joinRound } : v;
+
+      if (joinRound) {
+        console.log(`✅ ${validator.name} joined in round ${joinRound}`);
+        return { ...validator, joinRound };
+      }
+
+      console.warn(`⚠️ No join round found for ${validator.name}`);
+      return validator;
     });
-  } catch (err) {
-    console.error("⚠️ Error determining join rounds:", err);
+  } catch (error) {
+    console.error("Error determining join rounds:", error);
     return validators;
   }
 }
 
-/**
- * Fetch config data (cached + live)
- */
+// ──────────────────────────────────────────────
+// FETCH + CACHE CONFIG
+// ──────────────────────────────────────────────
 export async function fetchConfigData(forceRefresh = false): Promise<ConfigData> {
-  const cached = storage.getItem(CACHE_KEY);
-  const timestamp = storage.getItem(CACHE_TIMESTAMP_KEY);
-
-  if (!forceRefresh && cached && timestamp) {
-    const age = Date.now() - parseInt(timestamp);
-    if (age < CACHE_DURATION) {
-      console.log("📦 Using cached SV config");
-      return JSON.parse(cached);
+  if (!forceRefresh) {
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    if (cachedData && cachedTimestamp) {
+      const timestamp = parseInt(cachedTimestamp);
+      if (Date.now() - timestamp < CACHE_DURATION) {
+        console.log("🗃️ Using cached config data");
+        return JSON.parse(cachedData);
+      }
     }
   }
 
-  console.log("🔄 Fetching latest SV config...");
-  const res = await fetch(CONFIG_URL);
-  if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
-  const yamlText = await res.text();
+  try {
+    console.log("🔄 Fetching latest SV config from GitHub...");
+    const response = await fetch(CONFIG_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const yamlText = await response.text();
 
-  const config = await parseYamlConfig(yamlText);
-  config.superValidators = await determineJoinRounds(config.superValidators);
+    const configData = await parseYamlConfig(yamlText);
+    configData.superValidators = await determineJoinRounds(configData.superValidators);
 
-  storage.setItem(CACHE_KEY, JSON.stringify(config));
-  storage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+    // Cache it
+    localStorage.setItem(CACHE_KEY, JSON.stringify(configData));
+    localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
 
-  console.log(`✅ Parsed ${config.superValidators.length} supervalidators (${config.operators.length} operators)`);
-  return config;
+    const totalBps = configData.superValidators.reduce((sum, sv) => sum + sv.weight, 0);
+    const ghostCount = configData.superValidators.filter((sv) => sv.isGhost).length;
+    console.log(`📊 Parsed ${configData.superValidators.length} SVs from ${configData.operators.length} operators`);
+    console.log(`🌐 Total weight: ${(totalBps / 100).toFixed(2)}% (${ghostCount} ghost SVs)`);
+
+    return configData;
+  } catch (error) {
+    console.error("❌ Error fetching config data:", error);
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    if (cachedData) {
+      console.warn("⚠️ Using cached config data due to fetch failure");
+      return JSON.parse(cachedData);
+    }
+    throw error;
+  }
 }
 
-/**
- * Auto-refresh cache daily
- */
+// ──────────────────────────────────────────────
+// AUTO DAILY REFRESH
+// ──────────────────────────────────────────────
 export function scheduleDailySync() {
-  const check = () => {
-    const ts = storage.getItem(CACHE_TIMESTAMP_KEY);
-    if (ts && Date.now() - parseInt(ts) >= CACHE_DURATION) {
-      console.log("🕐 Refreshing SV config (daily sync)...");
-      fetchConfigData(true).catch(console.error);
+  const checkAndSync = () => {
+    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    if (cachedTimestamp) {
+      const timestamp = parseInt(cachedTimestamp);
+      if (Date.now() - timestamp >= CACHE_DURATION) {
+        console.log("🕐 Cache expired, refreshing config...");
+        fetchConfigData(true).catch(console.error);
+      }
     }
   };
-  check();
-  const interval = setInterval(check, 60 * 60 * 1000);
-  return () => clearInterval(interval);
+
+  checkAndSync();
+  const intervalId = window.setInterval(checkAndSync, 60 * 60 * 1000); // check every hour
+  return () => window.clearInterval(intervalId);
 }
