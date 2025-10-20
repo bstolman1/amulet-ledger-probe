@@ -1,8 +1,7 @@
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
-import { Activity, Coins, TrendingUp, Users, Zap, Package, RefreshCw } from "lucide-react";
+import { Activity, Coins, TrendingUp, Users, Zap, Package, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,13 +11,16 @@ import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Dashboard = () => {
-  // Schedule daily config refresh
+  // ─────────────────────────────
+  // Lifecycle: Schedule daily config refresh
+  // ─────────────────────────────
   useEffect(() => {
     const cancel = scheduleDailySync();
     return cancel;
   }, []);
 
   const [forceRefresh, setForceRefresh] = useState(false);
+  const [showTable, setShowTable] = useState(false);
   const handleRefresh = () => setForceRefresh((prev) => !prev);
 
   // ─────────────────────────────
@@ -69,6 +71,7 @@ const Dashboard = () => {
     isLoading: configLoading,
     isError: configError,
     refetch: refetchConfig,
+    isFetching: isFetchingConfig,
   } = useQuery({
     queryKey: ["sv-config", forceRefresh],
     queryFn: () => fetchConfigData(forceRefresh),
@@ -92,7 +95,9 @@ const Dashboard = () => {
       ? (parseFloat(totalBalance.total_balance) * ccPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
       : "Loading...";
 
-  // 🧩 Config Data Derived Stats
+  // ─────────────────────────────
+  // Config Data Derived Stats
+  // ─────────────────────────────
   const totalSVs = configData?.superValidators?.length ?? 0;
   const ghostSVs = configData?.superValidators?.filter((sv) => sv.isGhost).length ?? 0;
   const totalWeight = configData?.superValidators?.reduce((sum, sv) => sum + sv.weight, 0) ?? 0;
@@ -105,7 +110,9 @@ const Dashboard = () => {
       : balanceError
         ? "Connection Failed"
         : totalBalance?.total_balance
-          ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
+          ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, {
+              maximumFractionDigits: 2,
+            })
           : "Loading...",
     marketCap:
       balanceLoading || ccPrice === undefined ? "Loading..." : balanceError ? "Connection Failed" : `$${marketCap}`,
@@ -114,12 +121,16 @@ const Dashboard = () => {
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
     totalRewards:
       totalAppRewards > 0
-        ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, { maximumFractionDigits: 2 })
+        ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, {
+            maximumFractionDigits: 2,
+          })
         : "Loading...",
     networkHealth: "99.9%",
   };
 
-  // Debug log
+  // ─────────────────────────────
+  // Debug Log
+  // ─────────────────────────────
   useEffect(() => {
     if (configData) {
       console.log(`✅ Config parsed: ${totalSVs} SVs, ${operatorCount} operators, total weight ${totalWeightPercent}%`);
@@ -153,9 +164,14 @@ const Dashboard = () => {
         {/* Stats Grid */}
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-semibold">Network Overview</h3>
-          <Button onClick={() => refetchConfig()} variant="outline" className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Refresh Config
+          <Button
+            onClick={() => refetchConfig()}
+            variant="outline"
+            className="flex items-center gap-2"
+            disabled={isFetchingConfig}
+          >
+            {isFetchingConfig ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {isFetchingConfig ? "Refreshing..." : "Refresh Config"}
           </Button>
         </div>
 
@@ -170,30 +186,71 @@ const Dashboard = () => {
 
         {/* Config Summary */}
         <Card className="glass-card p-8 mt-4">
-          <h3 className="text-xl font-bold mb-4">SuperValidator Configuration</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-bold">SuperValidator Configuration</h3>
+            <Button onClick={() => setShowTable(!showTable)} variant="ghost" className="flex items-center gap-1">
+              {showTable ? (
+                <>
+                  Hide Details <ChevronUp className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  Show Details <ChevronDown className="w-4 h-4" />
+                </>
+              )}
+            </Button>
+          </div>
+
           {configLoading ? (
-            <Skeleton className="h-6 w-64" />
+            <Skeleton className="h-6 w-64 mt-4" />
           ) : configError ? (
-            <p className="text-red-400">Error loading configuration.</p>
+            <p className="text-red-400 mt-4">Error loading configuration.</p>
           ) : (
-            <div className="text-sm text-gray-400 space-y-1">
-              <p>
-                • Total SuperValidators: <span className="text-gray-200">{totalSVs}</span>
-              </p>
-              <p>
-                • Total Operators: <span className="text-gray-200">{operatorCount}</span>
-              </p>
-              <p>
-                • Total Weight: <span className="text-gray-200">{totalWeightPercent}%</span>
-              </p>
-              <p>
-                • Ghost Validators: <span className="text-gray-200">{ghostSVs}</span>
-              </p>
-              <p>
-                • Last Updated:{" "}
-                <span className="text-gray-200">{new Date(configData?.lastUpdated ?? 0).toLocaleString()}</span>
-              </p>
-            </div>
+            <>
+              <div className="text-sm text-gray-400 space-y-1 mt-4">
+                <p>
+                  • Total SuperValidators: <span className="text-gray-200">{totalSVs}</span>
+                </p>
+                <p>
+                  • Total Operators: <span className="text-gray-200">{operatorCount}</span>
+                </p>
+                <p>
+                  • Total Weight: <span className="text-gray-200">{totalWeightPercent}%</span>
+                </p>
+                <p>
+                  • Ghost Validators: <span className="text-gray-200">{ghostSVs}</span>
+                </p>
+                <p>
+                  • Last Updated:{" "}
+                  <span className="text-gray-200">{new Date(configData?.lastUpdated ?? 0).toLocaleString()}</span>
+                </p>
+              </div>
+
+              {showTable && (
+                <div className="overflow-x-auto mt-6 max-h-[600px] border-t border-gray-700 pt-4">
+                  <table className="min-w-full text-sm text-left">
+                    <thead className="text-gray-400 border-b border-gray-700">
+                      <tr>
+                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2">Operator</th>
+                        <th className="px-3 py-2">Weight (bps)</th>
+                        <th className="px-3 py-2">Join Round</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {configData?.superValidators.map((sv) => (
+                        <tr key={sv.address} className="border-b border-gray-800">
+                          <td className="px-3 py-2">{sv.name}</td>
+                          <td className="px-3 py-2 text-gray-400">{sv.operatorName}</td>
+                          <td className="px-3 py-2 text-gray-300">{sv.weight}</td>
+                          <td className="px-3 py-2 text-gray-500">{sv.joinRound ? sv.joinRound : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </Card>
       </div>
