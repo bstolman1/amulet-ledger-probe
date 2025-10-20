@@ -1,9 +1,11 @@
 import { useEffect } from "react";
+import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
-import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
+import { Activity, Coins, TrendingUp, Users, Zap, Package, RefreshCw } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
@@ -15,6 +17,9 @@ const Dashboard = () => {
     const cancel = scheduleDailySync();
     return cancel;
   }, []);
+
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const handleRefresh = () => setForceRefresh((prev) => !prev);
 
   // ─────────────────────────────
   // Canton Scan Queries
@@ -35,7 +40,7 @@ const Dashboard = () => {
     retryDelay: 1000,
   });
 
-  const { data: topValidators, isError: validatorsError } = useQuery({
+  const { data: topValidators } = useQuery({
     queryKey: ["topValidators"],
     queryFn: () => scanApi.fetchTopValidators(),
     retry: 1,
@@ -57,7 +62,7 @@ const Dashboard = () => {
   });
 
   // ─────────────────────────────
-  // SuperValidator Config Query
+  // SuperValidator Config Query (YAML)
   // ─────────────────────────────
   const {
     data: configData,
@@ -65,9 +70,9 @@ const Dashboard = () => {
     isError: configError,
     refetch: refetchConfig,
   } = useQuery({
-    queryKey: ["sv-config"],
-    queryFn: () => fetchConfigData(),
-    staleTime: 0, // Always check freshness
+    queryKey: ["sv-config", forceRefresh],
+    queryFn: () => fetchConfigData(forceRefresh),
+    staleTime: 0,
   });
 
   // ─────────────────────────────
@@ -87,7 +92,12 @@ const Dashboard = () => {
       ? (parseFloat(totalBalance.total_balance) * ccPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })
       : "Loading...";
 
-  const superValidatorCount = configData?.superValidators?.length ?? 0;
+  // 🧩 Config Data Derived Stats
+  const totalSVs = configData?.superValidators?.length ?? 0;
+  const ghostSVs = configData?.superValidators?.filter((sv) => sv.isGhost).length ?? 0;
+  const totalWeight = configData?.superValidators?.reduce((sum, sv) => sum + sv.weight, 0) ?? 0;
+  const totalWeightPercent = (totalWeight / 100).toFixed(2);
+  const operatorCount = configData?.operators?.length ?? 0;
 
   const stats = {
     totalBalance: balanceLoading
@@ -95,28 +105,24 @@ const Dashboard = () => {
       : balanceError
         ? "Connection Failed"
         : totalBalance?.total_balance
-          ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-            })
+          ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
           : "Loading...",
     marketCap:
       balanceLoading || ccPrice === undefined ? "Loading..." : balanceError ? "Connection Failed" : `$${marketCap}`,
-    superValidators: configLoading ? "Loading..." : configError ? "Error" : superValidatorCount.toLocaleString(),
+    superValidators: configLoading ? "Loading..." : configError ? "Error" : totalSVs.toLocaleString(),
     currentRound: latestRound?.round ? latestRound.round.toLocaleString() : "Loading...",
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
     totalRewards:
       totalAppRewards > 0
-        ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, {
-            maximumFractionDigits: 2,
-          })
+        ? parseFloat(totalAppRewards.toString()).toLocaleString(undefined, { maximumFractionDigits: 2 })
         : "Loading...",
     networkHealth: "99.9%",
   };
 
-  // Debug: log when config updates
+  // Debug log
   useEffect(() => {
     if (configData) {
-      console.log(`✅ SuperValidators updated: ${configData.superValidators.length}`);
+      console.log(`✅ Config parsed: ${totalSVs} SVs, ${operatorCount} operators, total weight ${totalWeightPercent}%`);
     }
   }, [configData]);
 
@@ -145,6 +151,14 @@ const Dashboard = () => {
         </div>
 
         {/* Stats Grid */}
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-semibold">Network Overview</h3>
+          <Button onClick={() => refetchConfig()} variant="outline" className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Refresh Config
+          </Button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <StatCard title="Total Amulet Balance" value={stats.totalBalance} icon={Coins} gradient />
           <StatCard title="Canton Coin Price (USD)" value={stats.coinPrice} icon={Activity} />
@@ -154,16 +168,32 @@ const Dashboard = () => {
           <StatCard title="Cumulative App Rewards" value={stats.totalRewards} icon={TrendingUp} gradient />
         </div>
 
-        {/* Placeholder for price chart or table */}
-        <Card className="glass-card p-8">
-          <h3 className="text-xl font-bold mb-4">Canton Coin Overview</h3>
-          {ccPrice ? (
-            <p className="text-muted-foreground">
-              Current Canton Coin price is <strong>${ccPrice.toFixed(4)}</strong>. Market cap reflects total balance
-              multiplied by price.
-            </p>
-          ) : (
+        {/* Config Summary */}
+        <Card className="glass-card p-8 mt-4">
+          <h3 className="text-xl font-bold mb-4">SuperValidator Configuration</h3>
+          {configLoading ? (
             <Skeleton className="h-6 w-64" />
+          ) : configError ? (
+            <p className="text-red-400">Error loading configuration.</p>
+          ) : (
+            <div className="text-sm text-gray-400 space-y-1">
+              <p>
+                • Total SuperValidators: <span className="text-gray-200">{totalSVs}</span>
+              </p>
+              <p>
+                • Total Operators: <span className="text-gray-200">{operatorCount}</span>
+              </p>
+              <p>
+                • Total Weight: <span className="text-gray-200">{totalWeightPercent}%</span>
+              </p>
+              <p>
+                • Ghost Validators: <span className="text-gray-200">{ghostSVs}</span>
+              </p>
+              <p>
+                • Last Updated:{" "}
+                <span className="text-gray-200">{new Date(configData?.lastUpdated ?? 0).toLocaleString()}</span>
+              </p>
+            </div>
           )}
         </Card>
       </div>
