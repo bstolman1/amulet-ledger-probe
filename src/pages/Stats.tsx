@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { useUsageStats } from "@/hooks/use-usage-stats";
+import { useValidatorStats } from "@/hooks/use-validator-stats";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { useEffect } from "react";
 
@@ -84,6 +85,17 @@ const Stats = () => {
   const oneMonthAgo = currentRound - roundsPerDay * 30;
   const sixMonthsAgo = currentRound - roundsPerDay * 180;
   const oneYearAgo = currentRound - roundsPerDay * 365;
+
+  // Derived validator join stats from on-chain faucet events (all-time, auto-updating)
+  const { data: vStats, isLoading: vStatsLoading } = useValidatorStats();
+  const faucetValidators = vStats?.validators || [];
+  const allTimeTotalValidators = faucetValidators.length;
+  const validators6Months = faucetValidators.filter(
+    (v) => v.firstCollectedInRound > 0 && roundsPerDay > 0 && currentRound > 0 && (currentRound - v.firstCollectedInRound) / roundsPerDay <= 180,
+  );
+  const validators1Year = faucetValidators.filter(
+    (v) => v.firstCollectedInRound > 0 && roundsPerDay > 0 && currentRound > 0 && (currentRound - v.firstCollectedInRound) / roundsPerDay <= 365,
+  );
 
   // Get validator liveness data
   const validatorsList = validators?.validatorsAndRewards || [];
@@ -436,10 +448,7 @@ const Stats = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-chart-4 mb-1">
-                    {sixMonthValidators.length +
-                      monthlyValidators.length +
-                      weeklyValidators.length +
-                      newValidators.length}
+                    {vStatsLoading ? 0 : validators6Months.length}
                   </p>
                   <p className="text-xs text-muted-foreground">New validators</p>
                 </>
@@ -458,11 +467,7 @@ const Stats = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-chart-5 mb-1">
-                    {yearlyValidators.length +
-                      sixMonthValidators.length +
-                      monthlyValidators.length +
-                      weeklyValidators.length +
-                      newValidators.length}
+                    {vStatsLoading ? 0 : validators1Year.length}
                   </p>
                   <p className="text-xs text-muted-foreground">New validators</p>
                 </>
@@ -480,7 +485,7 @@ const Stats = () => {
                 <Skeleton className="h-10 w-16" />
               ) : (
                 <>
-                  <p className="text-3xl font-bold gradient-text mb-1">{allTimeValidators.length}</p>
+                  <p className="text-3xl font-bold gradient-text mb-1">{vStatsLoading ? 0 : allTimeTotalValidators}</p>
                   <p className="text-xs text-muted-foreground">Total validators</p>
                 </>
               )}
@@ -601,25 +606,18 @@ const Stats = () => {
               <div className="p-4 rounded-lg bg-chart-4/5 border border-chart-4/10">
                 <p className="text-xs text-muted-foreground mb-1">6 Months</p>
                 <p className="text-2xl font-bold text-chart-4">
-                  {sixMonthValidators.length +
-                    monthlyValidators.length +
-                    weeklyValidators.length +
-                    newValidators.length}
+                  {vStatsLoading ? 0 : validators6Months.length}
                 </p>
               </div>
               <div className="p-4 rounded-lg bg-chart-5/5 border border-chart-5/10">
                 <p className="text-xs text-muted-foreground mb-1">Yearly</p>
                 <p className="text-2xl font-bold text-chart-5">
-                  {yearlyValidators.length +
-                    sixMonthValidators.length +
-                    monthlyValidators.length +
-                    weeklyValidators.length +
-                    newValidators.length}
+                  {vStatsLoading ? 0 : validators1Year.length}
                 </p>
               </div>
               <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
                 <p className="text-xs text-muted-foreground mb-1">All Time</p>
-                <p className="text-2xl font-bold gradient-text">{allTimeValidators.length}</p>
+                <p className="text-2xl font-bold gradient-text">{vStatsLoading ? 0 : allTimeTotalValidators}</p>
               </div>
             </div>
           </div>
