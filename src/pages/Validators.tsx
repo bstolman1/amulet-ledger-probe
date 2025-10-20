@@ -5,8 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, FileDown, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap } from "lucide-react";
 import { fetchConfigData } from "@/lib/config-sync";
+import { scanApi } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─────────────────────────────
 // Helpers
@@ -35,6 +37,35 @@ const Validators = () => {
     queryKey: ["sv-config", "v5"],
     queryFn: () => fetchConfigData(true),
     staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  // NEW QUERY for Active Validators
+  const {
+    data: topValidators,
+    isLoading: isLoadingValidators,
+    isError: isErrorValidators,
+  } = useQuery({
+    queryKey: ["active-validators"],
+    queryFn: async () => {
+      const data = await scanApi.fetchTopValidators();
+      const validatorIds = data.validatorsAndRewards.map((v: any) => v.provider);
+      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+      const latestRound = await scanApi.fetchLatestRound();
+
+      // Enrich with last active date
+      const validators = data.validatorsAndRewards.map((validator: any) => {
+        const livenessInfo = livenessData.validatorsReceivedFaucets.find(
+          (v: any) => v.validator === validator.provider,
+        );
+        return {
+          ...validator,
+          lastActiveRound: livenessInfo?.lastCollectedInRound,
+          lastActiveDate: livenessInfo?.lastCollectedInRound ? new Date().toISOString() : null,
+        };
+      });
+      return validators;
+    },
+    retry: 1,
   });
 
   if (isLoading) {
@@ -250,6 +281,74 @@ const Validators = () => {
               </div>
             );
           })}
+        </Card>
+
+        {/* ───────────────────────────── */}
+        {/* New Active Validators Section */}
+        {/* ───────────────────────────── */}
+        <Card className="glass-card p-6 mt-8">
+          <h3 className="text-2xl font-bold mb-4">Active Validators</h3>
+
+          {isLoadingValidators ? (
+            <div className="space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-32 w-full" />
+              ))}
+            </div>
+          ) : isErrorValidators ? (
+            <div className="text-red-400">Error loading active validator data.</div>
+          ) : (
+            <div className="space-y-4">
+              {topValidators?.map((validator: any, index: number) => {
+                const rank = index + 1;
+                return (
+                  <div
+                    key={validator.provider}
+                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 rounded-lg flex items-center justify-center font-bold bg-primary/20 text-primary">
+                          {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold mb-1">{validator.provider}</h3>
+                          <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
+                            {validator.provider}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge className="bg-success/10 text-success border-success/20">
+                        <Zap className="h-3 w-3 mr-1" />
+                        Active
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
+                        <p className="text-2xl font-bold text-primary">
+                          {parseFloat(validator.rewards).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
+                        <p className="text-2xl font-bold text-foreground">#{rank}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Last Active</p>
+                        <p className="text-2xl font-bold text-chart-3">
+                          {validator.lastActiveDate
+                            ? new Date(validator.lastActiveDate).toLocaleDateString()
+                            : "Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </div>
     </DashboardLayout>
