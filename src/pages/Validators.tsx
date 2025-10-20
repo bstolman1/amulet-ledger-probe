@@ -79,8 +79,17 @@ const Validators = () => {
       });
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
-    const mismatch = Math.abs(totalBeneficiaryWeight - operatorWeight) > 1;
+    const hasBeneficiaries = beneficiaries.length > 0;
+    const mismatch = hasBeneficiaries ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
+
     const networkShare = totalNetworkWeight ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
+
+    // Label for UI clarity
+    const statusLabel = hasBeneficiaries
+      ? mismatch
+        ? `⚠️ Mismatch (${bpsToPercent(totalBeneficiaryWeight)} / ${bpsToPercent(operatorWeight)})`
+        : `✅ Balanced (${bpsToPercent(totalBeneficiaryWeight)})`
+      : `✅ Direct (${bpsToPercent(operatorWeight)})`;
 
     return {
       operator: op.name,
@@ -90,7 +99,9 @@ const Validators = () => {
       totalBeneficiaryWeight,
       totalBeneficiaryWeightPct: bpsToPercent(totalBeneficiaryWeight),
       mismatch,
+      hasBeneficiaries,
       beneficiaries,
+      statusLabel,
     };
   });
 
@@ -216,16 +227,18 @@ const Validators = () => {
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className={`text-sm ${op.mismatch ? "text-yellow-400" : "text-green-400"}`}>
-                      {op.mismatch
-                        ? `⚠️ Mismatch (${op.totalBeneficiaryWeightPct} / ${op.operatorWeightPct})`
-                        : `✅ Balanced (${op.totalBeneficiaryWeightPct})`}
+                    <span
+                      className={`text-sm ${
+                        op.mismatch ? "text-yellow-400" : op.hasBeneficiaries ? "text-green-400" : "text-blue-400"
+                      }`}
+                    >
+                      {op.statusLabel}
                     </span>
                     {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                   </div>
                 </div>
 
-                {expanded && (
+                {expanded && op.hasBeneficiaries && (
                   <div className="mt-3 pl-4 border-l border-gray-700 space-y-2">
                     {op.beneficiaries.map((b, idx) => (
                       <div
