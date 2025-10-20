@@ -261,9 +261,7 @@ const Validators = () => {
           })}
         </Card>
 
-        {/* ───────────────────────────── */}
-        {/* ACTIVE VALIDATORS SECTION (Appended) */}
-        {/* ───────────────────────────── */}
+        {/* ACTIVE VALIDATORS SECTION */}
         <ActiveValidatorsSection />
       </div>
     </DashboardLayout>
@@ -283,31 +281,49 @@ const ActiveValidatorsSection = () => {
   } = useQuery({
     queryKey: ["topValidators"],
     queryFn: async () => {
-      const data = await scanApi.fetchTopValidators();
-      const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
-      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
-      const latestRound = await scanApi.fetchLatestRound();
-      const startRound = Math.max(0, latestRound.round - 200);
-      const roundTotals = await scanApi.fetchRoundTotals({
-        start_round: startRound,
-        end_round: latestRound.round,
-      });
+      try {
+        console.log("Fetching top validators...");
+        const data = await scanApi.fetchTopValidators();
+        console.log("Top validators result:", data);
 
-      const roundDates = new Map<number, string>();
-      roundTotals.entries.forEach((entry) => {
-        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
-      });
+        const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
+        console.log("Validator IDs:", validatorIds);
 
-      return {
-        ...data,
-        validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
-          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
-          const lastActiveDate = livenessInfo?.lastCollectedInRound
-            ? roundDates.get(livenessInfo.lastCollectedInRound)
-            : undefined;
-          return { ...validator, lastActiveDate };
-        }),
-      };
+        const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+        console.log("Liveness data:", livenessData);
+
+        const latestRound = await scanApi.fetchLatestRound();
+        console.log("Latest round:", latestRound);
+
+        const startRound = Math.max(0, latestRound.round - 200);
+        const roundTotals = await scanApi.fetchRoundTotals({
+          start_round: startRound,
+          end_round: latestRound.round,
+        });
+        console.log("Round totals:", roundTotals);
+
+        const roundDates = new Map<number, string>();
+        roundTotals.entries.forEach((entry) => {
+          roundDates.set(entry.closed_round, entry.closed_round_effective_at);
+        });
+
+        const enriched = {
+          ...data,
+          validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
+            const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
+            const lastActiveDate = livenessInfo?.lastCollectedInRound
+              ? roundDates.get(livenessInfo.lastCollectedInRound)
+              : undefined;
+            return { ...validator, lastActiveDate };
+          }),
+        };
+
+        console.log("Enriched validator data:", enriched);
+        return enriched;
+      } catch (err) {
+        console.error("Error fetching validator data:", err);
+        throw err;
+      }
     },
     retry: 1,
   });
@@ -401,9 +417,7 @@ const ActiveValidatorsSection = () => {
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
                         <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, {
-                            maximumFractionDigits: 0,
-                          })}
+                          {parseFloat(validator.rewards).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
