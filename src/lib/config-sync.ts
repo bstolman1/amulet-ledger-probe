@@ -25,16 +25,19 @@ export interface ConfigData {
   lastUpdated: number;
 }
 
+type ParsedBeneficiary = {
+  name: string;
+  address: string;
+  weight: number;
+  isGhost: boolean;
+  weightIsAbsolute: boolean;
+};
+
 type ParsedOperator = {
   name: string;
   publicKey: string;
   rewardWeightBps: number;
-  beneficiaries: Array<{
-    name: string;
-    address: string;
-    weight: number;
-    isGhost: boolean;
-  }>;
+  beneficiaries: ParsedBeneficiary[];
 };
 
 async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
@@ -42,7 +45,7 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const parsedOperators: ParsedOperator[] = [];
 
   let currentOperator: ParsedOperator | null = null;
-  let currentBeneficiary: { name: string; address: string; weight: number; isGhost: boolean } | null = null;
+  let currentBeneficiary: ParsedBeneficiary | null = null;
 
   const parseNumericValue = (value: string) => {
     const normalized = value.trim().replace(/_/g, '');
@@ -75,12 +78,6 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
       continue;
     }
 
-    if (trimmed.startsWith('rewardWeightBps:')) {
-      const weightStr = trimmed.split('rewardWeightBps:')[1];
-      currentOperator.rewardWeightBps = parseNumericValue(weightStr);
-      continue;
-    }
-
     if (trimmed.startsWith('- beneficiary:')) {
       const beneficiaryLine = trimmed.split('beneficiary:')[1].trim();
       const address = beneficiaryLine.replace(/"/g, '').split('#')[0].trim();
@@ -92,15 +89,31 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
         name: comment || svName,
         address,
         weight: 0,
-        isGhost
+        isGhost,
+        weightIsAbsolute: false
       };
       currentOperator.beneficiaries.push(currentBeneficiary);
+      continue;
+    }
+
+    if (trimmed.startsWith('rewardWeightBps:')) {
+      const weightStr = trimmed.split('rewardWeightBps:')[1];
+      const weightValue = parseNumericValue(weightStr);
+
+      if (currentBeneficiary) {
+        currentBeneficiary.weight = weightValue;
+        currentBeneficiary.weightIsAbsolute = true;
+      } else {
+        currentOperator.rewardWeightBps = weightValue;
+      }
+
       continue;
     }
 
     if (trimmed.startsWith('weight:') && currentBeneficiary) {
       const weightStr = trimmed.split('weight:')[1];
       currentBeneficiary.weight = parseNumericValue(weightStr);
+      currentBeneficiary.weightIsAbsolute = false;
       continue;
     }
   }
@@ -108,17 +121,26 @@ async function parseYamlConfig(yamlText: string): Promise<ConfigData> {
   const superValidators: SuperValidator[] = [];
 
   parsedOperators.forEach(operator => {
-    const totalBeneficiaryWeight = operator.beneficiaries.reduce((sum, beneficiary) => sum + beneficiary.weight, 0);
-    let remainingWeight = operator.rewardWeightBps;
+    const totalAbsoluteWeight = operator.beneficiaries
+      .filter(beneficiary => beneficiary.weightIsAbsolute)
+      .reduce((sum, beneficiary) => sum + beneficiary.weight, 0);
+    const relativeBeneficiaries = operator.beneficiaries.filter(beneficiary => !beneficiary.weightIsAbsolute);
+    const totalRelativeWeight = relativeBeneficiaries.reduce((sum, beneficiary) => sum + beneficiary.weight, 0);
+    let remainingWeight = Math.max(operator.rewardWeightBps - totalAbsoluteWeight, 0);
 
-    operator.beneficiaries.forEach((beneficiary, index) => {
+    operator.beneficiaries.forEach((beneficiary) => {
       let rewardWeight = 0;
 
-      if (totalBeneficiaryWeight > 0) {
-        if (index === operator.beneficiaries.length - 1) {
+      if (beneficiary.weightIsAbsolute) {
+        rewardWeight = beneficiary.weight;
+      } else if (totalRelativeWeight > 0) {
+        const isLastRelative =
+          relativeBeneficiaries[relativeBeneficiaries.length - 1] === beneficiary;
+
+        if (isLastRelative) {
           rewardWeight = remainingWeight;
         } else {
-          rewardWeight = Math.round(operator.rewardWeightBps * (beneficiary.weight / totalBeneficiaryWeight));
+          rewardWeight = Math.round(remainingWeight * (beneficiary.weight / totalRelativeWeight));
           remainingWeight -= rewardWeight;
         }
       }
