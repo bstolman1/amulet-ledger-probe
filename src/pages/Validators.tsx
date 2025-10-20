@@ -21,6 +21,8 @@ const normalizeBps = (val: any) => {
 const bpsToPercent = (bps: number) => (bps / 10000).toFixed(2) + "%";
 
 // ─────────────────────────────
+// Component
+// ─────────────────────────────
 const Validators = () => {
   const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
 
@@ -30,9 +32,9 @@ const Validators = () => {
     isError,
     refetch,
   } = useQuery({
-    queryKey: ["sv-config"],
-    queryFn: () => fetchConfigData(),
-    staleTime: 24 * 60 * 60 * 1000, // 1 day
+    queryKey: ["sv-config", "v5"],
+    queryFn: () => fetchConfigData(true),
+    staleTime: 24 * 60 * 60 * 1000,
   });
 
   if (isLoading) {
@@ -52,53 +54,43 @@ const Validators = () => {
   }
 
   // ─────────────────────────────
-  // Data
+  // Transform Config → Display Model
   // ─────────────────────────────
-  const allSVs = configData.superValidators || []; // beneficiaries (flattened)
-  const operators = configData.operators || []; // parents (supervalidators)
+  const allSVs = configData.superValidators || []; // beneficiaries
+  const operators = configData.operators || []; // parent-level validators
 
-  // ✅ Total network weight should use parent (operator) weights
+  // ✅ Count metrics
+  const totalSVs = allSVs.length; // 38 total (flattened)
+  const liveSVs = operators.length; // 13 live SVs (top level)
+  const offboardedSVs = 0; // none offboarded
+  const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
+
+  // ✅ Total weight (sum of parent reward weights)
   const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
   const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
 
-  // ✅ Overview counts must be operator-level (NOT beneficiary-level)
-  const totalSVs = operators.length; // e.g., 13
-  const offboardedSVs = 0; // no operator is marked offboarded in YAML; treat as 0
-  const liveSVs = totalSVs - offboardedSVs; // e.g., 13
-
-  // (Optional) beneficiary stats if you want to surface elsewhere
-  const totalBeneficiaries = allSVs.length;
-  const ghostBeneficiaries = allSVs.filter((sv: any) => sv.isGhost).length;
-
-  // For network share (%), we keep the denominator as the beneficiary pool sum
-  const totalNetworkBeneficiaryBps = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
-
+  // ✅ Build operator view
+  const totalNetworkWeight = totalOperatorWeightBps;
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
-
     const beneficiaries = allSVs
       .filter((sv: any) => sv.operatorName === op.name)
-      .map((sv: any) => {
-        const weight = normalizeBps(sv.weight);
-        return {
-          name: sv.name,
-          address: sv.address,
-          weightBps: weight,
-          weightPct: bpsToPercent(weight),
-          isGhost: sv.isGhost ?? false,
-          joinedRound: sv.joinRound ?? "Unknown",
-        };
-      });
+      .map((sv: any) => ({
+        name: sv.name,
+        address: sv.address,
+        weightBps: normalizeBps(sv.weight),
+        weightPct: bpsToPercent(sv.weight),
+        isGhost: sv.isGhost ?? false,
+        joinedRound: sv.joinRound ?? "Unknown",
+      }));
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
+
+    const mismatch = beneficiaries.length ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
+
+    const networkShare = totalNetworkWeight > 0 ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
+
     const hasBeneficiaries = beneficiaries.length > 0;
-
-    // ✅ If no beneficiaries, the operator is “Direct” (not a mismatch)
-    const mismatch = hasBeneficiaries ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
-
-    const networkShare =
-      totalNetworkBeneficiaryBps > 0 ? ((operatorWeight / totalNetworkBeneficiaryBps) * 100).toFixed(2) + "%" : "0%";
-
     const statusLabel = hasBeneficiaries
       ? mismatch
         ? `⚠️ Mismatch (${bpsToPercent(totalBeneficiaryWeight)} / ${bpsToPercent(operatorWeight)})`
@@ -113,9 +105,9 @@ const Validators = () => {
       totalBeneficiaryWeight,
       totalBeneficiaryWeightPct: bpsToPercent(totalBeneficiaryWeight),
       mismatch,
-      hasBeneficiaries,
       beneficiaries,
       statusLabel,
+      hasBeneficiaries,
     };
   });
 
@@ -127,21 +119,10 @@ const Validators = () => {
   // ─────────────────────────────
   const exportCSV = () => {
     const rows = [
-      [
-        "Operator",
-        "Operator Weight (bps)",
-        "SuperValidator",
-        "Address",
-        "Weight (bps)",
-        "Weight (%)",
-        "Ghost",
-        "Joined Round",
-        "Network Share",
-      ],
+      ["Operator", "SuperValidator", "Address", "Weight (bps)", "Weight (%)", "Ghost", "Joined Round", "Network Share"],
       ...operatorsView.flatMap((op) =>
         op.beneficiaries.map((b) => [
           op.operator,
-          op.operatorWeight,
           b.name,
           b.address,
           b.weightBps,
@@ -152,6 +133,7 @@ const Validators = () => {
         ]),
       ),
     ];
+
     const csv = rows.map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const link = document.createElement("a");
@@ -189,22 +171,18 @@ const Validators = () => {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
             <div>
               <p className="text-sm text-muted-foreground">Total SVs</p>
-              {/* ✅ operator-level */}
               <p className="text-xl font-semibold">{totalSVs}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Live SVs</p>
-              {/* ✅ operator-level */}
               <p className="text-xl font-semibold">{liveSVs}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Weight</p>
-              {/* ✅ sum of operator (parent) weights */}
               <p className="text-xl font-semibold">{totalWeightPct}%</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Offboarded</p>
-              {/* ✅ operator-level offboarding (YAML has none → 0) */}
               <p className="text-xl font-semibold">{offboardedSVs}</p>
             </div>
             <div>
