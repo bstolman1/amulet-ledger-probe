@@ -62,9 +62,6 @@ const Validators = () => {
   const allSVs = configData.superValidators || [];
   const operators = configData.operators || [];
 
-  // Compute total network weight (for percentages)
-  const totalNetworkWeight = allSVs.reduce((sum: number, sv: any) => sum + normalizeBps(sv.weight), 0);
-
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
     const beneficiaries = allSVs
@@ -82,14 +79,13 @@ const Validators = () => {
       });
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
+
     const mismatch = Math.abs(totalBeneficiaryWeight - operatorWeight) > 1;
-    const networkShare = totalNetworkWeight ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
 
     return {
       operator: op.name,
       operatorWeight,
       operatorWeightPct: bpsToPercent(operatorWeight),
-      networkShare,
       totalBeneficiaryWeight,
       totalBeneficiaryWeightPct: bpsToPercent(totalBeneficiaryWeight),
       mismatch,
@@ -109,7 +105,7 @@ const Validators = () => {
 
   const exportCSV = () => {
     const rows = [
-      ["Operator", "SuperValidator", "Address", "Weight (bps)", "Weight (%)", "Ghost", "Joined Round", "Network Share"],
+      ["Operator", "SuperValidator", "Address", "Weight (bps)", "Weight (%)", "Ghost", "Joined Round"],
       ...operatorsView.flatMap((op) =>
         op.beneficiaries.map((b) => [
           op.operator,
@@ -119,7 +115,6 @@ const Validators = () => {
           b.weightPct,
           b.isGhost ? "Yes" : "No",
           b.joinedRound,
-          op.networkShare,
         ]),
       ),
     ];
@@ -182,7 +177,7 @@ const Validators = () => {
         <Card className="glass-card p-6">
           <h3 className="text-xl font-bold mb-4">Supervalidators</h3>
 
-          {operatorsView.map((op) => {
+          {operatorsView.map((op, i) => {
             const expanded = expandedOperator === op.operator;
             return (
               <div key={op.operator} className="border-b border-gray-800 py-3">
@@ -193,8 +188,7 @@ const Validators = () => {
                   <div className="flex flex-col">
                     <span className="font-semibold">{op.operator}</span>
                     <span className="text-sm text-muted-foreground">
-                      Reward Weight: {op.operatorWeightPct} • Network Share: {op.networkShare} • Beneficiaries:{" "}
-                      {op.beneficiaries.length}
+                      Reward Weight: {op.operatorWeightPct} • Total Beneficiaries: {op.beneficiaries.length}
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
