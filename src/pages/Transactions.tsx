@@ -7,9 +7,15 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Transactions = () => {
-  const { data: transactions, isLoading, isError, refetch } = useQuery({
+  const {
+    data: transactions,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["transactions"],
-    queryFn: () => scanApi.fetchTransactions({ page_size: 20, sort_order: "desc" }),
+    // ✅ use the new /v2/updates endpoint
+    queryFn: () => scanApi.fetchTransactionsV2({ page_size: 20 }),
   });
 
   const getStatusColor = (status: string) => {
@@ -50,9 +56,7 @@ const Transactions = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold mb-2">Transaction History</h2>
-            <p className="text-muted-foreground">
-              Browse recent transactions on the Canton Network
-            </p>
+            <p className="text-muted-foreground">Browse recent transactions on the Canton Network</p>
           </div>
         </div>
 
@@ -76,9 +80,7 @@ const Transactions = () => {
                 </button>
               </div>
             ) : !transactions?.transactions?.length ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground">
-                No recent transactions
-              </div>
+              <div className="h-48 flex items-center justify-center text-muted-foreground">No recent transactions</div>
             ) : (
               <div className="space-y-4">
                 {transactions.transactions.map((tx) => (
@@ -88,12 +90,8 @@ const Transactions = () => {
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center space-x-3">
-                        <Badge className={getTypeColor(tx.transaction_type)}>
-                          {tx.transaction_type}
-                        </Badge>
-                        <Badge className={getStatusColor("confirmed")}>
-                          confirmed
-                        </Badge>
+                        <Badge className={getTypeColor(tx.transaction_type)}>{tx.transaction_type}</Badge>
+                        <Badge className={getStatusColor("confirmed")}>confirmed</Badge>
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Round</p>
@@ -109,6 +107,7 @@ const Transactions = () => {
                           <ExternalLink className="h-3 w-3 text-muted-foreground cursor-pointer hover:text-primary transition-smooth" />
                         </div>
                       </div>
+
                       {tx.transfer && (
                         <>
                           <div>
@@ -125,6 +124,7 @@ const Transactions = () => {
                           </div>
                         </>
                       )}
+
                       {tx.mint && (
                         <div>
                           <p className="text-sm text-muted-foreground mb-1">Minted Amount</p>
@@ -139,26 +139,20 @@ const Transactions = () => {
                       <div className="flex items-center space-x-3 p-4 rounded-lg bg-background/50">
                         <div className="flex-1">
                           <p className="text-xs text-muted-foreground mb-1">From</p>
-                          <p className="font-mono text-sm truncate">
-                            {formatPartyId(tx.transfer.sender.party)}
-                          </p>
+                          <p className="font-mono text-sm truncate">{formatPartyId(tx.transfer.sender.party)}</p>
                         </div>
                         <ArrowRight className="h-4 w-4 text-primary flex-shrink-0" />
                         <div className="flex-1">
                           <p className="text-xs text-muted-foreground mb-1">To</p>
                           <p className="font-mono text-sm truncate">
-                            {tx.transfer.receivers.length > 0
-                              ? formatPartyId(tx.transfer.receivers[0].party)
-                              : "N/A"}
+                            {tx.transfer.receivers.length > 0 ? formatPartyId(tx.transfer.receivers[0].party) : "N/A"}
                           </p>
                         </div>
                       </div>
                     )}
 
                     <div className="mt-4 pt-4 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(tx.date).toLocaleString()}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{new Date(tx.date).toLocaleString()}</p>
                     </div>
                   </div>
                 ))}
