@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
 
 /* ----------------------------
  * Reusable Metric Card
@@ -28,11 +27,7 @@ const StatCard = ({
     isChange && !color ? (isPositive ? "text-success" : "text-destructive") : (color ?? "text-foreground");
 
   return (
-    <motion.div
-      className="p-4 rounded-xl bg-muted/30 hover:bg-muted/40 transition-colors duration-200 shadow-sm"
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.99 }}
-    >
+    <div className="p-4 rounded-xl bg-muted/30 hover:bg-muted/40 transition-all duration-200 shadow-sm hover:shadow-md">
       <p className="text-sm text-muted-foreground mb-1">{label}</p>
       <p className={`text-xl font-semibold tracking-tight ${dynamicColor}`}>
         {isNaN(parsed)
@@ -41,7 +36,7 @@ const StatCard = ({
               maximumFractionDigits: 6,
             })} ${!label.toLowerCase().includes("rate") ? "CC" : ""}`}
       </p>
-    </motion.div>
+    </div>
   );
 };
 
@@ -102,78 +97,73 @@ const RoundStats = () => {
             <p className="text-muted-foreground">No round statistics available.</p>
           </Card>
         ) : (
-          <motion.div layout className="space-y-6">
-            {stats.map((stat, i) => {
+          <div className="space-y-6">
+            {stats.map((stat) => {
               const changeValue = parseFloat(stat.change_to_initial_amount_as_of_round_zero);
               const isPositive = changeValue >= 0;
 
               return (
-                <motion.div
+                <Card
                   key={stat.closed_round}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05, duration: 0.4 }}
+                  className="glass-card hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
                 >
-                  <Card className="glass-card hover:shadow-lg transition-all duration-200">
-                    <div className="p-6 space-y-6">
-                      {/* Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <h3 className="text-3xl font-bold tracking-tight">Round {stat.closed_round}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Closed: {new Date(stat.closed_round_effective_at).toLocaleString()}
-                          </p>
-                        </div>
-
-                        <div
-                          className={`mt-3 sm:mt-0 flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium ${
-                            isPositive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                          }`}
-                        >
-                          {isPositive ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                          <span>
-                            {isPositive ? "+" : ""}
-                            {changeValue.toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Primary Stats */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <StatCard label="App Rewards" value={stat.app_rewards} color="text-primary" />
-                        <StatCard label="Validator Rewards" value={stat.validator_rewards} color="text-accent" />
-                        <StatCard label="Total Balance" value={stat.total_amulet_balance} />
-                        <StatCard label="Fee Rate Change" value={stat.change_to_holding_fees_rate} isChange />
-                      </div>
-
-                      {/* Divider */}
-                      <div className="border-t border-border/40" />
-
-                      {/* Cumulative Stats */}
+                  <div className="p-6 space-y-6">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Cumulative Metrics</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                          <StatCard label="Cumulative App Rewards" value={stat.cumulative_app_rewards} />
-                          <StatCard label="Cumulative Validator Rewards" value={stat.cumulative_validator_rewards} />
-                          <StatCard
-                            label="Cumulative Change (Initial Amount)"
-                            value={stat.cumulative_change_to_initial_amount_as_of_round_zero}
-                            isChange
-                          />
-                          <StatCard
-                            label="Cumulative Change (Holding Fee Rate)"
-                            value={stat.cumulative_change_to_holding_fees_rate}
-                            isChange
-                          />
-                        </div>
+                        <h3 className="text-3xl font-bold tracking-tight">Round {stat.closed_round}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Closed: {new Date(stat.closed_round_effective_at).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`mt-3 sm:mt-0 flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+                          isPositive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+                        }`}
+                      >
+                        {isPositive ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                        <span>
+                          {isPositive ? "+" : ""}
+                          {changeValue.toFixed(2)}
+                        </span>
                       </div>
                     </div>
-                  </Card>
-                </motion.div>
+
+                    {/* Primary Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <StatCard label="App Rewards" value={stat.app_rewards} color="text-primary" />
+                      <StatCard label="Validator Rewards" value={stat.validator_rewards} color="text-accent" />
+                      <StatCard label="Total Balance" value={stat.total_amulet_balance} />
+                      <StatCard label="Fee Rate Change" value={stat.change_to_holding_fees_rate} isChange />
+                    </div>
+
+                    {/* Divider */}
+                    <div className="border-t border-border/40" />
+
+                    {/* Cumulative Stats */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-muted-foreground mb-3">Cumulative Metrics</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <StatCard label="Cumulative App Rewards" value={stat.cumulative_app_rewards} />
+                        <StatCard label="Cumulative Validator Rewards" value={stat.cumulative_validator_rewards} />
+                        <StatCard
+                          label="Cumulative Change (Initial Amount)"
+                          value={stat.cumulative_change_to_initial_amount_as_of_round_zero}
+                          isChange
+                        />
+                        <StatCard
+                          label="Cumulative Change (Holding Fee Rate)"
+                          value={stat.cumulative_change_to_holding_fees_rate}
+                          isChange
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </Card>
               );
             })}
-          </motion.div>
+          </div>
         )}
       </div>
     </DashboardLayout>
