@@ -554,93 +554,18 @@ export const scanApi = {
 
   /* ---------- v0 transactions & helpers ---------- */
 
-  /* ---------- Improved v2 /updates-based transactions ---------- */
-  async fetchTransactionsV2(request: {
-    page_size?: number;
-    after?: { after_migration_id?: number; after_record_time?: string };
-  }): Promise<TransactionHistoryResponse> {
+  async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
-
     try {
-      const res = await fetch(`${API_BASE}/v2/updates`, {
+      const res = await fetch(`${API_BASE}/v0/transactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          page_size: request.page_size || 20,
-          daml_value_encoding: "compact_json",
-          ...(request.after ? { after: request.after } : {}),
-        }),
+        body: JSON.stringify(request),
         signal: controller.signal,
       });
-
-      if (!res.ok) throw new Error("Failed to fetch /v2/updates transactions");
-
-      const data = await res.json();
-
-      return {
-        transactions: (data.transactions || []).map((tx: any) => {
-          const transactionId = tx.update_id || "unknown";
-          const recordTime = tx.record_time;
-          const migrationId = tx.migration_id || null;
-
-          // Each transaction may contain events
-          const events = tx.events_by_id || {};
-          const createdEvents = Object.values(events).filter((ev: any) => ev.event_type === "created_event");
-
-          // Choose first created event (most transactions only have one)
-          const createdEvent: any = createdEvents[0] || {};
-          const args = createdEvent.create_arguments || {};
-          const template = createdEvent.template_id?.toLowerCase() || "";
-
-          // Guess transaction type
-          let transaction_type = "unknown";
-          if (template.includes("transfer")) transaction_type = "transfer";
-          else if (template.includes("mint")) transaction_type = "mint";
-          else if (template.includes("tap")) transaction_type = "tap";
-
-          // Extract round info if available
-          const round = args.round?.number || args.round_number || tx.migration_id || null;
-
-          // Transfer details
-          const transfer =
-            args.sender && args.receiver
-              ? {
-                  sender: {
-                    party: args.sender.party || args.sender.id || "unknown",
-                    sender_change_amount: args.sender.amount || args.sender.transferAmount || "0",
-                    sender_fee: args.sender.fee || "0",
-                  },
-                  receivers: [
-                    {
-                      party: args.receiver.party || args.receiver.id || "unknown",
-                      amount: args.receiver.amount || args.receiver.transferAmount || "0",
-                      receiver_fee: args.receiver.fee || "0",
-                    },
-                  ],
-                }
-              : null;
-
-          // Mint details
-          const mint =
-            args.amulet_amount || args.amount
-              ? {
-                  amulet_owner: args.amulet_owner || args.owner || args.minter || "unknown",
-                  amulet_amount: args.amulet_amount || args.amount || args.value || "0",
-                }
-              : null;
-
-          return {
-            event_id: createdEvent.event_id || transactionId,
-            transaction_type,
-            date: recordTime,
-            domain_id: tx.synchronizer_id || "unknown",
-            round,
-            transfer,
-            mint,
-          };
-        }),
-      };
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
