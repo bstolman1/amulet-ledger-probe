@@ -2,7 +2,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, Users, Calendar, Download } from "lucide-react";
+import { TrendingUp, Users, Calendar, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,7 +12,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { useUsageStats } from "@/hooks/use-usage-stats";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const Stats = () => {
   // Schedule daily sync for config data
@@ -265,85 +265,130 @@ const Stats = () => {
     }
   };
 
-  const ValidatorList = ({ validators, title }: { validators: any[]; title: string }) => (
-    <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-muted-foreground">
-        {title} ({validators.length})
-      </h4>
-      {validators.length === 0 ? (
-        <p className="text-sm text-muted-foreground italic">No validators in this period</p>
-      ) : (
-        <div className="space-y-2">
-          {validators.slice(0, 10).map((validator, index) => {
-            // Check if validator is actually a Super Validator by matching address
-            const isSuperValidator =
-              configData?.superValidators.some((sv) => sv.address === validator.provider) || false;
-            const healthData = validatorHealthMap.get(validator.provider);
-            const uptime = healthData ? healthData.uptime : null;
-            const healthColor =
-              uptime !== null
-                ? uptime >= 95
-                  ? "text-success"
-                  : uptime >= 85
-                    ? "text-warning"
-                    : "text-destructive"
-                : "text-muted-foreground";
+  const ValidatorList = ({ validators, title }: { validators: any[]; title: string }) => {
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+    const totalPages = Math.ceil(validators.length / itemsPerPage);
+    
+    // Reset to page 1 when validators change
+    useEffect(() => {
+      setCurrentPage(1);
+    }, [validators.length]);
+    
+    const paginatedValidators = validators.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    );
 
-            return (
-              <div
-                key={validator.provider}
-                className="p-3 rounded-lg bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium truncate">{formatPartyId(validator.provider)}</p>
-                    {isSuperValidator && (
-                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
-                        SV
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono truncate">{validator.provider}</p>
-                </div>
-                <div className="flex items-center gap-3 ml-4">
-                  {healthData && (
-                    <>
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Health</p>
-                        <p className={`text-sm font-bold ${healthColor}`}>
-                          {uptime !== null ? `${uptime.toFixed(1)}%` : "N/A"}
-                        </p>
+    return (
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-muted-foreground">
+          {title} ({validators.length})
+        </h4>
+        {validators.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">No validators in this period</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {paginatedValidators.map((validator, index) => {
+                // Check if validator is actually a Super Validator by matching address
+                const isSuperValidator =
+                  configData?.superValidators.some((sv) => sv.address === validator.provider) || false;
+                const healthData = validatorHealthMap.get(validator.provider);
+                const uptime = healthData ? healthData.uptime : null;
+                const healthColor =
+                  uptime !== null
+                    ? uptime >= 95
+                      ? "text-success"
+                      : uptime >= 85
+                        ? "text-warning"
+                        : "text-destructive"
+                    : "text-muted-foreground";
+
+                return (
+                  <div
+                    key={validator.provider}
+                    className="p-3 rounded-lg bg-muted/30 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium truncate">{formatPartyId(validator.provider)}</p>
+                        {isSuperValidator && (
+                          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
+                            SV
+                          </Badge>
+                        )}
                       </div>
+                      <p className="text-xs text-muted-foreground font-mono truncate">{validator.provider}</p>
+                    </div>
+                    <div className="flex items-center gap-3 ml-4">
+                      {healthData && (
+                        <>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Health</p>
+                            <p className={`text-sm font-bold ${healthColor}`}>
+                              {uptime !== null ? `${uptime.toFixed(1)}%` : "N/A"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Missed</p>
+                            <Badge
+                              variant="outline"
+                              className={
+                                healthData.missed > 1 ? "bg-destructive/10 text-destructive border-destructive/20" : ""
+                              }
+                            >
+                              {healthData.missed}
+                            </Badge>
+                          </div>
+                        </>
+                      )}
                       <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Missed</p>
-                        <Badge
-                          variant="outline"
-                          className={
-                            healthData.missed > 1 ? "bg-destructive/10 text-destructive border-destructive/20" : ""
-                          }
-                        >
-                          {healthData.missed}
+                        <p className="text-xs text-muted-foreground">Rounds</p>
+                        <Badge variant="outline" className="shrink-0">
+                          {parseFloat(validator.rewards).toLocaleString()}
                         </Badge>
                       </div>
-                    </>
-                  )}
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Rounds</p>
-                    <Badge variant="outline" className="shrink-0">
-                      {parseFloat(validator.rewards).toLocaleString()}
-                    </Badge>
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 border-t border-border/50">
+                <p className="text-sm text-muted-foreground">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, validators.length)} of {validators.length} validators
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-            );
-          })}
-          {validators.length > 10 && (
-            <p className="text-sm text-muted-foreground text-center">+{validators.length - 10} more</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <DashboardLayout>
@@ -482,36 +527,6 @@ const Stats = () => {
           </Card>
         </div>
 
-        {/* Monthly Validator Joins Chart */}
-        <Card className="glass-card">
-          <div className="p-6">
-            <h3 className="text-xl font-bold mb-4">Validator Joins by Month (All Time)</h3>
-            {validatorsLoading ? (
-              <Skeleton className="h-[300px] w-full" />
-            ) : (
-              <ChartContainer
-                config={{
-                  validators: {
-                    label: "Validators",
-                    color: "hsl(var(--primary))",
-                  },
-                }}
-                className="h-[300px] w-full"
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyChartData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                    <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="validators" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            )}
-          </div>
-        </Card>
-
         {/* Detailed Lists */}
         <Card className="glass-card">
           <div className="p-6">
@@ -570,52 +585,6 @@ const Stats = () => {
                 </TabsContent>
               </Tabs>
             )}
-          </div>
-        </Card>
-
-        {/* Growth Chart Info */}
-        <Card className="glass-card">
-          <div className="p-6">
-            <h3 className="text-xl font-bold mb-4">Validator Growth Overview</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
-                <p className="text-xs text-muted-foreground mb-1">Daily</p>
-                <p className="text-2xl font-bold text-primary">{newValidators.length}</p>
-              </div>
-              <div className="p-4 rounded-lg bg-chart-2/5 border border-chart-2/10">
-                <p className="text-xs text-muted-foreground mb-1">Weekly</p>
-                <p className="text-2xl font-bold text-chart-2">{weeklyValidators.length + newValidators.length}</p>
-              </div>
-              <div className="p-4 rounded-lg bg-chart-3/5 border border-chart-3/10">
-                <p className="text-xs text-muted-foreground mb-1">Monthly</p>
-                <p className="text-2xl font-bold text-chart-3">
-                  {monthlyValidators.length + weeklyValidators.length + newValidators.length}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-chart-4/5 border border-chart-4/10">
-                <p className="text-xs text-muted-foreground mb-1">6 Months</p>
-                <p className="text-2xl font-bold text-chart-4">
-                  {sixMonthValidators.length +
-                    monthlyValidators.length +
-                    weeklyValidators.length +
-                    newValidators.length}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-chart-5/5 border border-chart-5/10">
-                <p className="text-xs text-muted-foreground mb-1">Yearly</p>
-                <p className="text-2xl font-bold text-chart-5">
-                  {yearlyValidators.length +
-                    sixMonthValidators.length +
-                    monthlyValidators.length +
-                    weeklyValidators.length +
-                    newValidators.length}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
-                <p className="text-xs text-muted-foreground mb-1">All Time</p>
-                <p className="text-2xl font-bold gradient-text">{allTimeValidators.length}</p>
-              </div>
-            </div>
           </div>
         </Card>
 
