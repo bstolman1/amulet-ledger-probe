@@ -43,7 +43,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                   SCANTON
                 </h1>
-                <p className="text-xs text-muted-foreground">Canton Network Explorer</p>
+                <p className="text-xs text-muted-foreground">Canton Network Analytics</p>
               </div>
             </Link>
 
