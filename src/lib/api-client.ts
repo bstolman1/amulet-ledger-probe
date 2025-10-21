@@ -554,22 +554,85 @@ export const scanApi = {
 
   /* ---------- v0 transactions & helpers ---------- */
 
-  async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-      const res = await fetch(`${API_BASE}/v0/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error("Failed to fetch transactions");
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
-    }
-  },
+  async fetchTransactions(
+  request: {
+    page_size?: number;
+    after?: { after_migration_id?: number; after_record_time?: string };
+  }
+): Promise<TransactionHistoryResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(`${API_BASE}/v2/updates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        page_size: request.page_size || 20,
+        daml_value_encoding: "compact_json",
+        ...(request.after ? { after: request.after } : {}),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch transactions");
+
+    const data = await res.json();
+
+    // 🔄 Normalize response to your component’s expected format
+    return {
+      transactions: (data.transactions || []).map((tx: any) => {
+        const event = tx.event || {};
+        const createdEvent = event.created_event || {};
+        const args = createdEvent.create_arguments || {};
+
+        return {
+          event_id: createdEvent.event_id || tx.update_id,
+          transaction_type: inferTransactionType(createdEvent),
+          date: tx.record_time,
+          round: tx.migration_id,
+          transfer: extractTransferData(args),
+          mint: extractMintData(args),
+        };
+      }),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// -------------------
+// Helper functions
+// -------------------
+function inferTransactionType(createdEvent: any): string {
+  const template = createdEvent.template_id?.toLowerCase() || "";
+  if (template.includes("transfer")) return "transfer";
+  if (template.includes("mint")) return "mint";
+  if (template.includes("tap")) return "tap";
+  return "unknown";
+}
+
+function extractTransferData(args: any) {
+  if (!args.sender || !args.receiver) return null;
+  return {
+    sender: {
+      party: args.sender.party,
+      sender_change_amount: args.sender.amount || "0",
+      sender_fee: args.sender.fee || "0",
+    },
+    receivers: [
+      {
+        party: args.receiver.party,
+      },
+    ],
+  };
+}
+
+function extractMintData(args: any) {
+  if (!args.amulet_amount) return null;
+  return { amulet_amount: args.amulet_amount };
+}
+
 
   async fetchTransactionsByParty(party: string, limit: number = 20): Promise<TransactionHistoryResponse> {
     const params = new URLSearchParams();
