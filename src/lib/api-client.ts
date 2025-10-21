@@ -554,12 +554,16 @@ export const scanApi = {
 
   /* ---------- v0 transactions & helpers ---------- */
 
-  async fetchTransactionsV2(
-    request: {
-      page_size?: number;
-      after?: { after_migration_id?: number; after_record_time?: string };
-    }
-  ): Promise<TransactionHistoryResponse> {
+  /* ---------- v2 /updates-based transactions ---------- */
+
+  /**
+   * Fetches transactions using /v2/updates endpoint and normalizes
+   * them into the same shape expected by your Transactions UI.
+   */
+  async fetchTransactionsV2(request: {
+    page_size?: number;
+    after?: { after_migration_id?: number; after_record_time?: string };
+  }): Promise<TransactionHistoryResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -579,20 +583,46 @@ export const scanApi = {
 
       const data = await res.json();
 
-      // 🔄 Normalize the /v2 response for your UI
+      // 🔄 Normalize response for your UI — all logic inline (no helpers needed)
       return {
         transactions: (data.transactions || []).map((tx: any) => {
           const event = tx.event || {};
           const createdEvent = event.created_event || {};
           const args = createdEvent.create_arguments || {};
+          const template = createdEvent.template_id?.toLowerCase() || "";
+
+          // Determine transaction type
+          const transaction_type = template.includes("transfer")
+            ? "transfer"
+            : template.includes("mint")
+              ? "mint"
+              : template.includes("tap")
+                ? "tap"
+                : "unknown";
+
+          // Extract transfer details if applicable
+          const transfer =
+            args.sender && args.receiver
+              ? {
+                  sender: {
+                    party: args.sender.party,
+                    sender_change_amount: args.sender.amount || "0",
+                    sender_fee: args.sender.fee || "0",
+                  },
+                  receivers: [{ party: args.receiver.party }],
+                }
+              : null;
+
+          // Extract mint details if applicable
+          const mint = args.amulet_amount ? { amulet_amount: args.amulet_amount } : null;
 
           return {
             event_id: createdEvent.event_id || tx.update_id,
-            transaction_type: inferTransactionType(createdEvent),
+            transaction_type,
             date: tx.record_time,
             round: tx.migration_id,
-            transfer: extractTransferData(args),
-            mint: extractMintData(args),
+            transfer,
+            mint,
           };
         }),
       };
@@ -600,40 +630,6 @@ export const scanApi = {
       clearTimeout(timeout);
     }
   },
-
-    // -------------------
-// Helper functions
-// -------------------
-
-function inferTransactionType(createdEvent: any): string {
-  const template = createdEvent.template_id?.toLowerCase() || "";
-  if (template.includes("transfer")) return "transfer";
-  if (template.includes("mint")) return "mint";
-  if (template.includes("tap")) return "tap";
-  return "unknown";
-}
-
-function extractTransferData(args: any) {
-  if (!args.sender || !args.receiver) return null;
-  return {
-    sender: {
-      party: args.sender.party,
-      sender_change_amount: args.sender.amount || "0",
-      sender_fee: args.sender.fee || "0",
-    },
-    receivers: [
-      {
-        party: args.receiver.party,
-      },
-    ],
-  };
-}
-
-function extractMintData(args: any) {
-  if (!args.amulet_amount) return null;
-  return { amulet_amount: args.amulet_amount };
-}
-
 
   async fetchTransactionsByParty(party: string, limit: number = 20): Promise<TransactionHistoryResponse> {
     const params = new URLSearchParams();
