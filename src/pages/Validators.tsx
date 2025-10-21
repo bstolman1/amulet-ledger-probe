@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap, Award, Download, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap, TrendingUp } from "lucide-react";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -70,16 +70,14 @@ const Validators = () => {
   const operators = configData.operators || []; // parent-level validators
 
   // ✅ Count metrics
-  const totalSVs = allSVs.length; // 38 total (flattened)
-  const liveSVs = operators.length; // 13 live SVs (top level)
-  const offboardedSVs = 0; // none offboarded
+  const totalSVs = allSVs.length;
+  const liveSVs = operators.length;
+  const offboardedSVs = 0;
   const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
 
-  // ✅ Total weight (sum of parent reward weights)
   const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
   const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
 
-  // ✅ Build operator view
   const totalNetworkWeight = totalOperatorWeightBps;
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
@@ -152,9 +150,6 @@ const Validators = () => {
     link.click();
   };
 
-  // ─────────────────────────────
-  // Render
-  // ─────────────────────────────
   return (
     <DashboardLayout>
       <div className="space-y-8">
@@ -261,9 +256,7 @@ const Validators = () => {
           })}
         </Card>
 
-        {/* ───────────────────────────── */}
-        {/* ACTIVE VALIDATORS SECTION (Appended) */}
-        {/* ───────────────────────────── */}
+        {/* Active Validators Section */}
         <ActiveValidatorsSection />
       </div>
     </DashboardLayout>
@@ -274,8 +267,6 @@ const Validators = () => {
 // Subcomponent for Active Validators Section
 // ─────────────────────────────
 const ActiveValidatorsSection = () => {
-  const { toast } = useToast();
-
   const {
     data: topValidators,
     isLoading,
@@ -286,31 +277,27 @@ const ActiveValidatorsSection = () => {
       const data = await scanApi.fetchTopValidators();
       const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
       const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
-      const latestRound = await scanApi.fetchLatestRound();
-      const startRound = Math.max(0, latestRound.round - 200);
-      const roundTotals = await scanApi.fetchRoundTotals({
-        start_round: startRound,
-        end_round: latestRound.round,
-      });
 
-      const roundDates = new Map<number, string>();
-      roundTotals.entries.forEach((entry) => {
-        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
-      });
-
+      // Merge faucet stats into each validator
       return {
         ...data,
         validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
-          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
-          const lastActiveDate = livenessInfo?.lastCollectedInRound
-            ? roundDates.get(livenessInfo.lastCollectedInRound)
-            : undefined;
-          return { ...validator, lastActiveDate };
+          const faucetInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
+
+          return {
+            ...validator,
+            ...faucetInfo,
+          };
         }),
       };
     },
     retry: 1,
   });
+
+  const formatPartyId = (partyId: string) => {
+    const parts = partyId.split("::");
+    return parts[0] || partyId;
+  };
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -323,11 +310,6 @@ const ActiveValidatorsSection = () => {
       default:
         return "bg-muted text-muted-foreground";
     }
-  };
-
-  const formatPartyId = (partyId: string) => {
-    const parts = partyId.split("::");
-    return parts[0] || partyId;
   };
 
   return (
@@ -389,30 +371,26 @@ const ActiveValidatorsSection = () => {
                           <Zap className="h-3 w-3 mr-1" />
                           active
                         </Badge>
-                        {validator.lastActiveDate && (
-                          <span className="text-xs text-muted-foreground">
-                            Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
-                          </span>
-                        )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Display faucet stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
-                        <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, {
-                            maximumFractionDigits: 0,
-                          })}
-                        </p>
+                        <p className="text-2xl font-bold text-primary">{validator.numRoundsCollected ?? 0}</p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
-                        <p className="text-2xl font-bold text-foreground">#{rank}</p>
+                        <p className="text-sm text-muted-foreground mb-1">Rounds Missed</p>
+                        <p className="text-2xl font-bold text-destructive">{validator.numRoundsMissed ?? 0}</p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p className="text-2xl font-bold text-success">Active</p>
+                        <p className="text-sm text-muted-foreground mb-1">First Collected Round</p>
+                        <p className="text-2xl font-bold">{validator.firstCollectedInRound ?? "-"}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Last Collected Round</p>
+                        <p className="text-2xl font-bold">{validator.lastCollectedInRound ?? "-"}</p>
                       </div>
                     </div>
                   </div>
