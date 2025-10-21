@@ -5,17 +5,13 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronUp, ExternalLink, ArrowRight } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { scanApi } from "@/lib/api-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { scanApi, TransactionHistoryItem, UpdateByIdResponse } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Transactions = () => {
-  const {
-    data: transactions,
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery({
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["transactions"],
     queryFn: () =>
       scanApi.fetchTransactions({
@@ -56,10 +52,8 @@ const Transactions = () => {
 
   const formatPartyId = (partyId: string) => {
     if (!partyId) return "N/A";
-    const parts = partyId.split("::");
-    const name = parts[0] || partyId;
-    const hash = parts[1] || "";
-    return `${name}::${hash.substring(0, 8)}...`;
+    const [name, hash] = partyId.split("::");
+    return `${name}::${hash?.slice(0, 8) ?? ""}...`;
   };
 
   const renderJson = (obj: any) => {
@@ -69,13 +63,24 @@ const Transactions = () => {
     );
   };
 
+  // ─────────────────────────────
+  // Nested query: fetch full ledger update when expanded
+  // ─────────────────────────────
+  const useLedgerDetails = (updateId?: string) =>
+    useQuery<UpdateByIdResponse>({
+      queryKey: ["ledger-details", updateId],
+      queryFn: () => scanApi.fetchUpdateByIdV2(updateId!, "compact_json"),
+      enabled: !!updateId,
+      staleTime: 5 * 60 * 1000,
+    });
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold mb-2">Transaction History</h2>
-            <p className="text-muted-foreground">View recent transactions and full ledger details</p>
+            <p className="text-muted-foreground">Browse recent transactions and view full ledger data</p>
           </div>
         </div>
 
@@ -98,17 +103,19 @@ const Transactions = () => {
                   Retry
                 </button>
               </div>
-            ) : !transactions?.transactions?.length ? (
+            ) : !data?.transactions?.length ? (
               <div className="h-48 flex items-center justify-center text-muted-foreground">No recent transactions</div>
             ) : (
               <div className="space-y-4">
-                {transactions.transactions.map((tx, index) => {
-                  const id = tx.update_id || tx.event_id || `tx-${index}`;
+                {data.transactions.map((tx: TransactionHistoryItem, index) => {
+                  const id = tx.event_id || `tx-${index}`;
                   const expanded = expandedTx === id;
-
-                  const txType = tx.transaction_type || tx.event?.created_event?.event_type || "unknown";
+                  const txType = tx.transaction_type || "unknown";
                   const amount = tx.transfer?.sender?.sender_change_amount;
                   const fee = tx.transfer?.sender?.sender_fee;
+
+                  // hook inside loop, fine because it’s conditional on expand
+                  const { data: ledger, isLoading: ledgerLoading } = useLedgerDetails(expanded ? id : undefined);
 
                   return (
                     <div
@@ -123,7 +130,7 @@ const Transactions = () => {
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">Round</p>
-                          <p className="font-mono font-semibold">{tx.round || "N/A"}</p>
+                          <p className="font-mono font-semibold">{tx.round ?? "N/A"}</p>
                         </div>
                       </div>
 
@@ -132,13 +139,10 @@ const Transactions = () => {
                         <div>
                           <p className="text-sm text-muted-foreground mb-1">Event ID</p>
                           <div className="flex items-center space-x-2">
-                            <p className="font-mono text-sm truncate">
-                              {(tx.event_id || tx.event?.created_event?.event_id || "—").substring(0, 20)}...
-                            </p>
+                            <p className="font-mono text-sm truncate">{id.substring(0, 20)}...</p>
                             <ExternalLink className="h-3 w-3 text-muted-foreground cursor-pointer hover:text-primary transition-smooth" />
                           </div>
                         </div>
-
                         {amount && (
                           <div>
                             <p className="text-sm text-muted-foreground mb-1">Amount</p>
@@ -147,7 +151,6 @@ const Transactions = () => {
                             </p>
                           </div>
                         )}
-
                         {fee && (
                           <div>
                             <p className="text-sm text-muted-foreground mb-1">Fee</p>
@@ -167,22 +170,17 @@ const Transactions = () => {
                           <div className="flex-1">
                             <p className="text-xs text-muted-foreground mb-1">To</p>
                             <p className="font-mono text-sm truncate">
-                              {tx.transfer.receivers.length > 0 ? formatPartyId(tx.transfer.receivers[0].party) : "N/A"}
+                              {tx.transfer.receivers.length ? formatPartyId(tx.transfer.receivers[0].party) : "N/A"}
                             </p>
                           </div>
                         </div>
                       )}
 
-                      {/* Timestamp */}
                       <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground">
-                        {tx.date
-                          ? new Date(tx.date).toLocaleString()
-                          : tx.record_time
-                            ? new Date(tx.record_time).toLocaleString()
-                            : "Unknown date"}
+                        {new Date(tx.date).toLocaleString()}
                       </div>
 
-                      {/* Expand Details */}
+                      {/* Expand Button */}
                       <button
                         onClick={() => toggleExpand(id)}
                         className="mt-3 text-xs text-primary hover:underline flex items-center gap-1"
@@ -198,26 +196,23 @@ const Transactions = () => {
                         )}
                       </button>
 
+                      {/* Expanded Ledger Details */}
                       {expanded && (
-                        <div className="mt-4 space-y-3 border-t border-border/50 pt-3">
-                          <Field label="Update ID" value={tx.update_id} />
-                          <Field label="Migration ID" value={tx.migration_id} />
-                          <Field label="Workflow ID" value={tx.workflow_id} />
-                          <Field label="Synchronizer ID" value={tx.synchronizer_id} />
-                          <Field label="Effective At" value={tx.effective_at} />
-
-                          {tx.event && (
-                            <>
-                              <h4 className="text-sm font-semibold mt-3">Event</h4>
-                              {renderJson(tx.event)}
-                            </>
-                          )}
-
-                          {tx.events_by_id && Object.keys(tx.events_by_id).length > 0 && (
-                            <>
-                              <h4 className="text-sm font-semibold mt-3">Events By ID</h4>
-                              {renderJson(tx.events_by_id)}
-                            </>
+                        <div className="mt-4 border-t border-border/50 pt-3">
+                          {ledgerLoading ? (
+                            <p className="text-muted-foreground text-sm">Loading ledger details…</p>
+                          ) : ledger ? (
+                            <div className="space-y-2">
+                              <Field label="Update ID" value={ledger.update_id} />
+                              <Field label="Record Time" value={ledger.record_time} />
+                              <Field label="Migration ID" value={ledger.migration_id} />
+                              <Field label="Workflow ID" value={ledger.workflow_id} />
+                              <Field label="Effective At" value={ledger.effective_at} />
+                              <h4 className="text-sm font-semibold mt-3">Events</h4>
+                              {renderJson(ledger.events_by_id)}
+                            </div>
+                          ) : (
+                            <p className="text-muted-foreground text-sm">No ledger data found</p>
                           )}
                         </div>
                       )}
