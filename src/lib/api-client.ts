@@ -1,8 +1,12 @@
-// SCANTON API Client
+// SCANTON API Client — COMPLETE FILE
+// ------------------------------------------------------------------
+// Base URL: prefer env override, otherwise use hosted default
 const DEFAULT_API_BASE = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
-
-// Get API base URL from environment or use default
 const API_BASE = import.meta.env.VITE_SCAN_API_URL || DEFAULT_API_BASE;
+
+/* =========================
+ *         TYPES
+ * ========================= */
 
 export interface UpdateHistoryRequest {
   after?: {
@@ -21,9 +25,9 @@ export interface Transaction {
   update_id: string;
   migration_id: number;
   workflow_id: string;
-  record_time: string;
+  record_time: string; // ISO
   synchronizer_id: string;
-  effective_at: string;
+  effective_at: string; // ISO
   root_event_ids: string[];
   events_by_id: Record<string, TreeEvent>;
 }
@@ -168,12 +172,12 @@ export interface RoundTotals {
   closed_round_effective_at: string;
   app_rewards: string;
   validator_rewards: string;
-  change_to_initial_amount_as_of_round_zero: string;
-  change_to_holding_fees_rate: string;
+  change_to_initial_amount_as_of_round_zero?: string;
+  change_to_holding_fees_rate?: string;
   cumulative_app_rewards: string;
   cumulative_validator_rewards: string;
-  cumulative_change_to_initial_amount_as_of_round_zero: string;
-  cumulative_change_to_holding_fees_rate: string;
+  cumulative_change_to_initial_amount_as_of_round_zero?: string;
+  cumulative_change_to_holding_fees_rate?: string;
   total_amulet_balance: string;
 }
 
@@ -186,8 +190,8 @@ export interface GetTopProvidersByAppRewardsResponse {
 }
 
 export interface PartyAndRewards {
-  provider: string;
-  rewards: string;
+  provider: string; // provider or validator id
+  rewards: string; // total or count as string
   firstCollectedInRound?: number;
 }
 
@@ -233,10 +237,6 @@ export interface GetTotalAmuletBalanceResponse {
   total_balance: string;
 }
 
-export interface ValidatorLivenessRequest {
-  validator_ids: string[];
-}
-
 export interface ValidatorLivenessResponse {
   validatorsReceivedFaucets: ValidatorFaucetInfo[];
 }
@@ -250,14 +250,14 @@ export interface ValidatorFaucetInfo {
 }
 
 export interface DsoInfoResponse {
-  sv_user: string;
-  sv_party_id: string;
-  dso_party_id: string;
-  voting_threshold: number;
-  latest_mining_round: ContractWithState;
-  amulet_rules: ContractWithState;
-  dso_rules: ContractWithState;
-  sv_node_states: ContractWithState[];
+  sv_user?: string;
+  sv_party_id?: string;
+  dso_party_id?: string;
+  voting_threshold?: number;
+  latest_mining_round?: ContractWithState;
+  amulet_rules?: ContractWithState;
+  dso_rules?: ContractWithState;
+  sv_node_states?: ContractWithState[];
   initial_round?: string;
 }
 
@@ -303,13 +303,8 @@ export interface ParticipantIdResponse {
 
 export interface TrafficStatusResponse {
   traffic_status: {
-    actual: {
-      total_consumed: number;
-      total_limit: number;
-    };
-    target: {
-      total_purchased: number;
-    };
+    actual: { total_consumed: number; total_limit: number };
+    target: { total_purchased: number };
   };
 }
 
@@ -472,35 +467,105 @@ export interface AmuletConfigForRoundResponse {
   amulet_config: any;
 }
 
-// API Client Functions
+/* =========================
+ *       API CLIENT
+ * ========================= */
+
 export const scanApi = {
+  /* ---------- v2 /updates ---------- */
+
   async fetchUpdates(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
-    const response = await fetch(`${API_BASE}/v2/updates`, {
+    const res = await fetch(`${API_BASE}/v2/updates`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
-    if (!response.ok) throw new Error("Failed to fetch updates");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch updates");
+    return res.json();
   },
+
+  /**
+   * Use /v2/updates to detect current open & issuing mining rounds.
+   * Falls back to /v0/dso if /v2/updates is unavailable (CORS, network, etc).
+   */
+  async fetchOpenAndIssuingMiningRoundsDerived(): Promise<{
+    open_rounds: { contract_id: string; round_number?: number; opened_at?: string }[];
+    issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string }[];
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/v2/updates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_size: 500 }),
+      });
+      if (!res.ok) throw new Error(`v2/updates error ${res.status}`);
+      const data: UpdateHistoryResponse = await res.json();
+
+      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string }[] = [];
+      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string }[] = [];
+
+      for (const tx of data.transactions || []) {
+        const events = (tx as Transaction).events_by_id || {};
+        for (const [, ev] of Object.entries(events)) {
+          const tid = (ev as TreeEvent).template_id || "";
+          if (tid.includes("OpenMiningRound")) {
+            open_rounds.push({
+              contract_id: ev.contract_id,
+              round_number: ev.create_arguments?.round?.number,
+              opened_at: (tx as Transaction).record_time,
+            });
+          } else if (tid.includes("IssuingMiningRound")) {
+            issuing_rounds.push({
+              contract_id: ev.contract_id,
+              round_number: ev.create_arguments?.round?.number,
+              issued_at: (tx as Transaction).record_time,
+            });
+          }
+        }
+      }
+
+      // Deduplicate by contract_id
+      const uniq = <T extends { contract_id: string }>(arr: T[]) =>
+        Array.from(new Map(arr.map((x) => [x.contract_id, x])).values());
+
+      return {
+        open_rounds: uniq(open_rounds),
+        issuing_rounds: uniq(issuing_rounds),
+      };
+    } catch (e) {
+      // Fallback to /v0/dso
+      try {
+        const dso = await this.fetchDsoInfo();
+        const latest = dso?.latest_mining_round?.contract?.contract_id
+          ? [
+              {
+                contract_id: dso.latest_mining_round.contract.contract_id,
+                round_number: dso.latest_mining_round.contract.payload?.round?.number,
+                opened_at: dso.latest_mining_round.contract.created_at,
+              },
+            ]
+          : [];
+        return { open_rounds: latest, issuing_rounds: [] };
+      } catch {
+        return { open_rounds: [], issuing_rounds: [] };
+      }
+    }
+  },
+
+  /* ---------- v0 transactions & helpers ---------- */
 
   async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(`${API_BASE}/v0/transactions`, {
+      const res = await fetch(`${API_BASE}/v0/transactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("Failed to fetch transactions");
-      return await response.json();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
@@ -510,93 +575,52 @@ export const scanApi = {
     const params = new URLSearchParams();
     params.append("party", party);
     params.append("limit", limit.toString());
-
-    const response = await fetch(`${API_BASE}/v0/transactions/by-party?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to fetch transactions by party");
-    }
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/transactions/by-party?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch transactions by party");
+    return res.json();
   },
 
-  // Use validator faucets endpoint instead of non-existent rewards endpoint
+  /* ---------- Leaderboards & stats ---------- */
+
+  // Top validators via faucets; transformed to expected validatorsAndRewards
   async fetchTopValidators(): Promise<GetTopValidatorsByValidatorRewardsResponse> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, {
-        mode: "cors",
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("Failed to fetch top validators");
-      const data: TopValidatorsByFaucetsResponse = await response.json();
-
-      // Transform the response to match expected format, preserving join data
-      return {
-        validatorsAndRewards: data.validatorsByReceivedFaucets.map((v) => ({
-          provider: v.validator,
-          rewards: v.numRoundsCollected.toString(),
-          firstCollectedInRound: v.firstCollectedInRound,
-        })),
-      };
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const res = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?limit=1000`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch top validators");
+    const data: TopValidatorsByFaucetsResponse = await res.json();
+    return {
+      validatorsAndRewards: (data.validatorsByReceivedFaucets || []).map((v) => ({
+        provider: v.validator,
+        rewards: String(v.numRoundsCollected),
+        firstCollectedInRound: v.firstCollectedInRound,
+      })),
+    };
+    // Note: rewards = collected rounds (count) so that your UI's growth logic works
   },
 
-  // ✅ Updated: Get provider rewards directly from top-providers-by-app-rewards for current round (+limit)
+  // Top providers by app rewards for latest round
   async fetchTopProviders(limit: number = 1000): Promise<GetTopProvidersByAppRewardsResponse> {
-    const latestRound = await this.fetchLatestRound();
-    const params = new URLSearchParams();
-    params.append("round", latestRound.round.toString());
-    params.append("limit", limit.toString());
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, {
-        mode: "cors",
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("Failed to fetch top providers by app rewards");
-      const data = await response.json();
-      if (!data.providersAndRewards || !Array.isArray(data.providersAndRewards)) {
-        throw new Error("Unexpected response format for top providers by app rewards");
-      }
-      return data as GetTopProvidersByAppRewardsResponse;
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const latest = await this.fetchLatestRound();
+    const params = new URLSearchParams({
+      round: String(latest.round),
+      limit: String(limit),
+    });
+    const res = await fetch(`${API_BASE}/v0/top-providers-by-app-rewards?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch top providers by app rewards");
+    return res.json();
   },
 
   async fetchRoundTotals(request: ListRoundTotalsRequest): Promise<ListRoundTotalsResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(`${API_BASE}/v0/round-totals`, {
+      const res = await fetch(`${API_BASE}/v0/round-totals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("Failed to fetch round totals");
-      return await response.json();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
+      if (!res.ok) throw new Error("Failed to fetch round totals");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
@@ -605,375 +629,330 @@ export const scanApi = {
   async fetchOpenAndIssuingRounds(
     request: GetOpenAndIssuingMiningRoundsRequest = {},
   ): Promise<GetOpenAndIssuingMiningRoundsResponse> {
-    const response = await fetch(`${API_BASE}/v0/open-and-issuing-mining-rounds`, {
+    const res = await fetch(`${API_BASE}/v0/open-and-issuing-mining-rounds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
-    if (!response.ok) throw new Error("Failed to fetch mining rounds");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch mining rounds");
+    return res.json();
   },
 
   async fetchClosedRounds(): Promise<GetClosedRoundsResponse> {
-    const response = await fetch(`${API_BASE}/v0/closed-rounds`);
-    if (!response.ok) throw new Error("Failed to fetch closed rounds");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/closed-rounds`);
+    if (!res.ok) throw new Error("Failed to fetch closed rounds");
+    return res.json();
   },
 
   async fetchLatestRound(): Promise<GetRoundOfLatestDataResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await fetch(`${API_BASE}/v0/round-of-latest-data`, {
+      const res = await fetch(`${API_BASE}/v0/round-of-latest-data`, {
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("Failed to fetch latest round");
-      return await response.json();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
+      if (!res.ok) throw new Error("Failed to fetch latest round");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
   },
 
-  // Get total balance from latest round totals instead of deprecated endpoint
   async fetchTotalBalance(): Promise<GetTotalAmuletBalanceResponse> {
-    const latestRound = await this.fetchLatestRound();
-    const roundTotals = await this.fetchRoundTotals({
-      start_round: latestRound.round,
-      end_round: latestRound.round,
+    const latest = await this.fetchLatestRound();
+    const totals = await this.fetchRoundTotals({
+      start_round: latest.round,
+      end_round: latest.round,
     });
-
-    if (roundTotals.entries.length > 0) {
-      return { total_balance: roundTotals.entries[0].total_amulet_balance };
-    }
-    throw new Error("Failed to fetch total balance");
+    if (totals.entries.length === 0) throw new Error("No round totals for latest round");
+    return { total_balance: totals.entries[0].total_amulet_balance };
   },
+
+  /* ---------- Validator health / liveness ---------- */
 
   async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {
     const params = new URLSearchParams();
-    validator_ids.forEach((id) => params.append("validator_ids", id));
-
-    const response = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch validator liveness");
-    return response.json();
+    for (const id of validator_ids) params.append("validator_ids", id);
+    const res = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch validator liveness");
+    return res.json();
   },
+
+  /* ---------- DSO, scans, admin, misc ---------- */
 
   async fetchDsoInfo(): Promise<DsoInfoResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(`${API_BASE}/v0/dso`, {
+      const res = await fetch(`${API_BASE}/v0/dso`, {
         mode: "cors",
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("Failed to fetch DSO info");
-      return await response.json();
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        throw new Error("Request timed out");
-      }
-      throw err;
+      if (!res.ok) throw new Error("Failed to fetch DSO info");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
   },
 
   async fetchScans(): Promise<ScansResponse> {
-    const response = await fetch(`${API_BASE}/v0/scans`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch scans");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/scans`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch scans");
+    return res.json();
   },
 
   async fetchValidatorLicenses(after?: number, limit: number = 1000): Promise<ValidatorLicensesResponse> {
     const params = new URLSearchParams();
-    if (after !== undefined) params.append("after", after.toString());
-    params.append("limit", limit.toString());
-
-    const response = await fetch(`${API_BASE}/v0/admin/validator/licenses?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch validator licenses");
-    return response.json();
+    if (after !== undefined) params.append("after", String(after));
+    params.append("limit", String(limit));
+    const res = await fetch(`${API_BASE}/v0/admin/validator/licenses?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch validator licenses");
+    return res.json();
   },
 
   async fetchDsoSequencers(): Promise<DsoSequencersResponse> {
-    const response = await fetch(`${API_BASE}/v0/dso-sequencers`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch DSO sequencers");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/dso-sequencers`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch DSO sequencers");
+    return res.json();
   },
 
   async fetchParticipantId(domainId: string, partyId: string): Promise<ParticipantIdResponse> {
-    const response = await fetch(`${API_BASE}/v0/domains/${domainId}/parties/${partyId}/participant-id`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch participant ID");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/domains/${domainId}/parties/${partyId}/participant-id`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch participant ID");
+    return res.json();
   },
 
   async fetchTrafficStatus(domainId: string, memberId: string): Promise<TrafficStatusResponse> {
-    const response = await fetch(`${API_BASE}/v0/domains/${domainId}/members/${memberId}/traffic-status`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch traffic status");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/domains/${domainId}/members/${memberId}/traffic-status`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch traffic status");
+    return res.json();
   },
 
   async fetchAcsSnapshotTimestamp(before: string, migrationId: number): Promise<AcsSnapshotTimestampResponse> {
     const params = new URLSearchParams();
     params.append("before", before);
-    params.append("migration_id", migrationId.toString());
-
-    const response = await fetch(`${API_BASE}/v0/state/acs/snapshot-timestamp?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch ACS snapshot timestamp");
-    return response.json();
+    params.append("migration_id", String(migrationId));
+    const res = await fetch(`${API_BASE}/v0/state/acs/snapshot-timestamp?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch ACS snapshot timestamp");
+    return res.json();
   },
 
   async fetchStateAcs(request: StateAcsRequest): Promise<StateAcsResponse> {
-    const response = await fetch(`${API_BASE}/v0/state/acs`, {
+    const res = await fetch(`${API_BASE}/v0/state/acs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch state ACS");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch state ACS");
+    return res.json();
   },
 
   async fetchHoldingsSummary(request: HoldingsSummaryRequest): Promise<HoldingsSummaryResponse> {
-    const response = await fetch(`${API_BASE}/v0/holdings/summary`, {
+    const res = await fetch(`${API_BASE}/v0/holdings/summary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch holdings summary");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch holdings summary");
+    return res.json();
   },
 
   async fetchAnsEntries(namePrefix?: string, pageSize: number = 100): Promise<AnsEntriesResponse> {
     const params = new URLSearchParams();
     if (namePrefix) params.append("name_prefix", namePrefix);
-    params.append("page_size", pageSize.toString());
-
-    const response = await fetch(`${API_BASE}/v0/ans-entries?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch ANS entries");
-    return response.json();
+    params.append("page_size", String(pageSize));
+    const res = await fetch(`${API_BASE}/v0/ans-entries?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch ANS entries");
+    return res.json();
   },
 
   async fetchAnsEntryByParty(party: string): Promise<AnsEntryResponse> {
-    const response = await fetch(`${API_BASE}/v0/ans-entries/by-party/${party}`, {
+    const res = await fetch(`${API_BASE}/v0/ans-entries/by-party/${party}`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch ANS entry by party");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch ANS entry by party");
+    return res.json();
   },
 
   async fetchAnsEntryByName(name: string): Promise<AnsEntryResponse> {
-    const response = await fetch(`${API_BASE}/v0/ans-entries/by-name/${name}`, {
+    const res = await fetch(`${API_BASE}/v0/ans-entries/by-name/${name}`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch ANS entry by name");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch ANS entry by name");
+    return res.json();
   },
 
   async fetchDsoPartyId(): Promise<DsoPartyIdResponse> {
-    const response = await fetch(`${API_BASE}/v0/dso-party-id`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch DSO party ID");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/dso-party-id`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch DSO party ID");
+    return res.json();
   },
 
   async fetchFeaturedApps(): Promise<FeaturedAppsResponse> {
-    const response = await fetch(`${API_BASE}/v0/featured-apps`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch featured apps");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/featured-apps`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch featured apps");
+    return res.json();
   },
 
   async fetchFeaturedApp(providerPartyId: string): Promise<FeaturedAppResponse> {
-    const response = await fetch(`${API_BASE}/v0/featured-apps/${providerPartyId}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch featured app");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/featured-apps/${providerPartyId}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch featured app");
+    return res.json();
   },
 
   async fetchTopValidatorsByFaucets(limit: number): Promise<TopValidatorsByFaucetsResponse> {
-    const params = new URLSearchParams();
-    params.append("limit", limit.toString());
-
-    const response = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?${params.toString()}`, {
+    const params = new URLSearchParams({ limit: String(limit) });
+    const res = await fetch(`${API_BASE}/v0/top-validators-by-validator-faucets?${params.toString()}`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch top validators by faucets");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch top validators by faucets");
+    return res.json();
   },
 
   async fetchTransferPreapprovalByParty(party: string): Promise<TransferPreapprovalResponse> {
-    const response = await fetch(`${API_BASE}/v0/transfer-preapprovals/by-party/${party}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch transfer preapproval");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/transfer-preapprovals/by-party/${party}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch transfer preapproval");
+    return res.json();
   },
 
   async fetchTransferCommandCounter(party: string): Promise<TransferCommandCounterResponse> {
-    const response = await fetch(`${API_BASE}/v0/transfer-command-counter/${party}`, {
+    const res = await fetch(`${API_BASE}/v0/transfer-command-counter/${party}`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch transfer command counter");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch transfer command counter");
+    return res.json();
   },
 
   async fetchTransferCommandStatus(sender: string, nonce: number): Promise<TransferCommandStatusResponse> {
-    const params = new URLSearchParams();
-    params.append("sender", sender);
-    params.append("nonce", nonce.toString());
-
-    const response = await fetch(`${API_BASE}/v0/transfer-command/status?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch transfer command status");
-    return response.json();
+    const params = new URLSearchParams({ sender, nonce: String(nonce) });
+    const res = await fetch(`${API_BASE}/v0/transfer-command/status?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch transfer command status");
+    return res.json();
   },
 
   async fetchMigrationSchedule(): Promise<MigrationScheduleResponse> {
-    const response = await fetch(`${API_BASE}/v0/migrations/schedule`, {
+    const res = await fetch(`${API_BASE}/v0/migrations/schedule`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch migration schedule");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch migration schedule");
+    return res.json();
   },
 
   async fetchSpliceInstanceNames(): Promise<SpliceInstanceNamesResponse> {
-    const response = await fetch(`${API_BASE}/v0/splice-instance-names`, {
+    const res = await fetch(`${API_BASE}/v0/splice-instance-names`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch splice instance names");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch splice instance names");
+    return res.json();
   },
 
-  // V1 Updates API
+  /* ---------- v1 helpers & v2 by id ---------- */
+
   async fetchUpdatesV1(request: UpdateHistoryRequest): Promise<UpdateHistoryResponse> {
-    const response = await fetch(`${API_BASE}/v1/updates`, {
+    const res = await fetch(`${API_BASE}/v1/updates`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch v1 updates");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch v1 updates");
+    return res.json();
   },
 
   async fetchUpdateByIdV1(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
     const params = new URLSearchParams();
     if (damlValueEncoding) params.append("daml_value_encoding", damlValueEncoding);
-
     const url = params.toString()
       ? `${API_BASE}/v1/updates/${updateId}?${params.toString()}`
       : `${API_BASE}/v1/updates/${updateId}`;
-
-    const response = await fetch(url, { mode: "cors" });
-    if (!response.ok) throw new Error("Failed to fetch v1 update by ID");
-    return response.json();
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch v1 update by ID");
+    return res.json();
   },
 
   async fetchUpdateByIdV2(updateId: string, damlValueEncoding?: string): Promise<UpdateByIdResponse> {
     const params = new URLSearchParams();
     if (damlValueEncoding) params.append("daml_value_encoding", damlValueEncoding);
-
     const url = params.toString()
       ? `${API_BASE}/v2/updates/${updateId}?${params.toString()}`
       : `${API_BASE}/v2/updates/${updateId}`;
-
-    const response = await fetch(url, { mode: "cors" });
-    if (!response.ok) throw new Error("Failed to fetch v2 update by ID");
-    return response.json();
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch v2 update by ID");
+    return res.json();
   },
 
-  // Deprecated endpoints
+  /* ---------- legacy / deprecated but kept for compatibility ---------- */
+
   async fetchAcsSnapshot(party: string, recordTime?: string): Promise<AcsSnapshotResponse> {
     const params = new URLSearchParams();
     if (recordTime) params.append("record_time", recordTime);
-
     const url = params.toString() ? `${API_BASE}/v0/acs/${party}?${params.toString()}` : `${API_BASE}/v0/acs/${party}`;
-
-    const response = await fetch(url, { mode: "cors" });
-    if (!response.ok) throw new Error("Failed to fetch ACS snapshot");
-    return response.json();
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch ACS snapshot");
+    return res.json();
   },
 
   async fetchAggregatedRounds(): Promise<AggregatedRoundsResponse> {
-    const response = await fetch(`${API_BASE}/v0/aggregated-rounds`, {
+    const res = await fetch(`${API_BASE}/v0/aggregated-rounds`, {
       mode: "cors",
     });
-    if (!response.ok) throw new Error("Failed to fetch aggregated rounds");
-    return response.json();
+    if (!res.ok) throw new Error("Failed to fetch aggregated rounds");
+    return res.json();
   },
 
   async fetchRoundPartyTotals(request: RoundPartyTotalsRequest): Promise<RoundPartyTotalsResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`${API_BASE}/v0/round-party-totals`, {
+      const res = await fetch(`${API_BASE}/v0/round-party-totals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
         mode: "cors",
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("Failed to fetch round party totals");
-      return await response.json();
+      if (!res.ok) throw new Error("Failed to fetch round party totals");
+      return res.json();
     } finally {
       clearTimeout(timeout);
     }
   },
 
   async fetchWalletBalance(partyId: string, asOfEndOfRound: number): Promise<WalletBalanceResponse> {
-    const params = new URLSearchParams();
-    params.append("party_id", partyId);
-    params.append("asOfEndOfRound", asOfEndOfRound.toString());
-
-    const response = await fetch(`${API_BASE}/v0/wallet-balance?${params.toString()}`, {
-      mode: "cors",
+    const params = new URLSearchParams({
+      party_id: partyId,
+      asOfEndOfRound: String(asOfEndOfRound),
     });
-    if (!response.ok) throw new Error("Failed to fetch wallet balance");
-    return response.json();
+    const res = await fetch(`${API_BASE}/v0/wallet-balance?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch wallet balance");
+    return res.json();
   },
 
   async fetchAmuletConfigForRound(round: number): Promise<AmuletConfigForRoundResponse> {
-    const params = new URLSearchParams();
-    params.append("round", round.toString());
-
-    const response = await fetch(`${API_BASE}/v0/amulet-config-for-round?${params.toString()}`, {
-      mode: "cors",
-    });
-    if (!response.ok) throw new Error("Failed to fetch amulet config for round");
-    return response.json();
+    const params = new URLSearchParams({ round: String(round) });
+    const res = await fetch(`${API_BASE}/v0/amulet-config-for-round?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch amulet config for round");
+    return res.json();
   },
 
-  // Fetch governance proposals from ACS by querying VoteRequest contracts and close results
-  async fetchGovernanceProposals(): Promise<any[]> {
+  /* ---------- Governance helper (ACS snapshot approach) ---------- */
+
+  async fetchGovernanceProposals(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      status: "pending" | "executed" | "rejected" | "expired";
+      votesFor?: number;
+      votesAgainst?: number;
+      createdAt?: string;
+    }>
+  > {
     try {
       const dso = await this.fetchDsoInfo();
       const latest = await this.fetchLatestRound();
-      // Get a snapshot timestamp as of the latest round effective time
       const snap = await this.fetchAcsSnapshotTimestamp(latest.effectiveAt, 0);
 
       const acs = await this.fetchStateAcs({
@@ -984,7 +963,7 @@ export const scanApi = {
       });
 
       const proposals: any[] = [];
-      const byContract: Record<string, any> = {};
+      const byId: Record<string, any> = {};
 
       for (const ev of acs.created_events) {
         const templateId = ev.template_id || "";
@@ -992,7 +971,6 @@ export const scanApi = {
         const payload = ev.create_arguments || {};
 
         if (templateId.includes("VoteRequest")) {
-          // Active vote request
           const votes = (payload as any).votes || {};
           const votesFor = Object.values(votes).filter((v: any) => v?.accept || v?.Accept).length;
           const votesAgainst = Object.values(votes).filter((v: any) => v?.reject || v?.Reject).length;
@@ -1000,7 +978,7 @@ export const scanApi = {
           const key = Object.keys(action)[0];
           const title = key ? key.replace(/ARC_|_/g, " ") : "Governance Proposal";
 
-          byContract[cid] = {
+          byId[cid] = {
             id: cid.slice(0, 12),
             title,
             description: "Vote request",
@@ -1012,30 +990,23 @@ export const scanApi = {
         }
 
         if (templateId.includes("CloseVoteRequestResult")) {
-          // Closed result links to the request via trackingCid if present
           const outcome = (payload as any).outcome || {};
-          let status = "executed";
+          let status: "executed" | "rejected" | "expired" = "executed";
           if (outcome.VRO_Rejected) status = "rejected";
           if (outcome.VRO_Expired) status = "expired";
 
-          const base = byContract[cid] || { id: cid.slice(0, 12), title: "Governance Proposal" };
-          byContract[cid] = {
-            ...base,
-            status,
-            createdAt: (ev as any).created_at,
+          const base = byId[cid] || {
+            id: cid.slice(0, 12),
+            title: "Governance Proposal",
           };
+          byId[cid] = { ...base, status, createdAt: (ev as any).created_at };
         }
       }
 
-      Object.values(byContract).forEach((p: any) => proposals.push(p));
+      Object.values(byId).forEach((p) => proposals.push(p));
 
-      // Sort newest first
-      proposals.sort(
-        (a, b) => new Date((b as any).createdAt || 0).getTime() - new Date((a as any).createdAt || 0).getTime(),
-      );
-
-      // As a fallback, if nothing found, list recent SV onboardings as executed items
-      if (proposals.length === 0 && (dso as any).dso_rules?.contract?.payload?.svs) {
+      // Fallback: show SV onboardings as executed
+      if (proposals.length === 0 && (dso as any)?.dso_rules?.contract?.payload?.svs) {
         const svs = (dso as any).dso_rules.contract.payload.svs;
         svs.slice(0, 20).forEach(([svPartyId, svInfo]: [string, any]) => {
           proposals.push({
@@ -1050,9 +1021,11 @@ export const scanApi = {
         });
       }
 
+      proposals.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
       return proposals;
-    } catch (error) {
-      console.error("Error fetching governance proposals:", error);
+    } catch (e) {
+      console.error("Error fetching governance proposals:", e);
       return [];
     }
   },
