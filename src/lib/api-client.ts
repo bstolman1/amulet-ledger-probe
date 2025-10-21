@@ -554,27 +554,12 @@ export const scanApi = {
 
   /* ---------- v0 transactions & helpers ---------- */
 
-  async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-      const res = await fetch(`${API_BASE}/v0/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error("Failed to fetch transactions");
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
+  async fetchTransactionsV2(
+    request: {
+      page_size?: number;
+      after?: { after_migration_id?: number; after_record_time?: string };
     }
-  },
-
-  async fetchTransactionsV2(request: {
-    page_size?: number;
-    after?: { after_migration_id?: number; after_record_time?: string };
-  }): Promise<TransactionHistoryResponse> {
+  ): Promise<TransactionHistoryResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -614,6 +599,49 @@ export const scanApi = {
     } finally {
       clearTimeout(timeout);
     }
+  },
+
+    // -------------------
+// Helper functions
+// -------------------
+
+function inferTransactionType(createdEvent: any): string {
+  const template = createdEvent.template_id?.toLowerCase() || "";
+  if (template.includes("transfer")) return "transfer";
+  if (template.includes("mint")) return "mint";
+  if (template.includes("tap")) return "tap";
+  return "unknown";
+}
+
+function extractTransferData(args: any) {
+  if (!args.sender || !args.receiver) return null;
+  return {
+    sender: {
+      party: args.sender.party,
+      sender_change_amount: args.sender.amount || "0",
+      sender_fee: args.sender.fee || "0",
+    },
+    receivers: [
+      {
+        party: args.receiver.party,
+      },
+    ],
+  };
+}
+
+function extractMintData(args: any) {
+  if (!args.amulet_amount) return null;
+  return { amulet_amount: args.amulet_amount };
+}
+
+
+  async fetchTransactionsByParty(party: string, limit: number = 20): Promise<TransactionHistoryResponse> {
+    const params = new URLSearchParams();
+    params.append("party", party);
+    params.append("limit", limit.toString());
+    const res = await fetch(`${API_BASE}/v0/transactions/by-party?${params.toString()}`, { mode: "cors" });
+    if (!res.ok) throw new Error("Failed to fetch transactions by party");
+    return res.json();
   },
 
   /* ---------- Leaderboards & stats ---------- */
