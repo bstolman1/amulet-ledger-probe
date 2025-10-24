@@ -1,7 +1,19 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award, Shield } from "lucide-react";
-
+import {
+  Activity,
+  BarChart3,
+  Coins,
+  Database,
+  Layers,
+  Zap,
+  Globe,
+  TrendingUp,
+  Package,
+  Vote,
+  Award,
+  Shield,
+} from "lucide-react";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -19,6 +31,7 @@ const navigation = [
   { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
+  { name: "Top Apps by Rewards", href: "/top-apps", icon: Award }, // 🆕 added
   { name: "Admin", href: "/admin", icon: Shield },
 ];
 
@@ -30,7 +43,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       {/* Header */}
       <header className="glass-card border-b border-border/50 sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
-          {/* Top row: Logo and Search */}
+          {/* Top row: Logo */}
           <div className="flex items-center justify-between mb-4">
             <Link to="/" className="flex items-center space-x-3 group">
               <div className="relative">
@@ -43,14 +56,14 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                   SCANTON
                 </h1>
-                <p className="text-xs text-muted-foreground">Canton Network Analytics</p>
+                <p className="text-xs text-muted-foreground">
+                  Canton Network Analytics
+                </p>
               </div>
             </Link>
-
-            
           </div>
 
-          {/* Bottom row: Navigation tabs with wrapping */}
+          {/* Bottom row: Navigation tabs */}
           <nav className="flex flex-wrap gap-1">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
@@ -76,7 +89,6 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
 
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">{children}</main>
-
     </div>
   );
 };
