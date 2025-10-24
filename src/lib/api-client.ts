@@ -502,51 +502,85 @@ export const scanApi = {
       if (!res.ok) throw new Error(`v2/updates error ${res.status}`);
       const data: UpdateHistoryResponse = await res.json();
 
-      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[] = [];
-      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[] = [];
-      const closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[] = [];
+      // Track rounds by their round number to determine current state
+      const roundStates = new Map<number, {
+        contract_id: string;
+        round_number: number;
+        state: 'open' | 'issuing' | 'closed';
+        timestamp: string;
+        payload?: any;
+      }>();
 
       for (const tx of data.transactions || []) {
         const events = (tx as Transaction).events_by_id || {};
         for (const [, ev] of Object.entries(events)) {
           const tid = (ev as TreeEvent).template_id || "";
           const createdEv = ev as CreatedEvent;
+          const roundNum = createdEv.create_arguments?.round?.number;
           
-          if (tid.includes("OpenMiningRound")) {
-            open_rounds.push({
-              contract_id: ev.contract_id,
-              round_number: createdEv.create_arguments?.round?.number,
-              opened_at: (tx as Transaction).record_time,
-              payload: createdEv.create_arguments,
-            });
-          } else if (tid.includes("IssuingMiningRound")) {
-            issuing_rounds.push({
-              contract_id: ev.contract_id,
-              round_number: createdEv.create_arguments?.round?.number,
-              issued_at: (tx as Transaction).record_time,
-              payload: createdEv.create_arguments,
-            });
-          } else if (tid.includes("ClosedMiningRound")) {
-            closed_rounds.push({
-              contract_id: ev.contract_id,
-              round_number: createdEv.create_arguments?.round?.number,
-              closed_at: (tx as Transaction).record_time,
-              payload: createdEv.create_arguments,
-            });
+          if (!roundNum) continue;
+
+          let state: 'open' | 'issuing' | 'closed' | null = null;
+          if (tid.includes("OpenMiningRound")) state = 'open';
+          else if (tid.includes("IssuingMiningRound")) state = 'issuing';
+          else if (tid.includes("ClosedMiningRound")) state = 'closed';
+
+          if (state) {
+            const existing = roundStates.get(roundNum);
+            const timestamp = (tx as Transaction).record_time;
+            
+            // Update if this is a newer state or first time seeing this round
+            if (!existing || new Date(timestamp) > new Date(existing.timestamp)) {
+              roundStates.set(roundNum, {
+                contract_id: ev.contract_id,
+                round_number: roundNum,
+                state,
+                timestamp,
+                payload: createdEv.create_arguments,
+              });
+            }
           }
         }
       }
 
-      // Deduplicate by contract_id and sort by round number descending
-      const uniq = <T extends { contract_id: string; round_number?: number }>(arr: T[]) => {
-        const unique = Array.from(new Map(arr.map((x) => [x.contract_id, x])).values());
-        return unique.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
-      };
+      // Separate rounds by their current state
+      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[] = [];
+      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[] = [];
+      const closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[] = [];
+
+      for (const round of roundStates.values()) {
+        if (round.state === 'open') {
+          open_rounds.push({
+            contract_id: round.contract_id,
+            round_number: round.round_number,
+            opened_at: round.timestamp,
+            payload: round.payload,
+          });
+        } else if (round.state === 'issuing') {
+          issuing_rounds.push({
+            contract_id: round.contract_id,
+            round_number: round.round_number,
+            issued_at: round.timestamp,
+            payload: round.payload,
+          });
+        } else if (round.state === 'closed') {
+          closed_rounds.push({
+            contract_id: round.contract_id,
+            round_number: round.round_number,
+            closed_at: round.timestamp,
+            payload: round.payload,
+          });
+        }
+      }
+
+      // Sort by round number descending
+      const sortByRound = <T extends { round_number?: number }>(arr: T[]) =>
+        arr.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
 
       return {
-        open_rounds: uniq(open_rounds),
-        issuing_rounds: uniq(issuing_rounds),
-        closed_rounds: uniq(closed_rounds).slice(0, 10), // Only return last 10 closed rounds
+        open_rounds: sortByRound(open_rounds),
+        issuing_rounds: sortByRound(issuing_rounds),
+        closed_rounds: sortByRound(closed_rounds).slice(0, 10), // Only return last 10 closed rounds
       };
     } catch (e) {
       // Fallback to traditional endpoints
