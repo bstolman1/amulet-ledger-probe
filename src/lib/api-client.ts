@@ -485,69 +485,98 @@ export const scanApi = {
   },
 
   /**
-   * Use /v2/updates to detect current open & issuing mining rounds.
-   * Falls back to /v0/dso if /v2/updates is unavailable (CORS, network, etc).
+   * Use /v2/updates to fetch open, issuing, and closed mining rounds.
+   * Falls back to /v0/dso and /v0/closed-rounds if unavailable.
    */
-  async fetchOpenAndIssuingMiningRoundsDerived(): Promise<{
-    open_rounds: { contract_id: string; round_number?: number; opened_at?: string }[];
-    issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string }[];
+  async fetchAllMiningRoundsFromUpdates(): Promise<{
+    open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[];
+    issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[];
+    closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[];
   }> {
     try {
       const res = await fetch(`${API_BASE}/v2/updates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page_size: 500 }),
+        body: JSON.stringify({ page_size: 1000 }),
       });
       if (!res.ok) throw new Error(`v2/updates error ${res.status}`);
       const data: UpdateHistoryResponse = await res.json();
 
-      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string }[] = [];
-      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string }[] = [];
+      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[] = [];
+      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[] = [];
+      const closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[] = [];
 
       for (const tx of data.transactions || []) {
         const events = (tx as Transaction).events_by_id || {};
         for (const [, ev] of Object.entries(events)) {
           const tid = (ev as TreeEvent).template_id || "";
+          const createdEv = ev as CreatedEvent;
+          
           if (tid.includes("OpenMiningRound")) {
             open_rounds.push({
               contract_id: ev.contract_id,
-              round_number: ev.create_arguments?.round?.number,
+              round_number: createdEv.create_arguments?.round?.number,
               opened_at: (tx as Transaction).record_time,
+              payload: createdEv.create_arguments,
             });
           } else if (tid.includes("IssuingMiningRound")) {
             issuing_rounds.push({
               contract_id: ev.contract_id,
-              round_number: ev.create_arguments?.round?.number,
+              round_number: createdEv.create_arguments?.round?.number,
               issued_at: (tx as Transaction).record_time,
+              payload: createdEv.create_arguments,
+            });
+          } else if (tid.includes("ClosedMiningRound")) {
+            closed_rounds.push({
+              contract_id: ev.contract_id,
+              round_number: createdEv.create_arguments?.round?.number,
+              closed_at: (tx as Transaction).record_time,
+              payload: createdEv.create_arguments,
             });
           }
         }
       }
 
-      // Deduplicate by contract_id
-      const uniq = <T extends { contract_id: string }>(arr: T[]) =>
-        Array.from(new Map(arr.map((x) => [x.contract_id, x])).values());
+      // Deduplicate by contract_id and sort by round number descending
+      const uniq = <T extends { contract_id: string; round_number?: number }>(arr: T[]) => {
+        const unique = Array.from(new Map(arr.map((x) => [x.contract_id, x])).values());
+        return unique.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
+      };
 
       return {
         open_rounds: uniq(open_rounds),
         issuing_rounds: uniq(issuing_rounds),
+        closed_rounds: uniq(closed_rounds).slice(0, 10), // Only return last 10 closed rounds
       };
     } catch (e) {
-      // Fallback to /v0/dso
+      // Fallback to traditional endpoints
       try {
-        const dso = await this.fetchDsoInfo();
-        const latest = dso?.latest_mining_round?.contract?.contract_id
+        const [dso, closed] = await Promise.all([
+          this.fetchDsoInfo().catch(() => null),
+          this.fetchClosedRounds().catch(() => null),
+        ]);
+
+        const open_rounds = dso?.latest_mining_round?.contract?.contract_id
           ? [
               {
                 contract_id: dso.latest_mining_round.contract.contract_id,
                 round_number: dso.latest_mining_round.contract.payload?.round?.number,
                 opened_at: dso.latest_mining_round.contract.created_at,
+                payload: dso.latest_mining_round.contract.payload,
               },
             ]
           : [];
-        return { open_rounds: latest, issuing_rounds: [] };
+
+        const closed_rounds = (closed?.rounds || []).slice(0, 10).map((r) => ({
+          contract_id: r.contract.contract_id,
+          round_number: r.contract.payload?.round?.number,
+          closed_at: r.contract.created_at,
+          payload: r.contract.payload,
+        }));
+
+        return { open_rounds, issuing_rounds: [], closed_rounds };
       } catch {
-        return { open_rounds: [], issuing_rounds: [] };
+        return { open_rounds: [], issuing_rounds: [], closed_rounds: [] };
       }
     }
   },

@@ -7,71 +7,41 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const MiningRounds = () => {
-  const { data: miningRounds, isLoading: miningRoundsLoading, isError: miningRoundsError } = useQuery({
-    queryKey: ["miningRounds"],
-    queryFn: () => scanApi.fetchOpenAndIssuingRounds(),
+  // Fetch all mining rounds from /v2/updates
+  const { data: allRounds, isLoading: roundsLoading, isError: roundsError } = useQuery({
+    queryKey: ["allMiningRounds"],
+    queryFn: () => scanApi.fetchAllMiningRoundsFromUpdates(),
     retry: 1,
   });
 
-  const { data: closedRounds, isLoading: closedRoundsLoading } = useQuery({
-    queryKey: ["closedRounds"],
-    queryFn: () => scanApi.fetchClosedRounds(),
-  });
-
-  const { data: dsoInfo, isLoading: dsoLoading } = useQuery({
-    queryKey: ["dsoInfo"],
-    queryFn: () => scanApi.fetchDsoInfo(),
-    retry: 1,
-  });
-
-  const { data: latestRound } = useQuery({
+  const { data: latestRound, isLoading: latestLoading } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
-  // Process open rounds (prefer API; fallback to DSO latest)
-  const openRoundsData = (() => {
-    const apiOpen = Object.entries(miningRounds?.open_mining_rounds || {}).map(([id, data]) => ({
-      id,
-      contractId: data.contract.contract_id,
-      roundNumber: data.contract.payload?.round?.number || "N/A",
-      opensAt: data.contract.payload?.opensAt,
-      targetClosesAt: data.contract.payload?.targetClosesAt,
-    }));
-    if (apiOpen.length) return apiOpen;
 
-    if (dsoInfo?.latest_mining_round?.contract?.template_id?.includes(':Splice.Round:OpenMiningRound')) {
-      const data = dsoInfo.latest_mining_round;
-      return [{
-        id: data.contract.contract_id,
-        contractId: data.contract.contract_id,
-        roundNumber: data.contract.payload?.round?.number || "N/A",
-        opensAt: data.contract.payload?.opensAt,
-        targetClosesAt: data.contract.payload?.targetClosesAt,
-      }];
-    }
-    return [];
-  })();
-
-  // Process issuing rounds
-  const issuingRoundsData = Object.entries(miningRounds?.issuing_mining_rounds || {}).map(([id, data]) => ({
-    id,
-    contractId: data.contract.contract_id,
-    roundNumber: data.contract.payload?.round?.number || "N/A",
-    opensAt: data.contract.payload?.opensAt,
+  // Process open rounds
+  const openRoundsData = (allRounds?.open_rounds || []).map((round) => ({
+    id: round.contract_id,
+    contractId: round.contract_id,
+    roundNumber: round.round_number || "N/A",
+    opensAt: round.payload?.opensAt || round.opened_at,
+    targetClosesAt: round.payload?.targetClosesAt,
   }));
 
-  // Use DSO info as fallback for latest mining round
-  const latestMiningRound = dsoInfo?.latest_mining_round;
-  const hasLatestRoundData = latestMiningRound && !miningRoundsError;
+  // Process issuing rounds
+  const issuingRoundsData = (allRounds?.issuing_rounds || []).map((round) => ({
+    id: round.contract_id,
+    contractId: round.contract_id,
+    roundNumber: round.round_number || "N/A",
+    opensAt: round.payload?.opensAt || round.issued_at,
+  }));
 
-  // Process closed rounds (limit to last 10)
-  const closedRoundsData = closedRounds?.rounds?.slice(0, 10)
-    .filter(round => round?.contract?.contract_id)
-    .map((round) => ({
-      contractId: round.contract.contract_id,
-      roundNumber: round.contract.payload?.round?.number || "N/A",
-      createdAt: round.contract.created_at,
-    })) || [];
+  // Process closed rounds
+  const closedRoundsData = (allRounds?.closed_rounds || []).map((round) => ({
+    contractId: round.contract_id,
+    roundNumber: round.round_number || "N/A",
+    createdAt: round.closed_at,
+  }));
 
   return (
     <DashboardLayout>
@@ -90,7 +60,7 @@ const MiningRounds = () => {
               <Clock className="h-5 w-5 mr-2 text-primary" />
               Current Round
             </h3>
-            {dsoLoading ? (
+            {latestLoading ? (
               <Skeleton className="h-24 w-full" />
             ) : latestRound ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -115,11 +85,11 @@ const MiningRounds = () => {
             <AlertCircle className="h-5 w-5 mr-2 text-warning" />
             Open Rounds
           </h3>
-          {miningRoundsLoading ? (
+          {roundsLoading ? (
             <Skeleton className="h-48 w-full" />
-          ) : miningRoundsError ? (
+          ) : roundsError ? (
             <Card className="glass-card p-6">
-              <p className="text-muted-foreground text-center">API endpoint unavailable. Check DSO info for latest round.</p>
+              <p className="text-muted-foreground text-center">Unable to load open rounds data.</p>
             </Card>
           ) : openRoundsData.length === 0 ? (
             <Card className="glass-card p-6">
@@ -163,11 +133,11 @@ const MiningRounds = () => {
             <Clock className="h-5 w-5 mr-2 text-primary" />
             Issuing Rounds
           </h3>
-          {miningRoundsLoading ? (
+          {roundsLoading ? (
             <Skeleton className="h-48 w-full" />
-          ) : miningRoundsError ? (
+          ) : roundsError ? (
             <Card className="glass-card p-6">
-              <p className="text-muted-foreground text-center">API endpoint unavailable. Check DSO info for latest round.</p>
+              <p className="text-muted-foreground text-center">Unable to load issuing rounds data.</p>
             </Card>
           ) : issuingRoundsData.length === 0 ? (
             <Card className="glass-card p-6">
@@ -208,7 +178,7 @@ const MiningRounds = () => {
             <CheckCircle className="h-5 w-5 mr-2 text-success" />
             Recently Closed Rounds
           </h3>
-          {closedRoundsLoading ? (
+          {roundsLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : closedRoundsData.length === 0 ? (
             <Card className="glass-card p-6">
