@@ -11,6 +11,7 @@ import RoundStats from "./pages/RoundStats";
 import ANS from "./pages/ANS";
 import Stats from "./pages/Stats";
 import Apps from "./pages/Apps";
+import TopAppsByRewards from "./pages/TopAppsByRewards";
 import Governance from "./pages/Governance";
 import Supply from "./pages/Supply";
 import UnclaimedSVRewards from "./pages/UnclaimedSVRewards";
@@ -45,6 +46,7 @@ const App = () => (
           <Route path="/ans" element={<ANS />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/apps" element={<Apps />} />
+          <Route path="/top-apps-rewards" element={<TopAppsByRewards />} />
           <Route path="/governance" element={<Governance />} />
           <Route path="/supply" element={<Supply />} />
           <Route path="/unclaimed-sv-rewards" element={<UnclaimedSVRewards />} />
