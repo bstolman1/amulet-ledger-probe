@@ -5,17 +5,14 @@ import { Flame, Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const BurnMintStats = () => {
-  // 1️⃣ Fetch latest round once — defines data window
   const { data: latestRound, isPending: latestPending } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
     staleTime: 60_000,
   });
 
-  // Approx. rounds per day (10 mins/round = 144 rounds)
-  const roundsPerDay = 144;
+  const roundsPerDay = 144; // ~10min per round
 
-  // 2️⃣ Fetch totals for last 24h (rounds)
   const { data: last24hTotals, isPending: totalsPending, isError: totalsError } = useQuery({
     queryKey: ["roundTotals24h", latestRound?.round],
     queryFn: async () => {
@@ -25,10 +22,34 @@ export const BurnMintStats = () => {
     },
     enabled: !!latestRound,
     staleTime: 60_000,
+  });
+
+  // ✅ STABLE BURN FETCHER — paginated and deterministic
+  const { data: last24hPartyTotals, isPending: partyPending, isError: partyError } = useQuery({
+    queryKey: ["roundPartyTotals24h", latestRound?.round],
+    queryFn: async () => {
+      if (!latestRound) return null;
+      const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
+      const maxChunk = 25;
+      const entries: any[] = [];
+      for (let s = start; s <= latestRound.round; s += maxChunk) {
+        const e = Math.min(s + maxChunk - 1, latestRound.round);
+        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+        if (res?.entries?.length) entries.push(...res.entries);
+        await new Promise(r => setTimeout(r, 200)); // pacing to avoid throttling
+      }
+      // Sort deterministically
+      entries.sort((a, b) => {
+        if (a.round === b.round) return a.party.localeCompare(b.party);
+        return a.round - b.round;
+      });
+      return { entries };
+    },
+    enabled: !!latestRound,
+    staleTime: 300_000, // cache for 5min
     retry: 1,
   });
 
-  // 3️⃣ Fetch cumulative issued supply for the latest round
   const { data: currentRound, isPending: currentPending } = useQuery({
     queryKey: ["currentRound", latestRound?.round],
     queryFn: async () => {
@@ -42,17 +63,20 @@ export const BurnMintStats = () => {
     staleTime: 60_000,
   });
 
-  // 4️⃣ Compute mint, burn, net, cumulative
+  // 📊 Compute values
   let dailyMintAmount = 0;
-  let dailyBurn = 0;
-
   if (last24hTotals?.entries?.length) {
     for (const e of last24hTotals.entries) {
       const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-      if (isNaN(change)) continue;
+      if (!isNaN(change) && change > 0) dailyMintAmount += change;
+    }
+  }
 
-      if (change > 0) dailyMintAmount += change;
-      else if (change < 0) dailyBurn += Math.abs(change);
+  let dailyBurn = 0;
+  if (last24hPartyTotals?.entries?.length) {
+    for (const e of last24hPartyTotals.entries) {
+      const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+      if (!isNaN(spent)) dailyBurn += spent;
     }
   }
 
@@ -61,12 +85,12 @@ export const BurnMintStats = () => {
     currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero ?? "0"
   );
 
-  const isLoading = latestPending || totalsPending || currentPending;
+  const isLoading =
+    latestPending || totalsPending || currentPending || partyPending;
 
-  // 5️⃣ Render
+  // 🧱 Render
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {/* Daily Minted */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Daily Minted (24h)</h3>
@@ -84,7 +108,6 @@ export const BurnMintStats = () => {
         )}
       </Card>
 
-      {/* Daily Burned */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Daily Burned (24h)</h3>
@@ -92,7 +115,7 @@ export const BurnMintStats = () => {
         </div>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
-        ) : totalsError ? (
+        ) : partyError ? (
           <>
             <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
             <p className="text-xs text-destructive">API temporarily unavailable</p>
@@ -107,7 +130,6 @@ export const BurnMintStats = () => {
         )}
       </Card>
 
-      {/* Net Daily Change */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Net Daily Change (24h)</h3>
@@ -115,16 +137,13 @@ export const BurnMintStats = () => {
         </div>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
-        ) : totalsError ? (
-          <>
-            <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
-            <p className="text-xs text-destructive">API temporarily unavailable</p>
-          </>
         ) : (
           <>
             <p
               className={`text-3xl font-bold mb-1 ${
-                dailyMintAmount - dailyBurn >= 0 ? "text-chart-2" : "text-destructive"
+                dailyMintAmount - dailyBurn >= 0
+                  ? "text-chart-2"
+                  : "text-destructive"
               }`}
             >
               {(dailyMintAmount - dailyBurn >= 0 ? "+" : "") +
@@ -137,7 +156,6 @@ export const BurnMintStats = () => {
         )}
       </Card>
 
-      {/* Cumulative Issued */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
