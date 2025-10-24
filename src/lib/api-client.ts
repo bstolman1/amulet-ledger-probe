@@ -615,6 +615,71 @@ export const scanApi = {
     }
   },
 
+  /* ---------- Current mining rounds via ACS snapshot ---------- */
+  async fetchAllMiningRoundsCurrent(): Promise<{
+    open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[];
+    issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[];
+    closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[];
+  }> {
+    try {
+      const latest = await this.fetchLatestRound();
+      const snap = await this.fetchAcsSnapshotTimestamp(latest.effectiveAt, 0);
+      const acs = await this.fetchStateAcs({
+        migration_id: 0,
+        record_time: snap.record_time,
+        page_size: 2000,
+        templates: [
+          "Splice.Round:OpenMiningRound",
+          "Splice.Round:IssuingMiningRound"
+        ],
+      });
+
+      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[] = [];
+      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[] = [];
+
+      for (const ev of acs.created_events || []) {
+        const tid = ev.template_id || "";
+        const rnd = (ev as any).create_arguments?.round?.number;
+        if (tid.includes("OpenMiningRound")) {
+          open_rounds.push({
+            contract_id: ev.contract_id,
+            round_number: rnd,
+            opened_at: (ev as any).created_at,
+            payload: (ev as any).create_arguments,
+          });
+        } else if (tid.includes("IssuingMiningRound")) {
+          issuing_rounds.push({
+            contract_id: ev.contract_id,
+            round_number: rnd,
+            issued_at: (ev as any).created_at,
+            payload: (ev as any).create_arguments,
+          });
+        }
+      }
+
+      // Closed rounds: use API, already newest first
+      const closed = await this.fetchClosedRounds();
+      const closed_rounds = (closed.rounds || []).slice(0, 10).map((r) => ({
+        contract_id: r.contract.contract_id,
+        round_number: r.contract.payload?.round?.number,
+        closed_at: r.contract.created_at,
+        payload: r.contract.payload,
+      }));
+
+      const sortByRound = <T extends { round_number?: number }>(arr: T[]) =>
+        arr.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
+
+      return {
+        open_rounds: sortByRound(open_rounds),
+        issuing_rounds: sortByRound(issuing_rounds),
+        closed_rounds: sortByRound(closed_rounds),
+      };
+    } catch (e) {
+      // Fallback to updates-based approach
+      return this.fetchAllMiningRoundsFromUpdates();
+    }
+  },
+
   /* ---------- v0 transactions & helpers ---------- */
 
   async fetchTransactions(request: TransactionHistoryRequest): Promise<TransactionHistoryResponse> {

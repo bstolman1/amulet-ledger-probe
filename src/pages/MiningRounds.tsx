@@ -10,7 +10,7 @@ const MiningRounds = () => {
   // Fetch all mining rounds from /v2/updates
   const { data: allRounds, isLoading: roundsLoading, isError: roundsError } = useQuery({
     queryKey: ["allMiningRounds"],
-    queryFn: () => scanApi.fetchAllMiningRoundsFromUpdates(),
+    queryFn: () => scanApi.fetchAllMiningRoundsCurrent(),
     retry: 1,
   });
 
