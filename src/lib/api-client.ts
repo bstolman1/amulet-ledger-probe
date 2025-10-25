@@ -622,10 +622,7 @@ export const scanApi = {
     closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[];
   }> {
     try {
-      // Use live endpoint for current open and issuing rounds
-      const current = await this.fetchOpenAndIssuingRounds();
-
-      // Collect all rounds with their type
+      // Build active rounds with fallback: ACS snapshot -> live endpoint
       const allActiveRounds: Array<{
         contract_id: string;
         round_number?: number;
@@ -634,28 +631,68 @@ export const scanApi = {
         type: 'open' | 'issuing';
       }> = [];
 
-      // Map open rounds
-      for (const v of Object.values(current.open_mining_rounds || {})) {
-        const c = (v as any).contract;
-        allActiveRounds.push({
-          contract_id: c.contract_id,
-          round_number: c?.payload?.round?.number,
-          timestamp: c?.created_at,
-          payload: c?.payload,
-          type: 'open',
+      try {
+        // Primary: ACS snapshot (current active contracts)
+        const latest = await this.fetchLatestRound();
+        const snap = await this.fetchAcsSnapshotTimestamp(latest.effectiveAt, 0);
+        const acs = await this.fetchStateAcs({
+          migration_id: 0,
+          record_time: snap.record_time,
+          page_size: 2000,
+          templates: [
+            'Splice.Round:OpenMiningRound',
+            'Splice.Round:IssuingMiningRound',
+          ],
         });
-      }
 
-      // Map issuing rounds
-      for (const v of Object.values(current.issuing_mining_rounds || {})) {
-        const c = (v as any).contract;
-        allActiveRounds.push({
-          contract_id: c.contract_id,
-          round_number: c?.payload?.round?.number,
-          timestamp: c?.created_at,
-          payload: c?.payload,
-          type: 'issuing',
-        });
+        for (const ev of acs.created_events || []) {
+          const tid = ev.template_id || '';
+          const rnd = (ev as any).create_arguments?.round?.number;
+          if (tid.includes('OpenMiningRound')) {
+            allActiveRounds.push({
+              contract_id: ev.contract_id,
+              round_number: rnd,
+              timestamp: (ev as any).created_at,
+              payload: (ev as any).create_arguments,
+              type: 'open',
+            });
+          } else if (tid.includes('IssuingMiningRound')) {
+            allActiveRounds.push({
+              contract_id: ev.contract_id,
+              round_number: rnd,
+              timestamp: (ev as any).created_at,
+              payload: (ev as any).create_arguments,
+              type: 'issuing',
+            });
+          }
+        }
+      } catch (_) {
+        try {
+          // Secondary: live endpoint
+          const current = await this.fetchOpenAndIssuingRounds();
+          for (const v of Object.values(current.open_mining_rounds || {})) {
+            const c = (v as any).contract;
+            allActiveRounds.push({
+              contract_id: c.contract_id,
+              round_number: c?.payload?.round?.number,
+              timestamp: c?.created_at,
+              payload: c?.payload,
+              type: 'open',
+            });
+          }
+          for (const v of Object.values(current.issuing_mining_rounds || {})) {
+            const c = (v as any).contract;
+            allActiveRounds.push({
+              contract_id: c.contract_id,
+              round_number: c?.payload?.round?.number,
+              timestamp: c?.created_at,
+              payload: c?.payload,
+              type: 'issuing',
+            });
+          }
+        } catch (_) {
+          // Tertiary fallback handled by outer catch
+        }
       }
 
       // Sort by round_number descending and take only the 5 most recent
@@ -681,14 +718,19 @@ export const scanApi = {
           payload: r.payload,
         }));
 
-      // Closed rounds: use API, already newest first
-      const closed = await this.fetchClosedRounds();
-      const closed_rounds = (closed.rounds || []).slice(0, 10).map((r) => ({
-        contract_id: r.contract.contract_id,
-        round_number: r.contract.payload?.round?.number,
-        closed_at: r.contract.created_at,
-        payload: r.contract.payload,
-      }));
+      // Closed rounds: newest first, limit to 10
+      let closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[] = [];
+      try {
+        const closed = await this.fetchClosedRounds();
+        closed_rounds = (closed.rounds || []).slice(0, 10).map((r) => ({
+          contract_id: r.contract.contract_id,
+          round_number: r.contract.payload?.round?.number,
+          closed_at: r.contract.created_at,
+          payload: r.contract.payload,
+        }));
+      } catch (_) {
+        closed_rounds = [];
+      }
 
       return {
         open_rounds,
