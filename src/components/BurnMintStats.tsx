@@ -44,47 +44,54 @@ async function fetchPartyTotalsFast(latestRound: number, roundsPerDay: number) {
 export const BurnMintStats = () => {
   const roundsPerDay = 144; // ~10min per round
 
-  // Step 1: Fetch latest round
+  // Shared cached query — same key used in both components
   const { data: latestRound, isPending: latestPending } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
     staleTime: 5 * 60_000,
   });
 
-  // Step 2: Parallel queries after latestRound is known
+  // Step 2: Parallel queries (fixed-length array)
   const queryResults = useQueries({
-    queries: latestRound
-      ? [
-          {
-            queryKey: ["roundTotals24h", latestRound.round],
-            queryFn: async () => {
-              const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-              return scanApi.fetchRoundTotals({
-                start_round: start,
-                end_round: latestRound.round,
-              });
-            },
-            staleTime: 5 * 60_000,
-          },
-          {
-            queryKey: ["roundPartyTotals24h", latestRound.round],
-            queryFn: () => fetchPartyTotalsFast(latestRound.round, roundsPerDay),
-            staleTime: 10 * 60_000,
-          },
-          {
-            queryKey: ["currentRound", latestRound.round],
-            queryFn: () =>
-              scanApi.fetchRoundTotals({
-                start_round: latestRound.round,
-                end_round: latestRound.round,
-              }),
-            staleTime: 5 * 60_000,
-          },
-        ]
-      : [],
+    queries: [
+      {
+        queryKey: ["roundTotals24h", latestRound?.round],
+        queryFn: async () => {
+          if (!latestRound) return null;
+          const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
+          return scanApi.fetchRoundTotals({
+            start_round: start,
+            end_round: latestRound.round,
+          });
+        },
+        enabled: !!latestRound,
+        staleTime: 5 * 60_000,
+      },
+      {
+        queryKey: ["roundPartyTotals24h", latestRound?.round],
+        queryFn: async () => {
+          if (!latestRound) return null;
+          return fetchPartyTotalsFast(latestRound.round, roundsPerDay);
+        },
+        enabled: !!latestRound,
+        staleTime: 10 * 60_000,
+      },
+      {
+        queryKey: ["currentRound", latestRound?.round],
+        queryFn: async () => {
+          if (!latestRound) return null;
+          return scanApi.fetchRoundTotals({
+            start_round: latestRound.round,
+            end_round: latestRound.round,
+          });
+        },
+        enabled: !!latestRound,
+        staleTime: 5 * 60_000,
+      },
+    ],
   });
 
-  // ✅ Safely destructure with defaults
+  // Safe destructuring
   const [
     { data: last24hTotals } = {} as UseQueryResult<any>,
     { data: last24hPartyTotals } = {} as UseQueryResult<any>,
@@ -92,7 +99,7 @@ export const BurnMintStats = () => {
   ] = queryResults;
 
   // ─────────────────────────────
-  // Compute values
+  // Computed stats
   // ─────────────────────────────
   let dailyMintAmount = 0;
   if (last24hTotals?.entries?.length) {
