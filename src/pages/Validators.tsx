@@ -25,7 +25,7 @@ const normalizeBps = (val: any) => {
 const bpsToPercent = (bps: number) => (bps / 10000).toFixed(2) + "%";
 
 // ─────────────────────────────
-// Component
+// Main Component
 // ─────────────────────────────
 const Validators = () => {
   const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
@@ -46,21 +46,19 @@ const Validators = () => {
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  if (isLoading) {
+  if (isLoading)
     return (
       <DashboardLayout>
         <div className="p-8 text-muted-foreground">Loading validator data...</div>
       </DashboardLayout>
     );
-  }
 
-  if (isError || !configData) {
+  if (isError || !configData)
     return (
       <DashboardLayout>
         <div className="p-8 text-red-400">Error loading config data.</div>
       </DashboardLayout>
     );
-  }
 
   // ─────────────────────────────
   // Transform Config → Display Model
@@ -75,7 +73,6 @@ const Validators = () => {
 
   const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
   const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
-  const totalNetworkWeight = totalOperatorWeightBps;
 
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
@@ -91,13 +88,12 @@ const Validators = () => {
       }));
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
-
     const mismatch = beneficiaries.length && Math.abs(totalBeneficiaryWeight - operatorWeight) > 1;
 
+    const totalNetworkWeight = totalOperatorWeightBps;
     const networkShare = totalNetworkWeight > 0 ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
 
-    const hasBeneficiaries = beneficiaries.length > 0;
-    const statusLabel = hasBeneficiaries
+    const statusLabel = beneficiaries.length
       ? mismatch
         ? `⚠️ Mismatch (${bpsToPercent(totalBeneficiaryWeight)} / ${bpsToPercent(operatorWeight)})`
         : `✅ Balanced (${bpsToPercent(totalBeneficiaryWeight)})`
@@ -108,20 +104,16 @@ const Validators = () => {
       operatorWeight,
       operatorWeightPct: bpsToPercent(operatorWeight),
       networkShare,
-      totalBeneficiaryWeight,
-      totalBeneficiaryWeightPct: bpsToPercent(totalBeneficiaryWeight),
-      mismatch,
       beneficiaries,
+      mismatch,
       statusLabel,
-      hasBeneficiaries,
     };
   });
 
   const balancedCount = operatorsView.filter((op) => !op.mismatch).length;
-  const totalOperators = operatorsView.length;
 
   // ─────────────────────────────
-  // Export CSV
+  // CSV Export
   // ─────────────────────────────
   const exportCSV = () => {
     const rows = [
@@ -162,12 +154,10 @@ const Validators = () => {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => refetch()} className="flex items-center gap-2">
-              <RefreshCw className="w-4 h-4" />
-              Refresh
+              <RefreshCw className="w-4 h-4" /> Refresh
             </Button>
             <Button variant="outline" onClick={exportCSV} className="flex items-center gap-2">
-              <FileDown className="w-4 h-4" />
-              Export CSV
+              <FileDown className="w-4 h-4" /> Export CSV
             </Button>
           </div>
         </div>
@@ -188,19 +178,19 @@ const Validators = () => {
               <p className="text-xl font-semibold">{totalWeightPct}%</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Offboarded</p>
-              <p className="text-xl font-semibold">{offboardedSVs}</p>
-            </div>
-            <div>
               <p className="text-sm text-muted-foreground">Balanced Operators</p>
               <p className="text-xl font-semibold">
-                {balancedCount}/{totalOperators}
+                {balancedCount}/{operatorsView.length}
               </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Ghost SVs</p>
+              <p className="text-xl font-semibold">{ghostSVs}</p>
             </div>
           </div>
         </Card>
 
-        {/* Operators */}
+        {/* Operator List */}
         <Card className="glass-card p-6">
           <h3 className="text-xl font-bold mb-4">Supervalidators</h3>
           {operatorsView.map((op) => {
@@ -219,31 +209,27 @@ const Validators = () => {
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span
-                      className={`text-sm ${
-                        op.mismatch ? "text-yellow-400" : op.hasBeneficiaries ? "text-green-400" : "text-blue-400"
-                      }`}
-                    >
+                    <span className={`text-sm ${op.mismatch ? "text-yellow-400" : "text-green-400"}`}>
                       {op.statusLabel}
                     </span>
                     {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                   </div>
                 </div>
 
-                {expanded && op.hasBeneficiaries && (
+                {expanded && (
                   <div className="mt-3 pl-4 border-l border-gray-700 space-y-2">
                     {op.beneficiaries.map((b, idx) => (
                       <div
                         key={b.address + idx}
-                        className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-gray-900/40 p-2 rounded-lg"
+                        className="flex justify-between items-center bg-gray-900/40 p-2 rounded-lg text-sm"
                       >
                         <div>
-                          <span className="font-medium">{b.name}</span>{" "}
-                          <span className="text-xs text-muted-foreground">{b.address}</span>
-                          <p className="text-xs text-muted-foreground">Joined Round: {b.joinedRound}</p>
+                          <span className="font-medium">{b.name}</span>
+                          <p className="text-xs text-muted-foreground">{b.address}</p>
+                          <p className="text-xs text-muted-foreground">Joined: {b.joinedRound}</p>
                         </div>
-                        <div className="text-right mt-1 sm:mt-0">
-                          <span className="text-sm text-gray-200">
+                        <div className="text-right">
+                          <span>
                             {b.weightPct} ({b.weightBps.toLocaleString()} bps)
                           </span>
                         </div>
@@ -256,7 +242,7 @@ const Validators = () => {
           })}
         </Card>
 
-        {/* Active Validators */}
+        {/* Active Validators Section */}
         <ActiveValidatorsSection />
       </div>
     </DashboardLayout>
@@ -264,196 +250,132 @@ const Validators = () => {
 };
 
 // ─────────────────────────────
-// Active Validators Section (amended)
+// Active Validators Section (fixed)
 // ─────────────────────────────
 const ActiveValidatorsSection = () => {
   const { toast } = useToast();
 
-  const {
-    data: topValidators,
-    isLoading,
-    isError,
-  } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["topValidators"],
     queryFn: async () => {
-      const data = await scanApi.fetchTopValidators();
-      const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
-      const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
+      const validators = await scanApi.fetchTopValidators();
+      const ids = validators.validatorsAndRewards.map((v) => v.provider);
+      const liveness = await scanApi.fetchValidatorLiveness(ids);
       const latestRound = await scanApi.fetchLatestRound();
-      const startRound = Math.max(0, latestRound.round - 200);
-      const roundTotals = await scanApi.fetchRoundTotals({
-        start_round: startRound,
-        end_round: latestRound.round,
-      });
 
-      const roundDates = new Map<number, string>();
-      roundTotals.entries.forEach((entry) => {
-        roundDates.set(entry.closed_round, entry.closed_round_effective_at);
-      });
-
-      return {
-        ...data,
-        latestRound,
-        validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
-          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
-          const lastActiveRound = livenessInfo?.lastCollectedInRound ?? null;
-          const lastActiveDate = lastActiveRound ? roundDates.get(lastActiveRound) : undefined;
-          return { ...validator, lastActiveRound, lastActiveDate };
-        }),
-      };
+      return { validators, liveness, latestRound };
     },
-    retry: 1,
   });
 
-  const getRankColor = (rank: number) => {
-    switch (rank) {
-      case 1:
-        return "gradient-primary text-primary-foreground";
-      case 2:
-        return "bg-chart-2/20 text-chart-2";
-      case 3:
-        return "bg-chart-3/20 text-chart-3";
-      default:
-        return "bg-muted text-muted-foreground";
-    }
-  };
+  const ACTIVE_THRESHOLD = 5; // active if within 5 rounds
+  const WARNING_THRESHOLD = 50; // lagging if within 50 rounds
 
-  const formatPartyId = (partyId: string) => partyId.split("::")[0] || partyId;
+  const classify = (missed: number | undefined) => {
+    if (missed === undefined) return "unknown";
+    if (missed <= ACTIVE_THRESHOLD) return "active";
+    if (missed <= WARNING_THRESHOLD) return "lagging";
+    return "inactive";
+  };
 
   return (
     <>
-      <div className="flex items-center justify-between mt-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
-          <p className="text-muted-foreground">
-            All {topValidators?.validatorsAndRewards?.length || 0} active validators on the Canton Network
-          </p>
-        </div>
+      <div className="mt-8 mb-4">
+        <h2 className="text-3xl font-bold mb-1">Active Validators</h2>
+        <p className="text-muted-foreground">Tracking validator liveness and recent activity across the network</p>
       </div>
 
-      <Card className="glass-card">
-        <div className="p-6">
-          {isLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-40 w-full" />
-              ))}
-            </div>
-          ) : isError ? (
-            <div className="text-center p-8">
-              <p className="text-muted-foreground">
-                Unable to load validator data. The API endpoint may be unavailable.
-              </p>
-            </div>
-          ) : !topValidators?.validatorsAndRewards?.length ? (
-            <div className="text-center p-8">
-              <p className="text-muted-foreground">No validator data available</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {topValidators.validatorsAndRewards.map((validator, index) => {
-                const rank = index + 1;
-                const latestRoundNum = topValidators.latestRound?.round ?? 0;
-                const lastActiveRound = validator.lastActiveRound ?? 0;
-                const missedRounds = lastActiveRound > 0 ? Math.max(0, latestRoundNum - lastActiveRound) : undefined;
-                const missedPercent = missedRounds !== undefined ? ((missedRounds / 200) * 100).toFixed(1) : null;
+      <Card className="glass-card p-6">
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-36 w-full" />
+            ))}
+          </div>
+        ) : isError || !data ? (
+          <div className="text-center text-muted-foreground py-8">Unable to load validator data.</div>
+        ) : (
+          <div className="space-y-4">
+            {data.validators.validatorsAndRewards.map((v: any, i: number) => {
+              const l = data.liveness.validatorsReceivedFaucets.find((x: any) => x.validator === v.provider);
+              const latestRound = data.latestRound.round;
+              const lastRound = l?.lastCollectedInRound ?? undefined;
 
-                return (
-                  <div
-                    key={validator.provider}
-                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-4">
-                        <div
-                          className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold ${getRankColor(
-                            rank,
-                          )}`}
-                        >
-                          {rank <= 3 ? <Trophy className="h-6 w-6" /> : rank}
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold mb-1">{formatPartyId(validator.provider)}</h3>
-                          <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
-                            {validator.provider}
-                          </p>
-                        </div>
-                      </div>
+              // Detect invalid data (too small or undefined)
+              const missedRounds =
+                typeof lastRound === "number" && lastRound < latestRound && lastRound > 0
+                  ? latestRound - lastRound
+                  : undefined;
 
-                      <div className="flex flex-col items-end gap-1">
-                        {missedRounds === 0 ? (
-                          <Badge className="bg-success/10 text-success border-success/20">
-                            <Zap className="h-3 w-3 mr-1" />
-                            Active
-                          </Badge>
-                        ) : missedRounds && missedRounds < 10 ? (
-                          <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
-                            ⚠ Missed {missedRounds} ({missedPercent}%)
-                          </Badge>
-                        ) : missedRounds ? (
-                          <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
-                            ⛔ Missed {missedRounds} ({missedPercent}%)
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-muted/20 text-muted-foreground border-muted/20">Unknown</Badge>
-                        )}
+              const status = classify(missedRounds);
 
-                        {validator.lastActiveDate && (
-                          <span className="text-xs text-muted-foreground">
-                            Last active: {new Date(validator.lastActiveDate).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
+              const badge =
+                status === "active" ? (
+                  <Badge className="bg-success/10 text-success border-success/20">
+                    <Zap className="h-3 w-3 mr-1" /> Active
+                  </Badge>
+                ) : status === "lagging" ? (
+                  <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
+                    ⚠ Lagging ({missedRounds} rounds)
+                  </Badge>
+                ) : status === "inactive" ? (
+                  <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
+                    ⛔ Inactive ({missedRounds ?? "?"} rounds)
+                  </Badge>
+                ) : (
+                  <Badge className="bg-muted/10 text-muted-foreground border-muted/20">Unknown</Badge>
+                );
+
+              return (
+                <div
+                  key={v.provider}
+                  className="p-6 rounded-lg bg-muted/20 hover:bg-muted/40 transition border border-border/40"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold">{v.provider.split("::")[0]}</h3>
+                      <p className="text-xs text-muted-foreground font-mono truncate">{v.provider}</p>
                     </div>
+                    <div className="flex flex-col items-end gap-1">{badge}</div>
+                  </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
-                        <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
-                        <p className="text-2xl font-bold text-foreground">#{rank}</p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Missed Rounds</p>
-                        <p
-                          className={`text-2xl font-bold ${
-                            missedRounds === undefined
-                              ? "text-muted-foreground"
-                              : missedRounds === 0
-                                ? "text-success"
-                                : missedRounds < 10
-                                  ? "text-yellow-400"
-                                  : "text-red-400"
-                          }`}
-                        >
-                          {missedRounds === undefined ? "?" : `${missedRounds} (${missedPercent}%)`}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p
-                          className={`text-2xl font-bold ${
-                            missedRounds === 0
-                              ? "text-success"
-                              : missedRounds && missedRounds < 10
-                                ? "text-yellow-400"
-                                : "text-red-400"
-                          }`}
-                        >
-                          {missedRounds === 0 ? "Active" : missedRounds && missedRounds < 10 ? "Lagging" : "Inactive"}
-                        </p>
-                      </div>
+                  {/* Optional debug line (comment out in prod) */}
+                  {process.env.NODE_ENV === "development" && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      latest={data.latestRound.round} last={lastRound ?? "?"} missed={missedRounds ?? "?"}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-3 rounded-lg bg-background/50">
+                      <p className="text-xs text-muted-foreground">Rounds Collected</p>
+                      <p className="text-xl font-semibold text-primary">{parseFloat(v.rewards).toLocaleString()}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-background/50">
+                      <p className="text-xs text-muted-foreground">Rank</p>
+                      <p className="text-xl font-semibold">#{i + 1}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-background/50">
+                      <p className="text-xs text-muted-foreground">Missed Rounds</p>
+                      <p
+                        className={`text-xl font-semibold ${
+                          status === "active"
+                            ? "text-success"
+                            : status === "lagging"
+                              ? "text-yellow-400"
+                              : status === "inactive"
+                                ? "text-red-400"
+                                : "text-muted-foreground"
+                        }`}
+                      >
+                        {missedRounds ?? "?"}
+                      </p>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Card>
     </>
   );
