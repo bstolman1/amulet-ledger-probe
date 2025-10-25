@@ -622,17 +622,8 @@ export const scanApi = {
     closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[];
   }> {
     try {
-      const latest = await this.fetchLatestRound();
-      const snap = await this.fetchAcsSnapshotTimestamp(latest.effectiveAt, 0);
-      const acs = await this.fetchStateAcs({
-        migration_id: 0,
-        record_time: snap.record_time,
-        page_size: 2000,
-        templates: [
-          "Splice.Round:OpenMiningRound",
-          "Splice.Round:IssuingMiningRound"
-        ],
-      });
+      // Use live endpoint for current open and issuing rounds
+      const current = await this.fetchOpenAndIssuingRounds();
 
       // Collect all rounds with their type
       const allActiveRounds: Array<{
@@ -643,26 +634,28 @@ export const scanApi = {
         type: 'open' | 'issuing';
       }> = [];
 
-      for (const ev of acs.created_events || []) {
-        const tid = ev.template_id || "";
-        const rnd = (ev as any).create_arguments?.round?.number;
-        if (tid.includes("OpenMiningRound")) {
-          allActiveRounds.push({
-            contract_id: ev.contract_id,
-            round_number: rnd,
-            timestamp: (ev as any).created_at,
-            payload: (ev as any).create_arguments,
-            type: 'open',
-          });
-        } else if (tid.includes("IssuingMiningRound")) {
-          allActiveRounds.push({
-            contract_id: ev.contract_id,
-            round_number: rnd,
-            timestamp: (ev as any).created_at,
-            payload: (ev as any).create_arguments,
-            type: 'issuing',
-          });
-        }
+      // Map open rounds
+      for (const v of Object.values(current.open_mining_rounds || {})) {
+        const c = (v as any).contract;
+        allActiveRounds.push({
+          contract_id: c.contract_id,
+          round_number: c?.payload?.round?.number,
+          timestamp: c?.created_at,
+          payload: c?.payload,
+          type: 'open',
+        });
+      }
+
+      // Map issuing rounds
+      for (const v of Object.values(current.issuing_mining_rounds || {})) {
+        const c = (v as any).contract;
+        allActiveRounds.push({
+          contract_id: c.contract_id,
+          round_number: c?.payload?.round?.number,
+          timestamp: c?.created_at,
+          payload: c?.payload,
+          type: 'issuing',
+        });
       }
 
       // Sort by round_number descending and take only the 5 most recent
