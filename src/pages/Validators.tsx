@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap, Award, Download, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap } from "lucide-react";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +31,6 @@ const Validators = () => {
   const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Schedule daily config sync
   useEffect(() => {
     scheduleDailySync();
   }, []);
@@ -66,21 +65,18 @@ const Validators = () => {
   // ─────────────────────────────
   // Transform Config → Display Model
   // ─────────────────────────────
-  const allSVs = configData.superValidators || []; // beneficiaries
-  const operators = configData.operators || []; // parent-level validators
+  const allSVs = configData.superValidators || [];
+  const operators = configData.operators || [];
 
-  // ✅ Count metrics
-  const totalSVs = allSVs.length; // 38 total (flattened)
-  const liveSVs = operators.length; // 13 live SVs (top level)
-  const offboardedSVs = 0; // none offboarded
+  const totalSVs = allSVs.length;
+  const liveSVs = operators.length;
+  const offboardedSVs = 0;
   const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
 
-  // ✅ Total weight (sum of parent reward weights)
   const totalOperatorWeightBps = operators.reduce((sum: number, op: any) => sum + normalizeBps(op.rewardWeightBps), 0);
   const totalWeightPct = (totalOperatorWeightBps / 10000).toFixed(2);
-
-  // ✅ Build operator view
   const totalNetworkWeight = totalOperatorWeightBps;
+
   const operatorsView = operators.map((op: any) => {
     const operatorWeight = normalizeBps(op.rewardWeightBps);
     const beneficiaries = allSVs
@@ -96,7 +92,7 @@ const Validators = () => {
 
     const totalBeneficiaryWeight = beneficiaries.reduce((sum: number, b: any) => sum + b.weightBps, 0);
 
-    const mismatch = beneficiaries.length ? Math.abs(totalBeneficiaryWeight - operatorWeight) > 1 : false;
+    const mismatch = beneficiaries.length && Math.abs(totalBeneficiaryWeight - operatorWeight) > 1;
 
     const networkShare = totalNetworkWeight > 0 ? ((operatorWeight / totalNetworkWeight) * 100).toFixed(2) + "%" : "0%";
 
@@ -176,7 +172,7 @@ const Validators = () => {
           </div>
         </div>
 
-        {/* Overview Cards */}
+        {/* Overview */}
         <Card className="glass-card p-6">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
             <div>
@@ -204,10 +200,9 @@ const Validators = () => {
           </div>
         </Card>
 
-        {/* Operators List */}
+        {/* Operators */}
         <Card className="glass-card p-6">
           <h3 className="text-xl font-bold mb-4">Supervalidators</h3>
-
           {operatorsView.map((op) => {
             const expanded = expandedOperator === op.operator;
             return (
@@ -261,9 +256,7 @@ const Validators = () => {
           })}
         </Card>
 
-        {/* ───────────────────────────── */}
-        {/* ACTIVE VALIDATORS SECTION (Appended) */}
-        {/* ───────────────────────────── */}
+        {/* Active Validators */}
         <ActiveValidatorsSection />
       </div>
     </DashboardLayout>
@@ -271,7 +264,7 @@ const Validators = () => {
 };
 
 // ─────────────────────────────
-// Subcomponent for Active Validators Section
+// Active Validators Section (amended)
 // ─────────────────────────────
 const ActiveValidatorsSection = () => {
   const { toast } = useToast();
@@ -300,12 +293,12 @@ const ActiveValidatorsSection = () => {
 
       return {
         ...data,
+        latestRound,
         validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
           const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
-          const lastActiveDate = livenessInfo?.lastCollectedInRound
-            ? roundDates.get(livenessInfo.lastCollectedInRound)
-            : undefined;
-          return { ...validator, lastActiveDate };
+          const lastActiveRound = livenessInfo?.lastCollectedInRound ?? null;
+          const lastActiveDate = lastActiveRound ? roundDates.get(lastActiveRound) : undefined;
+          return { ...validator, lastActiveRound, lastActiveDate };
         }),
       };
     },
@@ -325,10 +318,7 @@ const ActiveValidatorsSection = () => {
     }
   };
 
-  const formatPartyId = (partyId: string) => {
-    const parts = partyId.split("::");
-    return parts[0] || partyId;
-  };
+  const formatPartyId = (partyId: string) => partyId.split("::")[0] || partyId;
 
   return (
     <>
@@ -363,6 +353,11 @@ const ActiveValidatorsSection = () => {
             <div className="space-y-4">
               {topValidators.validatorsAndRewards.map((validator, index) => {
                 const rank = index + 1;
+                const latestRoundNum = topValidators.latestRound?.round ?? 0;
+                const lastActiveRound = validator.lastActiveRound ?? 0;
+                const missedRounds = lastActiveRound > 0 ? Math.max(0, latestRoundNum - lastActiveRound) : undefined;
+                const missedPercent = missedRounds !== undefined ? ((missedRounds / 200) * 100).toFixed(1) : null;
+
                 return (
                   <div
                     key={validator.provider}
@@ -384,26 +379,38 @@ const ActiveValidatorsSection = () => {
                           </p>
                         </div>
                       </div>
+
                       <div className="flex flex-col items-end gap-1">
-                        <Badge className="bg-success/10 text-success border-success/20">
-                          <Zap className="h-3 w-3 mr-1" />
-                          active
-                        </Badge>
+                        {missedRounds === 0 ? (
+                          <Badge className="bg-success/10 text-success border-success/20">
+                            <Zap className="h-3 w-3 mr-1" />
+                            Active
+                          </Badge>
+                        ) : missedRounds && missedRounds < 10 ? (
+                          <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
+                            ⚠ Missed {missedRounds} ({missedPercent}%)
+                          </Badge>
+                        ) : missedRounds ? (
+                          <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
+                            ⛔ Missed {missedRounds} ({missedPercent}%)
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-muted/20 text-muted-foreground border-muted/20">Unknown</Badge>
+                        )}
+
                         {validator.lastActiveDate && (
                           <span className="text-xs text-muted-foreground">
-                            Last: {new Date(validator.lastActiveDate).toLocaleDateString()}
+                            Last active: {new Date(validator.lastActiveDate).toLocaleDateString()}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
                         <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, {
-                            maximumFractionDigits: 0,
-                          })}
+                          {parseFloat(validator.rewards).toLocaleString()}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
@@ -411,8 +418,34 @@ const ActiveValidatorsSection = () => {
                         <p className="text-2xl font-bold text-foreground">#{rank}</p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Missed Rounds</p>
+                        <p
+                          className={`text-2xl font-bold ${
+                            missedRounds === undefined
+                              ? "text-muted-foreground"
+                              : missedRounds === 0
+                                ? "text-success"
+                                : missedRounds < 10
+                                  ? "text-yellow-400"
+                                  : "text-red-400"
+                          }`}
+                        >
+                          {missedRounds === undefined ? "?" : `${missedRounds} (${missedPercent}%)`}
+                        </p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p className="text-2xl font-bold text-success">Active</p>
+                        <p
+                          className={`text-2xl font-bold ${
+                            missedRounds === 0
+                              ? "text-success"
+                              : missedRounds && missedRounds < 10
+                                ? "text-yellow-400"
+                                : "text-red-400"
+                          }`}
+                        >
+                          {missedRounds === 0 ? "Active" : missedRounds && missedRounds < 10 ? "Lagging" : "Inactive"}
+                        </p>
                       </div>
                     </div>
                   </div>
