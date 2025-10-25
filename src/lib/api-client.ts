@@ -634,28 +634,59 @@ export const scanApi = {
         ],
       });
 
-      const open_rounds: { contract_id: string; round_number?: number; opened_at?: string; payload?: any }[] = [];
-      const issuing_rounds: { contract_id: string; round_number?: number; issued_at?: string; payload?: any }[] = [];
+      // Collect all rounds with their type
+      const allActiveRounds: Array<{
+        contract_id: string;
+        round_number?: number;
+        timestamp?: string;
+        payload?: any;
+        type: 'open' | 'issuing';
+      }> = [];
 
       for (const ev of acs.created_events || []) {
         const tid = ev.template_id || "";
         const rnd = (ev as any).create_arguments?.round?.number;
         if (tid.includes("OpenMiningRound")) {
-          open_rounds.push({
+          allActiveRounds.push({
             contract_id: ev.contract_id,
             round_number: rnd,
-            opened_at: (ev as any).created_at,
+            timestamp: (ev as any).created_at,
             payload: (ev as any).create_arguments,
+            type: 'open',
           });
         } else if (tid.includes("IssuingMiningRound")) {
-          issuing_rounds.push({
+          allActiveRounds.push({
             contract_id: ev.contract_id,
             round_number: rnd,
-            issued_at: (ev as any).created_at,
+            timestamp: (ev as any).created_at,
             payload: (ev as any).create_arguments,
+            type: 'issuing',
           });
         }
       }
+
+      // Sort by round_number descending and take only the 5 most recent
+      allActiveRounds.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
+      const recentActiveRounds = allActiveRounds.slice(0, 5);
+
+      // Separate back into open and issuing
+      const open_rounds = recentActiveRounds
+        .filter(r => r.type === 'open')
+        .map(r => ({
+          contract_id: r.contract_id,
+          round_number: r.round_number,
+          opened_at: r.timestamp,
+          payload: r.payload,
+        }));
+
+      const issuing_rounds = recentActiveRounds
+        .filter(r => r.type === 'issuing')
+        .map(r => ({
+          contract_id: r.contract_id,
+          round_number: r.round_number,
+          issued_at: r.timestamp,
+          payload: r.payload,
+        }));
 
       // Closed rounds: use API, already newest first
       const closed = await this.fetchClosedRounds();
@@ -666,13 +697,10 @@ export const scanApi = {
         payload: r.contract.payload,
       }));
 
-      const sortByRound = <T extends { round_number?: number }>(arr: T[]) =>
-        arr.sort((a, b) => (b.round_number || 0) - (a.round_number || 0));
-
       return {
-        open_rounds: sortByRound(open_rounds),
-        issuing_rounds: sortByRound(issuing_rounds),
-        closed_rounds: sortByRound(closed_rounds),
+        open_rounds,
+        issuing_rounds,
+        closed_rounds,
       };
     } catch (e) {
       // Fallback to updates-based approach
