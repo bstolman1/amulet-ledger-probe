@@ -1,11 +1,11 @@
-import { useQuery, useQueries, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Card } from "@/components/ui/card";
 import { Flame, Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // ─────────────────────────────
-// Helper for fast concurrent fetch
+// Helper for parallel fetching
 // ─────────────────────────────
 async function fetchPartyTotalsFast(latestRound: number, roundsPerDay: number) {
   const start = Math.max(0, latestRound - (roundsPerDay - 1));
@@ -18,6 +18,7 @@ async function fetchPartyTotalsFast(latestRound: number, roundsPerDay: number) {
   }
 
   const results: any[] = [];
+  // Run chunks in small concurrent batches
   while (chunks.length > 0) {
     const batch = chunks.splice(0, MAX_CONCURRENT);
     const responses = await Promise.allSettled(
@@ -30,11 +31,11 @@ async function fetchPartyTotalsFast(latestRound: number, roundsPerDay: number) {
     }
   }
 
+  // Sort deterministically
   results.sort((a, b) => {
     if (a.round === b.round) return a.party.localeCompare(b.party);
     return a.round - b.round;
   });
-
   return { entries: results };
 }
 
@@ -44,63 +45,47 @@ async function fetchPartyTotalsFast(latestRound: number, roundsPerDay: number) {
 export const BurnMintStats = () => {
   const roundsPerDay = 144; // ~10min per round
 
-  // Shared cached query — same key used in both components
+  // Step 1: Fetch latest round first
   const { data: latestRound, isPending: latestPending } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
     staleTime: 5 * 60_000,
   });
 
-  // Step 2: Parallel queries (fixed-length array)
-  const queryResults = useQueries({
-    queries: [
-      {
-        queryKey: ["roundTotals24h", latestRound?.round],
-        queryFn: async () => {
-          if (!latestRound) return null;
-          const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-          return scanApi.fetchRoundTotals({
-            start_round: start,
-            end_round: latestRound.round,
-          });
-        },
-        enabled: !!latestRound,
-        staleTime: 5 * 60_000,
-      },
-      {
-        queryKey: ["roundPartyTotals24h", latestRound?.round],
-        queryFn: async () => {
-          if (!latestRound) return null;
-          return fetchPartyTotalsFast(latestRound.round, roundsPerDay);
-        },
-        enabled: !!latestRound,
-        staleTime: 10 * 60_000,
-      },
-      {
-        queryKey: ["currentRound", latestRound?.round],
-        queryFn: async () => {
-          if (!latestRound) return null;
-          return scanApi.fetchRoundTotals({
-            start_round: latestRound.round,
-            end_round: latestRound.round,
-          });
-        },
-        enabled: !!latestRound,
-        staleTime: 5 * 60_000,
-      },
-    ],
+  // Step 2: Parallel queries (auto-start after latestRound)
+  const [{ data: last24hTotals }, { data: last24hPartyTotals }, { data: currentRound }] = useQueries({
+    queries: latestRound
+      ? [
+          {
+            queryKey: ["roundTotals24h", latestRound.round],
+            queryFn: async () => {
+              const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
+              return scanApi.fetchRoundTotals({
+                start_round: start,
+                end_round: latestRound.round,
+              });
+            },
+            staleTime: 5 * 60_000,
+          },
+          {
+            queryKey: ["roundPartyTotals24h", latestRound.round],
+            queryFn: () => fetchPartyTotalsFast(latestRound.round, roundsPerDay),
+            staleTime: 10 * 60_000,
+          },
+          {
+            queryKey: ["currentRound", latestRound.round],
+            queryFn: () =>
+              scanApi.fetchRoundTotals({
+                start_round: latestRound.round,
+                end_round: latestRound.round,
+              }),
+            staleTime: 5 * 60_000,
+          },
+        ]
+      : [],
   });
 
-  // Safe destructuring
-  const [
-    { data: last24hTotals } = {} as UseQueryResult<any>,
-    { data: last24hPartyTotals } = {} as UseQueryResult<any>,
-    { data: currentRound } = {} as UseQueryResult<any>,
-  ] = queryResults;
-
-  // ─────────────────────────────
-  // Computed stats
-  // ─────────────────────────────
+  // Step 3: Compute metrics
   let dailyMintAmount = 0;
   if (last24hTotals?.entries?.length) {
     for (const e of last24hTotals.entries) {
@@ -120,7 +105,7 @@ export const BurnMintStats = () => {
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = parseFloat(currentRoundData?.cumulative_change_to_initial_amount_as_of_round_zero ?? "0");
 
-  const isLoading = latestPending || !latestRound || !last24hTotals || !last24hPartyTotals || !currentRound;
+  const isLoading = latestPending || !latestRound || !last24hTotals || !last24hPartyTotals;
 
   // ─────────────────────────────
   // Render
@@ -138,9 +123,7 @@ export const BurnMintStats = () => {
         ) : (
           <>
             <p className="text-3xl font-bold text-chart-2 mb-1">
-              {dailyMintAmount.toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })}
+              {dailyMintAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </p>
             <p className="text-xs text-muted-foreground">CC minted in last 24h</p>
           </>
@@ -158,9 +141,7 @@ export const BurnMintStats = () => {
         ) : (
           <>
             <p className="text-3xl font-bold text-destructive mb-1">
-              {dailyBurn.toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })}
+              {dailyBurn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </p>
             <p className="text-xs text-muted-foreground">CC burned in last 24h</p>
           </>
@@ -192,7 +173,7 @@ export const BurnMintStats = () => {
         )}
       </Card>
 
-      {/* Cumulative */}
+      {/* Total Issued */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Cumulative Issued</h3>
@@ -203,9 +184,7 @@ export const BurnMintStats = () => {
         ) : (
           <>
             <p className="text-3xl font-bold text-primary mb-1">
-              {cumulativeIssued.toLocaleString(undefined, {
-                maximumFractionDigits: 0,
-              })}
+              {cumulativeIssued.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </p>
             <p className="text-xs text-muted-foreground">Total CC issued (net since round 0)</p>
           </>
