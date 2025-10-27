@@ -111,6 +111,11 @@ export interface TransactionHistoryItem {
   abort_transfer_instruction?: AbortTransferInstruction;
 }
 
+export interface AmuletPricePoint {
+  timestamp: string;
+  price: number;
+}
+
 export interface TransferData {
   provider: string;
   sender: SenderAmount;
@@ -760,6 +765,49 @@ export const scanApi = {
     } finally {
       clearTimeout(timeout);
     }
+  },
+
+  async fetchAmuletPriceHistory(limit: number = 1000): Promise<AmuletPricePoint[]> {
+    const pricePoints: AmuletPricePoint[] = [];
+    const pageSize = Math.min(200, Math.max(1, limit));
+    let pageEndEventId: string | undefined;
+
+    while (pricePoints.length < limit) {
+      const remaining = limit - pricePoints.length;
+      const response = await this.fetchTransactions({
+        page_size: Math.min(pageSize, remaining),
+        sort_order: "desc",
+        ...(pageEndEventId ? { page_end_event_id: pageEndEventId } : {}),
+      });
+
+      const transactions = response.transactions || [];
+      if (transactions.length === 0) {
+        break;
+      }
+
+      for (const tx of transactions) {
+        if (!tx.amulet_price) continue;
+        const parsed = parseFloat(tx.amulet_price);
+        if (!Number.isFinite(parsed)) continue;
+        pricePoints.push({ timestamp: tx.date, price: parsed });
+        if (pricePoints.length >= limit) break;
+      }
+
+      const lastTx = transactions[transactions.length - 1];
+      if (!lastTx?.event_id || transactions.length < Math.min(pageSize, remaining)) {
+        break;
+      }
+      pageEndEventId = lastTx.event_id;
+    }
+
+    const uniqueByTimestamp = new Map<string, AmuletPricePoint>();
+    for (const point of pricePoints) {
+      uniqueByTimestamp.set(point.timestamp, point);
+    }
+
+    return Array.from(uniqueByTimestamp.values()).sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
   },
 
   async fetchTransactionsByParty(party: string, limit: number = 20): Promise<TransactionHistoryResponse> {
