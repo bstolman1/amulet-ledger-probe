@@ -338,6 +338,10 @@ const ActiveValidatorsSection = () => {
           <p className="text-muted-foreground">
             All {topValidators?.validatorsAndRewards?.length || 0} active validators on the Canton Network
           </p>
+          <p className="text-sm text-muted-foreground">
+            Counts include parties that have not yet collected a round. The Statistics page only shows validators with
+            at least one recorded round.
+          </p>
         </div>
       </div>
 
