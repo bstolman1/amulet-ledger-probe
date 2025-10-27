@@ -276,13 +276,6 @@ const Validators = () => {
 const ActiveValidatorsSection = () => {
   const { toast } = useToast();
 
-  // Fetch Super Validator config to exclude them from counts
-  const { data: configData } = useQuery({
-    queryKey: ["sv-config"],
-    queryFn: () => fetchConfigData(),
-    staleTime: 24 * 60 * 60 * 1000,
-  });
-
   const {
     data: topValidators,
     isLoading,
@@ -307,41 +300,17 @@ const ActiveValidatorsSection = () => {
 
       return {
         ...data,
-        latestRound: latestRound.round,
         validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
           const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
           const lastActiveDate = livenessInfo?.lastCollectedInRound
             ? roundDates.get(livenessInfo.lastCollectedInRound)
             : undefined;
-          return { 
-            ...validator, 
-            lastActiveDate,
-            numRoundsMissed: livenessInfo?.numRoundsMissed || 0,
-            lastCollectedInRound: livenessInfo?.lastCollectedInRound || 0,
-          };
+          return { ...validator, lastActiveDate };
         }),
       };
     },
     retry: 1,
   });
-
-  // Get SV participant IDs to exclude them
-  const svParticipantIds = new Set(configData?.superValidators.map((sv) => sv.address) || []);
-  
-  // Filter to only show truly active validators (excluding SVs and those who missed rounds)
-  const activeValidators = topValidators?.validatorsAndRewards.filter((v) => {
-    // Exclude Super Validators
-    if (svParticipantIds.has(v.provider)) return false;
-    
-    // Exclude validators who have missed rounds
-    if ((v.numRoundsMissed || 0) > 0) return false;
-    
-    // Exclude validators who haven't collected in the last 50 rounds
-    const roundsSinceLastCollection = (topValidators.latestRound || 0) - (v.lastCollectedInRound || 0);
-    if (roundsSinceLastCollection > 50) return false;
-    
-    return true;
-  }) || [];
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -367,7 +336,7 @@ const ActiveValidatorsSection = () => {
         <div>
           <h2 className="text-3xl font-bold mb-2">Active Validators</h2>
           <p className="text-muted-foreground">
-            {activeValidators.length} active validators (excluding {svParticipantIds.size} Super Validators, {(topValidators?.validatorsAndRewards?.length || 0) - activeValidators.length - svParticipantIds.size} inactive)
+            All {topValidators?.validatorsAndRewards?.length || 0} active validators on the Canton Network
           </p>
         </div>
       </div>
@@ -386,13 +355,13 @@ const ActiveValidatorsSection = () => {
                 Unable to load validator data. The API endpoint may be unavailable.
               </p>
             </div>
-          ) : !activeValidators.length ? (
+          ) : !topValidators?.validatorsAndRewards?.length ? (
             <div className="text-center p-8">
-              <p className="text-muted-foreground">No active validator data available</p>
+              <p className="text-muted-foreground">No validator data available</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {activeValidators.map((validator, index) => {
+              {topValidators.validatorsAndRewards.map((validator, index) => {
                 const rank = index + 1;
                 return (
                   <div
