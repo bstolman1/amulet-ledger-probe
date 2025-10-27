@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { TrendingUp, Users, Calendar, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
-import type { AmuletPricePoint } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -13,18 +12,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { useUsageStats } from "@/hooks/use-usage-stats";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
-import { useEffect, useMemo, useState } from "react";
-
-type PriceRangeKey = "day" | "week" | "month" | "fiveMonth" | "year" | "all";
-
-const PRICE_RANGE_OPTIONS: { key: PriceRangeKey; label: string; days?: number }[] = [
-  { key: "day", label: "1D", days: 1 },
-  { key: "week", label: "1W", days: 7 },
-  { key: "month", label: "1M", days: 30 },
-  { key: "fiveMonth", label: "5M", days: 150 },
-  { key: "year", label: "1Y", days: 365 },
-  { key: "all", label: "All" },
-];
+import { useEffect, useState } from "react";
 
 const Stats = () => {
   // Schedule daily sync for config data
@@ -68,103 +56,6 @@ const Stats = () => {
   // Usage statistics via transactions API
   const { data: usageChartData, isLoading: usageLoading, error: usageError } = useUsageStats(90);
 
-  const {
-    data: priceHistory,
-    isLoading: priceHistoryLoading,
-    isError: priceHistoryError,
-  } = useQuery({
-    queryKey: ["amuletPriceHistory"],
-    queryFn: () => scanApi.fetchAmuletPriceHistory(1200),
-    staleTime: 15 * 60 * 1000,
-    retry: 1,
-  });
-
-  const [selectedPriceRange, setSelectedPriceRange] = useState<PriceRangeKey>("month");
-
-  const selectedPriceRangeOption = useMemo(
-    () => PRICE_RANGE_OPTIONS.find((option) => option.key === selectedPriceRange),
-    [selectedPriceRange],
-  );
-
-  const filteredPriceData = useMemo(() => {
-    if (!priceHistory) return [];
-    const rangeDays = selectedPriceRangeOption?.days;
-    if (!rangeDays) return priceHistory;
-    const cutoff = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
-    return priceHistory.filter((point) => new Date(point.timestamp).getTime() >= cutoff);
-  }, [priceHistory, selectedPriceRangeOption]);
-
-  const priceChartData = useMemo(() => {
-    if (!priceHistory) return [];
-    const baseData = filteredPriceData.length > 0 ? filteredPriceData : priceHistory;
-    return baseData
-      .map((point) => {
-        const timestampMs = new Date(point.timestamp).getTime();
-        if (Number.isNaN(timestampMs)) return null;
-        return { ...point, timestampMs };
-      })
-      .filter((point): point is AmuletPricePoint & { timestampMs: number } => point !== null)
-      .sort((a, b) => a.timestampMs - b.timestampMs);
-  }, [filteredPriceData, priceHistory]);
-
-  const hasPriceData = priceChartData.length > 0;
-
-  const latestPrice = useMemo(
-    () => priceHistory?.[priceHistory.length - 1]?.price,
-    [priceHistory],
-  );
-
-  const rangeStartPrice = priceChartData.length > 0 ? priceChartData[0].price : undefined;
-  const priceChange =
-    latestPrice !== undefined && rangeStartPrice !== undefined ? latestPrice - rangeStartPrice : undefined;
-  const priceChangePct =
-    priceChange !== undefined && rangeStartPrice !== undefined && rangeStartPrice !== 0
-      ? (priceChange / rangeStartPrice) * 100
-      : undefined;
-  const lastPriceUpdate = priceHistory?.[priceHistory.length - 1]?.timestamp;
-  const priceChangePositive = priceChange !== undefined ? priceChange >= 0 : undefined;
-  const priceChangeBadgeClass =
-    priceChangePositive === undefined
-      ? "bg-muted text-muted-foreground border-border/50"
-      : priceChangePositive
-        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-        : "bg-destructive/10 text-destructive border-destructive/20";
-
-  const formatPriceValue = (value?: number) => {
-    if (value === undefined) return "--";
-    const decimals = value >= 1 ? 2 : 4;
-    return `$${value.toFixed(decimals)}`;
-  };
-
-  const formatPriceChange = (value?: number) => {
-    if (value === undefined) return "--";
-    const abs = Math.abs(value);
-    const decimals = abs >= 1 ? 2 : 4;
-    const sign = value >= 0 ? "+" : "-";
-    return `${sign}$${abs.toFixed(decimals)}`;
-  };
-
-  const formatPriceTimestamp = (value: string | number) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    if (selectedPriceRange === "day") {
-      return date.toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    }
-    if (selectedPriceRange === "week" || selectedPriceRange === "month" || selectedPriceRange === "fiveMonth") {
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
-    }
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      year: "numeric",
-    });
-  };
-
   // Calculate rounds per day based on recent data using timestamps
   const roundsPerDay = (() => {
     const entries = roundTotals?.entries || [];
@@ -200,25 +91,24 @@ const Stats = () => {
     return roundsCollected > 0 && !svParticipantIds.has(v.provider);
   });
 
-  // Categorize validators by activity duration
-  const newValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
-  const weeklyValidators = recentValidators.filter((v) => {
+  // Categorize validators by activity duration (will be redefined later using activeValidators)
+  const tempNewValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
+  const tempWeeklyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
   });
-  const monthlyValidators = recentValidators.filter((v) => {
+  const tempMonthlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
   });
-  const sixMonthValidators = recentValidators.filter((v) => {
+  const tempSixMonthValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
   });
-  const yearlyValidators = recentValidators.filter((v) => {
+  const tempYearlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
   });
-  const allTimeValidators = recentValidators;
 
   // Calculate monthly join data for all time since network launch
   const getMonthlyJoinData = () => {
@@ -293,14 +183,42 @@ const Stats = () => {
   // Get real Super Validator count from config
   const superValidatorCount = configData?.superValidators.length || 0;
 
-  // Calculate inactive validators (missed more than 1 round)
+  // Calculate inactive validators (missed rounds)
   const inactiveValidators = recentValidators.filter((v) => {
     const healthData = validatorHealthMap.get(v.provider);
-    return healthData && healthData.missed > 1;
+    // Consider inactive if missed any rounds
+    if (!healthData) return true;
+    return healthData.missed > 0;
   });
 
-  // Calculate non-SV validator count
-  const nonSvValidatorCount = recentValidators.length;
+  // Calculate ACTIVE non-SV validator count (excluding those who missed rounds)
+  const activeValidators = recentValidators.filter((v) => {
+    const healthData = validatorHealthMap.get(v.provider);
+    if (!healthData) return false;
+    return healthData.missed === 0;
+  });
+  
+  const nonSvValidatorCount = activeValidators.length;
+  const allTimeValidators = activeValidators;
+
+  // Recategorize validators by activity duration using only ACTIVE validators
+  const newValidators = activeValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
+  const weeklyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
+  });
+  const monthlyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
+  });
+  const sixMonthValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
+  });
+  const yearlyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
+  });
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
@@ -635,115 +553,6 @@ const Stats = () => {
             </div>
           </Card>
         </div>
-
-        {/* Canton Coin Price Chart */}
-        <Card className="glass-card">
-          <div className="p-6 space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-xl font-bold mb-1">Canton Coin Price</h3>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-3xl font-bold">{formatPriceValue(latestPrice)}</span>
-                  <Badge variant="outline" className={priceChangeBadgeClass}>
-                    {priceChange !== undefined && priceChangePct !== undefined
-                      ? `${formatPriceChange(priceChange)} (${priceChangePct >= 0 ? "+" : ""}${priceChangePct.toFixed(2)}%)`
-                      : "Awaiting data"}
-                  </Badge>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {selectedPriceRangeOption?.label ? `${selectedPriceRangeOption.label} change • ` : ""}
-                  {lastPriceUpdate
-                    ? `Last update ${new Date(lastPriceUpdate).toLocaleString()}`
-                    : "Waiting for price updates"}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {PRICE_RANGE_OPTIONS.map((option) => (
-                  <Button
-                    key={option.key}
-                    size="sm"
-                    variant={selectedPriceRange === option.key ? "default" : "outline"}
-                    onClick={() => setSelectedPriceRange(option.key)}
-                    disabled={priceHistoryLoading || !hasPriceData}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div className="h-[320px]">
-              {priceHistoryLoading ? (
-                <Skeleton className="h-full w-full" />
-              ) : priceHistoryError ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-sm text-destructive mb-1">Unable to load price data</p>
-                    <p className="text-xs text-muted-foreground">The Canton Scan API may be unavailable.</p>
-                  </div>
-                </div>
-              ) : !hasPriceData ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center text-sm text-muted-foreground">
-                    No price history available yet
-                  </div>
-                </div>
-              ) : (
-                <ChartContainer
-                  config={{
-                    price: {
-                      label: "Price (USD)",
-                      color: "hsl(var(--chart-1))",
-                    },
-                  }}
-                  className="h-full w-full"
-                >
-                  <AreaChart data={priceChartData}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.25} />
-                    <XAxis
-                      dataKey="timestampMs"
-                      type="number"
-                      domain={["auto", "auto"]}
-                      scale="time"
-                      className="text-xs"
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                      tickFormatter={(value) => formatPriceTimestamp(value)}
-                    />
-                    <YAxis
-                      className="text-xs"
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                      tickFormatter={(value) => {
-                        if (typeof value !== "number") return String(value);
-                        const decimals = value >= 1 ? 2 : 4;
-                        return `$${value.toFixed(decimals)}`;
-                      }}
-                    />
-                    <ChartTooltip
-                      content={<ChartTooltipContent />}
-                      labelFormatter={(value) => formatPriceTimestamp(value)}
-                      formatter={(value: number) => {
-                        const decimals = value >= 1 ? 2 : 4;
-                        return [`$${value.toFixed(decimals)}`, "Price"];
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="price"
-                      stroke="hsl(var(--chart-1))"
-                      fill="url(#colorPrice)"
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ChartContainer>
-              )}
-            </div>
-          </div>
-        </Card>
 
         {/* Detailed Lists */}
         <Card className="glass-card">
