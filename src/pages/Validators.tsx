@@ -334,10 +334,10 @@ const ActiveValidatorsSection = () => {
     if (svParticipantIds.has(v.provider)) return false;
     
     // Exclude validators who have missed rounds
-    if (v.numRoundsMissed > 0) return false;
+    if ((v.numRoundsMissed || 0) > 0) return false;
     
     // Exclude validators who haven't collected in the last 50 rounds
-    const roundsSinceLastCollection = (topValidators.latestRound || 0) - v.lastCollectedInRound;
+    const roundsSinceLastCollection = (topValidators.latestRound || 0) - (v.lastCollectedInRound || 0);
     if (roundsSinceLastCollection > 50) return false;
     
     return true;

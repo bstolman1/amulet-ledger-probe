@@ -183,21 +183,19 @@ const Stats = () => {
   // Get real Super Validator count from config
   const superValidatorCount = configData?.superValidators.length || 0;
 
-  // Calculate inactive validators (missed rounds or haven't collected recently)
+  // Calculate inactive validators (missed rounds)
   const inactiveValidators = recentValidators.filter((v) => {
     const healthData = validatorHealthMap.get(v.provider);
-    // Consider inactive if missed any rounds or last collection was more than 50 rounds ago
+    // Consider inactive if missed any rounds
     if (!healthData) return true;
-    const roundsSinceLastCollection = currentRound - (validatorLivenessData?.validatorsReceivedFaucets.find(vf => vf.validator === v.provider)?.lastCollectedInRound || 0);
-    return healthData.missed > 0 || roundsSinceLastCollection > 50;
+    return healthData.missed > 0;
   });
 
   // Calculate ACTIVE non-SV validator count (excluding those who missed rounds)
   const activeValidators = recentValidators.filter((v) => {
     const healthData = validatorHealthMap.get(v.provider);
     if (!healthData) return false;
-    const roundsSinceLastCollection = currentRound - (validatorLivenessData?.validatorsReceivedFaucets.find(vf => vf.validator === v.provider)?.lastCollectedInRound || 0);
-    return healthData.missed === 0 && roundsSinceLastCollection <= 50;
+    return healthData.missed === 0;
   });
   
   const nonSvValidatorCount = activeValidators.length;
