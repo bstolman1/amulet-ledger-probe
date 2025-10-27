@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { TrendingUp, Users, Calendar, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
+import type { AmuletPricePoint } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -96,7 +97,14 @@ const Stats = () => {
   const priceChartData = useMemo(() => {
     if (!priceHistory) return [];
     const baseData = filteredPriceData.length > 0 ? filteredPriceData : priceHistory;
-    return baseData.map((point) => ({ ...point }));
+    return baseData
+      .map((point) => {
+        const timestampMs = new Date(point.timestamp).getTime();
+        if (Number.isNaN(timestampMs)) return null;
+        return { ...point, timestampMs };
+      })
+      .filter((point): point is AmuletPricePoint & { timestampMs: number } => point !== null)
+      .sort((a, b) => a.timestampMs - b.timestampMs);
   }, [filteredPriceData, priceHistory]);
 
   const hasPriceData = priceChartData.length > 0;
@@ -136,8 +144,9 @@ const Stats = () => {
     return `${sign}$${abs.toFixed(decimals)}`;
   };
 
-  const formatPriceTimestamp = (value: string) => {
+  const formatPriceTimestamp = (value: string | number) => {
     const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
     if (selectedPriceRange === "day") {
       return date.toLocaleTimeString("en-US", {
         hour: "numeric",
@@ -697,10 +706,13 @@ const Stats = () => {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.25} />
                     <XAxis
-                      dataKey="timestamp"
+                      dataKey="timestampMs"
+                      type="number"
+                      domain={["auto", "auto"]}
+                      scale="time"
                       className="text-xs"
                       tick={{ fill: "hsl(var(--muted-foreground))" }}
-                      tickFormatter={formatPriceTimestamp}
+                      tickFormatter={(value) => formatPriceTimestamp(value)}
                     />
                     <YAxis
                       className="text-xs"
@@ -713,9 +725,7 @@ const Stats = () => {
                     />
                     <ChartTooltip
                       content={<ChartTooltipContent />}
-                      labelFormatter={(value) =>
-                        formatPriceTimestamp(typeof value === "string" ? value : String(value))
-                      }
+                      labelFormatter={(value) => formatPriceTimestamp(value)}
                       formatter={(value: number) => {
                         const decimals = value >= 1 ? 2 : 4;
                         return [`$${value.toFixed(decimals)}`, "Price"];
