@@ -91,25 +91,24 @@ const Stats = () => {
     return roundsCollected > 0 && !svParticipantIds.has(v.provider);
   });
 
-  // Categorize validators by activity duration
-  const newValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
-  const weeklyValidators = recentValidators.filter((v) => {
+  // Categorize validators by activity duration (will be redefined later using activeValidators)
+  const tempNewValidators = recentValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
+  const tempWeeklyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
   });
-  const monthlyValidators = recentValidators.filter((v) => {
+  const tempMonthlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
   });
-  const sixMonthValidators = recentValidators.filter((v) => {
+  const tempSixMonthValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
   });
-  const yearlyValidators = recentValidators.filter((v) => {
+  const tempYearlyValidators = recentValidators.filter((v) => {
     const rounds = parseFloat(v.rewards);
     return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
   });
-  const allTimeValidators = recentValidators;
 
   // Calculate monthly join data for all time since network launch
   const getMonthlyJoinData = () => {
@@ -184,14 +183,44 @@ const Stats = () => {
   // Get real Super Validator count from config
   const superValidatorCount = configData?.superValidators.length || 0;
 
-  // Calculate inactive validators (missed more than 1 round)
+  // Calculate inactive validators (missed rounds or haven't collected recently)
   const inactiveValidators = recentValidators.filter((v) => {
     const healthData = validatorHealthMap.get(v.provider);
-    return healthData && healthData.missed > 1;
+    // Consider inactive if missed any rounds or last collection was more than 50 rounds ago
+    if (!healthData) return true;
+    const roundsSinceLastCollection = currentRound - (validatorLivenessData?.validatorsReceivedFaucets.find(vf => vf.validator === v.provider)?.lastCollectedInRound || 0);
+    return healthData.missed > 0 || roundsSinceLastCollection > 50;
   });
 
-  // Calculate non-SV validator count
-  const nonSvValidatorCount = recentValidators.length;
+  // Calculate ACTIVE non-SV validator count (excluding those who missed rounds)
+  const activeValidators = recentValidators.filter((v) => {
+    const healthData = validatorHealthMap.get(v.provider);
+    if (!healthData) return false;
+    const roundsSinceLastCollection = currentRound - (validatorLivenessData?.validatorsReceivedFaucets.find(vf => vf.validator === v.provider)?.lastCollectedInRound || 0);
+    return healthData.missed === 0 && roundsSinceLastCollection <= 50;
+  });
+  
+  const nonSvValidatorCount = activeValidators.length;
+  const allTimeValidators = activeValidators;
+
+  // Recategorize validators by activity duration using only ACTIVE validators
+  const newValidators = activeValidators.filter((v) => parseFloat(v.rewards) < roundsPerDay);
+  const weeklyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 7 && rounds >= roundsPerDay;
+  });
+  const monthlyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 30 && rounds >= roundsPerDay * 7;
+  });
+  const sixMonthValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 180 && rounds >= roundsPerDay * 30;
+  });
+  const yearlyValidators = activeValidators.filter((v) => {
+    const rounds = parseFloat(v.rewards);
+    return rounds < roundsPerDay * 365 && rounds >= roundsPerDay * 180;
+  });
 
   const formatPartyId = (partyId: string) => {
     const parts = partyId.split("::");
