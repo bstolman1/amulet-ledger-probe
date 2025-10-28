@@ -1,7 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
-import type { Reassignment, Transaction } from "@/lib/api-client";
-import type { Transaction } from "@/lib/api-client";
 
 /**
  * Calculate total burnt Canton Coin from transaction events.
@@ -148,7 +146,7 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
 /**
  * Calculate total burn from all events in a transaction
  */
-function calculateBurnFromTransaction(transaction: Transaction): BurnCalculationResult {
+function calculateBurnFromTransaction(transaction: any): BurnCalculationResult {
   const result: BurnCalculationResult = {
     totalBurn: 0,
     trafficBurn: 0,
@@ -175,19 +173,6 @@ function calculateBurnFromTransaction(transaction: Transaction): BurnCalculation
   result.totalBurn = result.trafficBurn + result.transferBurn + result.cnsBurn + result.preapprovalBurn;
   
   return result;
-}
-
-function isTransaction(update: Transaction | Reassignment): update is Transaction {
-  return "events_by_id" in update;
-}
-
-function getUpdateMigrationId(update: Transaction | Reassignment): number | undefined {
-  if (isTransaction(update)) {
-    return update.migration_id;
-  }
-
-  const eventMigrationId = update.event?.migration_id;
-  return typeof eventMigrationId === "number" ? eventMigrationId : undefined;
 }
 
 interface UseBurnStatsOptions {
@@ -224,60 +209,35 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
-      let pageEndRecordTime = new Date(startTime.getTime() - 1).toISOString();
-      let pageEndRecordTime: string | undefined;
-      let pageEndMigrationId: number | undefined;
+      let pageEndEventId: string | undefined;
       const maxPages = 100; // Safety limit
       let pagesProcessed = 0;
 
       while (hasMore && pagesProcessed < maxPages) {
         const response = await scanApi.fetchUpdates({
           page_size: 100,
-          after: pageEndRecordTime
-            ? {
-                after_record_time: pageEndRecordTime,
-                ...(pageEndMigrationId !== undefined
-                  ? { after_migration_id: pageEndMigrationId }
-                  : {}),
-          after: pageEndRecordTime && pageEndMigrationId !== undefined
-            ? {
-                after_migration_id: pageEndMigrationId,
-                after_record_time: pageEndRecordTime,
-              }
-            : undefined,
+          after: pageEndEventId ? {
+            after_migration_id: 0,
+            after_record_time: pageEndEventId,
+          } : undefined,
         });
 
-        const updates = response.transactions || [];
-
-        if (updates.length === 0) {
+        if (!response.transactions || response.transactions.length === 0) {
           hasMore = false;
           break;
         }
 
-        let batchCursorRecordTime: string | undefined;
-        let batchCursorMigrationId: number | undefined;
-
-        for (const update of updates) {
-          batchCursorRecordTime = update.record_time;
-          const migrationId = getUpdateMigrationId(update);
-          if (migrationId !== undefined) {
-            batchCursorMigrationId = migrationId;
-          }
-
-          if (!isTransaction(update)) {
-            continue;
-          }
-
+        for (const transaction of response.transactions) {
           // Check if transaction is within our time range
-          const txTime = new Date(update.record_time);
+          const txTime = new Date(transaction.record_time);
           if (txTime < startTime) {
             hasMore = false;
             break;
           }
 
           // Calculate burn for this transaction
-          const txBurn = calculateBurnFromTransaction(update);
-
+          const txBurn = calculateBurnFromTransaction(transaction);
+          
           // Add to totals
           result.totalBurn += txBurn.totalBurn;
           result.trafficBurn += txBurn.trafficBurn;
@@ -303,29 +263,9 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
         }
 
-        if (!batchCursorRecordTime) {
-          hasMore = false;
-          break;
-        }
-
-        if (
-          batchCursorRecordTime === pageEndRecordTime &&
-          batchCursorMigrationId === pageEndMigrationId
-        ) {
         // Set up for next page
-        const lastTxWithMigration = [...response.transactions]
-          .reverse()
-          .find((tx): tx is Transaction => (tx as Transaction).migration_id !== undefined);
-
-        if (!lastTxWithMigration) {
-          hasMore = false;
-          break;
-        }
-
-        pageEndRecordTime = batchCursorRecordTime;
-        pageEndMigrationId = batchCursorMigrationId;
-        pageEndRecordTime = lastTxWithMigration.record_time;
-        pageEndMigrationId = lastTxWithMigration.migration_id;
+        const lastTx = response.transactions[response.transactions.length - 1];
+        pageEndEventId = lastTx.record_time;
         pagesProcessed++;
       }
 
