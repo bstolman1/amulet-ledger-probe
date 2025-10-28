@@ -147,7 +147,7 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
 /**
  * Calculate total burn from all events in a transaction
  */
-function calculateBurnFromTransaction(transaction: any): BurnCalculationResult {
+function calculateBurnFromTransaction(transaction: Transaction): BurnCalculationResult {
   const result: BurnCalculationResult = {
     totalBurn: 0,
     trafficBurn: 0,
@@ -174,6 +174,19 @@ function calculateBurnFromTransaction(transaction: any): BurnCalculationResult {
   result.totalBurn = result.trafficBurn + result.transferBurn + result.cnsBurn + result.preapprovalBurn;
   
   return result;
+}
+
+function isTransaction(update: Transaction | Reassignment): update is Transaction {
+  return "events_by_id" in update;
+}
+
+function getUpdateMigrationId(update: Transaction | Reassignment): number | undefined {
+  if (isTransaction(update)) {
+    return update.migration_id;
+  }
+
+  const eventMigrationId = update.event?.migration_id;
+  return typeof eventMigrationId === "number" ? eventMigrationId : undefined;
 }
 
 interface UseBurnStatsOptions {
@@ -226,22 +239,37 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
             : undefined,
         });
 
-        if (!response.transactions || response.transactions.length === 0) {
+        const updates = response.transactions || [];
+
+        if (updates.length === 0) {
           hasMore = false;
           break;
         }
 
-        for (const transaction of response.transactions) {
+        let batchCursorRecordTime: string | undefined;
+        let batchCursorMigrationId: number | undefined;
+
+        for (const update of updates) {
+          batchCursorRecordTime = update.record_time;
+          const migrationId = getUpdateMigrationId(update);
+          if (migrationId !== undefined) {
+            batchCursorMigrationId = migrationId;
+          }
+
+          if (!isTransaction(update)) {
+            continue;
+          }
+
           // Check if transaction is within our time range
-          const txTime = new Date(transaction.record_time);
+          const txTime = new Date(update.record_time);
           if (txTime < startTime) {
             hasMore = false;
             break;
           }
 
           // Calculate burn for this transaction
-          const txBurn = calculateBurnFromTransaction(transaction);
-          
+          const txBurn = calculateBurnFromTransaction(update);
+
           // Add to totals
           result.totalBurn += txBurn.totalBurn;
           result.trafficBurn += txBurn.trafficBurn;
