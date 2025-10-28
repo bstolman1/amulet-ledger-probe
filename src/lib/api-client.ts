@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_SCAN_API_URL || DEFAULT_API_BASE;
 
 export interface UpdateHistoryRequest {
   after?: {
-    after_migration_id: number;
+    after_migration_id?: number;
     after_record_time: string;
   };
   page_size: number;
