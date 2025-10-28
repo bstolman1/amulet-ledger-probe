@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
+import type { Reassignment, Transaction } from "@/lib/api-client";
 import type { Transaction } from "@/lib/api-client";
 
 /**
@@ -223,6 +224,7 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
+      let pageEndRecordTime = new Date(startTime.getTime() - 1).toISOString();
       let pageEndRecordTime: string | undefined;
       let pageEndMigrationId: number | undefined;
       const maxPages = 100; // Safety limit
@@ -231,6 +233,12 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
       while (hasMore && pagesProcessed < maxPages) {
         const response = await scanApi.fetchUpdates({
           page_size: 100,
+          after: pageEndRecordTime
+            ? {
+                after_record_time: pageEndRecordTime,
+                ...(pageEndMigrationId !== undefined
+                  ? { after_migration_id: pageEndMigrationId }
+                  : {}),
           after: pageEndRecordTime && pageEndMigrationId !== undefined
             ? {
                 after_migration_id: pageEndMigrationId,
@@ -295,6 +303,15 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
         }
 
+        if (!batchCursorRecordTime) {
+          hasMore = false;
+          break;
+        }
+
+        if (
+          batchCursorRecordTime === pageEndRecordTime &&
+          batchCursorMigrationId === pageEndMigrationId
+        ) {
         // Set up for next page
         const lastTxWithMigration = [...response.transactions]
           .reverse()
@@ -305,6 +322,8 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           break;
         }
 
+        pageEndRecordTime = batchCursorRecordTime;
+        pageEndMigrationId = batchCursorMigrationId;
         pageEndRecordTime = lastTxWithMigration.record_time;
         pageEndMigrationId = lastTxWithMigration.migration_id;
         pagesProcessed++;
