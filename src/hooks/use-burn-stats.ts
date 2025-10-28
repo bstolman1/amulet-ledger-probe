@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
-import type { Reassignment, Transaction } from "@/lib/api-client";
+import type { Transaction } from "@/lib/api-client";
 
 /**
  * Calculate total burnt Canton Coin from transaction events.
@@ -231,12 +231,10 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
       while (hasMore && pagesProcessed < maxPages) {
         const response = await scanApi.fetchUpdates({
           page_size: 100,
-          after: pageEndRecordTime
+          after: pageEndRecordTime && pageEndMigrationId !== undefined
             ? {
+                after_migration_id: pageEndMigrationId,
                 after_record_time: pageEndRecordTime,
-                ...(pageEndMigrationId !== undefined
-                  ? { after_migration_id: pageEndMigrationId }
-                  : {}),
               }
             : undefined,
         });
@@ -297,13 +295,18 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
         }
 
-        if (!batchCursorRecordTime) {
+        // Set up for next page
+        const lastTxWithMigration = [...response.transactions]
+          .reverse()
+          .find((tx): tx is Transaction => (tx as Transaction).migration_id !== undefined);
+
+        if (!lastTxWithMigration) {
           hasMore = false;
           break;
         }
 
-        pageEndRecordTime = batchCursorRecordTime;
-        pageEndMigrationId = batchCursorMigrationId;
+        pageEndRecordTime = lastTxWithMigration.record_time;
+        pageEndMigrationId = lastTxWithMigration.migration_id;
         pagesProcessed++;
       }
 
