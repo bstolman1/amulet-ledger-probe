@@ -20,22 +20,41 @@ function toDateKey(dateStr: string | Date): string {
 }
 
 function extractParties(tx: TransactionHistoryItem): string[] {
-  // Count only parties that SENT tokens (positive-value transfers) on this day
-  const t = tx as any;
-  if (!t.transfer || !t.transfer.sender?.party) return [];
+  const parties = new Set<string>();
 
-  const totalSent = (Array.isArray(t.transfer.receivers) ? t.transfer.receivers : []).reduce(
-    (sum: number, r: any) => {
-      const n = parseFloat(r?.amount ?? "0");
-      return sum + (isNaN(n) ? 0 : n);
-    },
-    0,
-  );
+  if (tx.transfer) {
+    const { sender, receivers, provider } = tx.transfer;
+    if (sender?.party) parties.add(sender.party);
+    receivers?.forEach((receiver) => {
+      if (receiver.party) {
+        parties.add(receiver.party);
+      }
+    });
+    if (provider) parties.add(provider);
+  }
 
-  return totalSent > 0 ? [t.transfer.sender.party] : [];
+  if (tx.mint?.amulet_owner) {
+    parties.add(tx.mint.amulet_owner);
+  }
+
+  if (tx.tap?.amulet_owner) {
+    parties.add(tx.tap.amulet_owner);
+  }
+
+  const abortReceiver = tx.abort_transfer_instruction?.transferInstructionReceiver;
+  if (abortReceiver) {
+    parties.add(abortReceiver);
+  }
+
+  return Array.from(parties);
 }
 
-function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; txCount: number }>, startDate: Date, endDate: Date): UsageCharts {
+function buildSeriesFromDaily(
+  perDay: Record<string, { partySet: Set<string>; txCount: number }>,
+  startDate: Date,
+  endDate: Date,
+  baselineParties: Set<string>,
+): UsageCharts {
   const allDates: string[] = [];
   const cursor = new Date(startDate);
   const end = new Date(endDate);
@@ -50,13 +69,21 @@ function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; tx
   const cumulativeParties: { date: string; parties: number }[] = [];
   const dailyActiveUsers: { date: string; daily: number; avg7d: number }[] = [];
   const dailyTransactions: { date: string; daily: number; avg7d: number }[] = [];
-  const seen = new Set<string>();
+  const seen = new Set<string>(baselineParties);
+  let cumulativeUnique = baselineParties.size;
 
   allDates.forEach((dateKey, idx) => {
     const dayEntry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
     // cumulative
-    dayEntry.partySet.forEach((p) => seen.add(p));
-    cumulativeParties.push({ date: dateKey, parties: seen.size });
+    let newPartiesToday = 0;
+    dayEntry.partySet.forEach((p) => {
+      if (!seen.has(p)) {
+        seen.add(p);
+        newPartiesToday++;
+      }
+    });
+    cumulativeUnique += newPartiesToday;
+    cumulativeParties.push({ date: dateKey, parties: cumulativeUnique });
 
     // daily users + 7d avg
     const daily = dayEntry.partySet.size;
@@ -75,7 +102,7 @@ function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; tx
     dailyTransactions.push({ date: dateKey, daily: txDaily, avg7d: txAvg7 });
   });
 
-return {
+  return {
     cumulativeParties,
     dailyActiveUsers,
     dailyTransactions,
@@ -97,6 +124,7 @@ export function useUsageStats(days: number = 90) {
       start.setDate(end.getDate() - Math.max(1, days));
 
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
+      const baselineParties = new Set<string>();
 
       let pageEnd: string | undefined = undefined;
       let pagesFetched = 0;
@@ -118,52 +146,48 @@ export function useUsageStats(days: number = 90) {
             break;
           }
 
-          let reachedCutoff = false;
           let txProcessedThisPage = 0;
-          
+          let txCountedAsBaseline = 0;
+
           for (const tx of txs) {
             const d = new Date(tx.date);
+            const parties = extractParties(tx);
+
             if (d < start) {
-              reachedCutoff = true;
-              break; // Stop processing this page once we reach the cutoff
+              parties.forEach((p) => baselineParties.add(p));
+              txCountedAsBaseline++;
+              continue;
             }
+
             const key = toDateKey(tx.date);
-if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
-const senders = extractParties(tx);
-senders.forEach((p) => perDay[key].partySet.add(p));
-if (senders.length > 0) {
-  perDay[key].txCount += 1; // count only positive-value transfer transactions
-}
-txProcessedThisPage++;
-totalTransactions++;
+            if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+            parties.forEach((p) => perDay[key].partySet.add(p));
+            perDay[key].txCount += 1;
+            txProcessedThisPage++;
+            totalTransactions++;
           }
 
           pageEnd = txs[txs.length - 1].event_id;
           pagesFetched++;
-          
+
           console.log(
             `Page ${pagesFetched}/${maxPages}: Processed ${txProcessedThisPage} txs, ` +
             `Total: ${totalTransactions} txs across ${Object.keys(perDay).length} days, ` +
-            `Oldest date: ${txs[txs.length - 1]?.date || 'N/A'}`
+            `Oldest date: ${txs[txs.length - 1]?.date || 'N/A'}, ` +
+            `Baseline additions: ${txCountedAsBaseline}`
           );
-          
-          if (reachedCutoff) {
-            console.log(`Reached date cutoff at page ${pagesFetched}`);
-            break;
-          }
         } catch (error) {
           console.error(`Error fetching page ${pagesFetched}:`, error);
           break;
         }
       }
 
-      console.log(`Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days`);
-      
-      if (totalTransactions === 0) {
-        throw new Error("No transactions fetched");
-      }
+      console.log(
+        `Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days, ` +
+          `${baselineParties.size} baseline parties before ${start.toISOString()}`,
+      );
 
-      return buildSeriesFromDaily(perDay, start, end);
+      return buildSeriesFromDaily(perDay, start, end, baselineParties);
     },
     staleTime: 5 * 60 * 1000,
     retry: 1,
