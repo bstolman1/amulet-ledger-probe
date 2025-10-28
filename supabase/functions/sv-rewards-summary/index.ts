@@ -54,16 +54,6 @@ const TEMPLATE_QUALIFIED_NAMES = {
   closedMiningRound: 'Splice.Round:ClosedMiningRound',
 };
 
-class ScanApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number = 502) {
-    super(message);
-    this.name = 'ScanApiError';
-    this.status = status;
-  }
-}
-
 class DamlDecimal {
   value: number;
 
@@ -113,10 +103,7 @@ async function fetchTransactions(
     clearTimeout(timeout);
 
     if (!response.ok) {
-      throw new ScanApiError(
-        `Scan API request failed with status ${response.status} ${response.statusText}`,
-        response.status >= 500 ? 502 : 400
-      );
+      throw new Error(`Failed to fetch transactions: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -124,15 +111,9 @@ async function fetchTransactions(
   } catch (error) {
     clearTimeout(timeout);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ScanApiError('Request timeout: Scan API did not respond within 25 seconds', 504);
+      throw new Error('Request timeout: Scan API did not respond within 25 seconds');
     }
-    if (error instanceof ScanApiError) {
-      throw error;
-    }
-    if (error instanceof Error) {
-      throw new ScanApiError(`Failed to reach Canton Scan API: ${error.message}`, 503);
-    }
-    throw new ScanApiError('Failed to reach Canton Scan API: Unknown error', 503);
+    throw error;
   }
 }
 
@@ -210,10 +191,6 @@ function processCouponCreated(
   const weight = parseInt(getLfValue(payload, ['weight']));
   const expiresAt = getLfValue(payload, ['expiresAt']);
 
-  if (!Number.isFinite(round) || !Number.isFinite(weight)) {
-    return;
-  }
-
   state.activeRewards.set(event.contract_id, {
     contractId: event.contract_id,
     beneficiary: rewardBeneficiary,
@@ -227,6 +204,7 @@ function processCouponCreated(
 function processCouponExercised(
   event: any,
   state: AppState,
+  weight: number,
   alreadyMintedWeight: number
 ): void {
   const { qualifiedName } = parseTemplateId(event.template_id);
@@ -237,6 +215,7 @@ function processCouponExercised(
   const coupon = state.activeRewards.get(event.contract_id);
   
   if (!coupon) return;
+  if (coupon.weight !== weight) return;
 
   const isExpired = choiceName === 'SvRewardCoupon_DsoExpire';
   const isClaimed = choiceName === 'SvRewardCoupon_ArchiveAsBeneficiary';
@@ -249,7 +228,7 @@ function processCouponExercised(
   const miningRound = rounds.get(coupon.round);
 
   if (miningRound) {
-    const amount = calculateRewardAmount(coupon.weight, miningRound.issuancePerSvReward, alreadyMintedWeight);
+    const amount = calculateRewardAmount(weight, miningRound.issuancePerSvReward, alreadyMintedWeight);
 
     if (isExpired) {
       state.expiredCount++;
@@ -269,6 +248,7 @@ function processEvents(
   state: AppState,
   beneficiary: string,
   endRecordTime: Date,
+  weight: number,
   alreadyMintedWeight: number,
   phase: 'rounds' | 'coupons'
 ): void {
@@ -283,7 +263,7 @@ function processEvents(
         processCouponCreated(event, transaction, state, beneficiary, endRecordTime);
       }
     } else if (event.choice && phase === 'coupons') {
-      processCouponExercised(event, state, alreadyMintedWeight);
+      processCouponExercised(event, state, weight, alreadyMintedWeight);
     }
 
     // Process child events recursively
@@ -295,6 +275,7 @@ function processEvents(
         state,
         beneficiary,
         endRecordTime,
+        weight,
         alreadyMintedWeight,
         phase
       );
@@ -309,7 +290,7 @@ async function calculateRewardsSummary(
   beginRecordTime: string,
   endRecordTime: string,
   beginMigrationId: number,
-  _weight: number,
+  weight: number,
   alreadyMintedWeight: number,
   gracePeriodMinutes: number
 ): Promise<RewardSummary> {
@@ -319,7 +300,7 @@ async function calculateRewardsSummary(
     beginRecordTime,
     endRecordTime,
     beginMigrationId,
-    weight: _weight,
+    weight,
     alreadyMintedWeight,
     gracePeriodMinutes,
     scanUrl
@@ -373,6 +354,7 @@ async function calculateRewardsSummary(
           state,
           beneficiary,
           endTime,
+          weight,
           alreadyMintedWeight,
           'rounds'
         );
@@ -423,6 +405,7 @@ async function calculateRewardsSummary(
           state,
           beneficiary,
           endTime,
+          weight,
           alreadyMintedWeight,
           'coupons'
         );
@@ -491,21 +474,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const {
+    const { 
       beneficiary,
       beginRecordTime,
       endRecordTime,
       beginMigrationId,
-      weight = null,
-      alreadyMintedWeight = 0,
+      weight,
+      alreadyMintedWeight,
       gracePeriodMinutes = 60,
       scanUrl = 'https://scan.sv-1.global.canton.network.sync.global'
     } = await req.json();
 
-    if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined) {
+    if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined || weight === undefined || alreadyMintedWeight === undefined) {
       return new Response(
-        JSON.stringify({
-          error: 'Missing required parameters: beneficiary, beginRecordTime, endRecordTime, beginMigrationId'
+        JSON.stringify({ 
+          error: 'Missing required parameters: beneficiary, beginRecordTime, endRecordTime, beginMigrationId, weight, alreadyMintedWeight' 
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -517,7 +500,7 @@ Deno.serve(async (req) => {
       beginRecordTime,
       endRecordTime,
       beginMigrationId,
-      weight ?? 0,
+      weight,
       alreadyMintedWeight,
       gracePeriodMinutes
     );
@@ -528,16 +511,8 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('Error calculating rewards summary:', error);
-    if (error instanceof ScanApiError) {
-      return new Response(
-        JSON.stringify({
-          error: error.message
-        }),
-        { status: error.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
     return new Response(
-      JSON.stringify({
+      JSON.stringify({ 
         error: error instanceof Error ? error.message : 'Unknown error occurred',
         details: error instanceof Error ? error.stack : undefined
       }),
