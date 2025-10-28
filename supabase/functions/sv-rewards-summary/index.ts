@@ -54,6 +54,16 @@ const TEMPLATE_QUALIFIED_NAMES = {
   closedMiningRound: 'Splice.Round:ClosedMiningRound',
 };
 
+class ScanApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number = 502) {
+    super(message);
+    this.name = 'ScanApiError';
+    this.status = status;
+  }
+}
+
 class DamlDecimal {
   value: number;
 
@@ -103,7 +113,10 @@ async function fetchTransactions(
     clearTimeout(timeout);
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+      throw new ScanApiError(
+        `Scan API request failed with status ${response.status} ${response.statusText}`,
+        response.status >= 500 ? 502 : 400
+      );
     }
 
     const data = await response.json();
@@ -111,9 +124,15 @@ async function fetchTransactions(
   } catch (error) {
     clearTimeout(timeout);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: Scan API did not respond within 25 seconds');
+      throw new ScanApiError('Request timeout: Scan API did not respond within 25 seconds', 504);
     }
-    throw error;
+    if (error instanceof ScanApiError) {
+      throw error;
+    }
+    if (error instanceof Error) {
+      throw new ScanApiError(`Failed to reach Canton Scan API: ${error.message}`, 503);
+    }
+    throw new ScanApiError('Failed to reach Canton Scan API: Unknown error', 503);
   }
 }
 
@@ -190,6 +209,10 @@ function processCouponCreated(
   const round = parseInt(getLfValue(payload, ['round', 'number']));
   const weight = parseInt(getLfValue(payload, ['weight']));
   const expiresAt = getLfValue(payload, ['expiresAt']);
+
+  if (!Number.isFinite(round) || !Number.isFinite(weight)) {
+    return;
+  }
 
   state.activeRewards.set(event.contract_id, {
     contractId: event.contract_id,
@@ -505,8 +528,16 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('Error calculating rewards summary:', error);
+    if (error instanceof ScanApiError) {
+      return new Response(
+        JSON.stringify({
+          error: error.message
+        }),
+        { status: error.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         error: error instanceof Error ? error.message : 'Unknown error occurred',
         details: error instanceof Error ? error.stack : undefined
       }),
