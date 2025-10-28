@@ -3,6 +3,7 @@ import { scanApi } from "@/lib/api-client";
 import { Card } from "@/components/ui/card";
 import { Flame, Coins, TrendingUp, TrendingDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBurnStats } from "@/hooks/use-burn-stats";
 
 export const BurnMintStats = () => {
   const { data: latestRound, isPending: latestPending } = useQuery({
@@ -24,31 +25,8 @@ export const BurnMintStats = () => {
     staleTime: 60_000,
   });
 
-  // ✅ STABLE BURN FETCHER — paginated and deterministic
-  const { data: last24hPartyTotals, isPending: partyPending, isError: partyError } = useQuery({
-    queryKey: ["roundPartyTotals24h", latestRound?.round],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      const start = Math.max(0, latestRound.round - (roundsPerDay - 1));
-      const maxChunk = 25;
-      const entries: any[] = [];
-      for (let s = start; s <= latestRound.round; s += maxChunk) {
-        const e = Math.min(s + maxChunk - 1, latestRound.round);
-        const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
-        if (res?.entries?.length) entries.push(...res.entries);
-        await new Promise(r => setTimeout(r, 200)); // pacing to avoid throttling
-      }
-      // Sort deterministically
-      entries.sort((a, b) => {
-        if (a.round === b.round) return a.party.localeCompare(b.party);
-        return a.round - b.round;
-      });
-      return { entries };
-    },
-    enabled: !!latestRound,
-    staleTime: 300_000, // cache for 5min
-    retry: 1,
-  });
+  // Use comprehensive burn calculation hook
+  const { data: burnStats, isPending: burnPending, isError: burnError } = useBurnStats({ days: 1 });
 
   const { data: currentRound, isPending: currentPending } = useQuery({
     queryKey: ["currentRound", latestRound?.round],
@@ -72,13 +50,7 @@ export const BurnMintStats = () => {
     }
   }
 
-  let dailyBurn = 0;
-  if (last24hPartyTotals?.entries?.length) {
-    for (const e of last24hPartyTotals.entries) {
-      const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
-      if (!isNaN(spent)) dailyBurn += spent;
-    }
-  }
+  const dailyBurn = burnStats?.totalBurn || 0;
 
   const currentRoundData = currentRound?.entries?.[0];
   const cumulativeIssued = parseFloat(
@@ -86,7 +58,7 @@ export const BurnMintStats = () => {
   );
 
   const isLoading =
-    latestPending || totalsPending || currentPending || partyPending;
+    latestPending || totalsPending || currentPending || burnPending;
 
   // 🧱 Render
   return (
@@ -115,7 +87,7 @@ export const BurnMintStats = () => {
         </div>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
-        ) : partyError ? (
+        ) : burnError ? (
           <>
             <p className="text-2xl font-bold text-muted-foreground mb-1">--</p>
             <p className="text-xs text-destructive">API temporarily unavailable</p>
@@ -125,7 +97,9 @@ export const BurnMintStats = () => {
             <p className="text-3xl font-bold text-destructive mb-1">
               {dailyBurn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </p>
-            <p className="text-xs text-muted-foreground">CC burned in last 24h</p>
+            <p className="text-xs text-muted-foreground">
+              CC burned in last 24h (traffic, transfers, CNS, pre-approvals)
+            </p>
           </>
         )}
       </Card>

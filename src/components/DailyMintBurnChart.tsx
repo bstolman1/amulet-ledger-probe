@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from "recharts";
+import { useBurnStats } from "@/hooks/use-burn-stats";
 
 export const DailyMintBurnChart = () => {
   const { data: latestRound } = useQuery({
@@ -15,6 +16,9 @@ export const DailyMintBurnChart = () => {
   const roundsPerDay = 144; // ~10 minutes per round
   const rangeDays = 30; // expanded for more data
   const roundsToFetch = Math.max(1, rangeDays * roundsPerDay);
+
+  // Fetch comprehensive burn stats for 30 days
+  const { data: burnStats, isPending: burnLoading } = useBurnStats({ days: rangeDays });
 
   // Fetch per-round totals for minting data
   const { data: yearlyTotals, isPending: mintLoading } = useQuery({
@@ -37,68 +41,26 @@ export const DailyMintBurnChart = () => {
     retry: 1,
   });
 
-  // Fetch per-round party totals for burn data
-  const { data: yearlyBurnTotals, isPending: burnLoading } = useQuery({
-    queryKey: ["burnTotals", latestRound?.round, rangeDays],
-    queryFn: async () => {
-      if (!latestRound) return null;
-      const start = Math.max(0, latestRound.round - roundsToFetch);
-      const chunkSize = 25; // smaller chunks to avoid server limits
-      const entries: any[] = [];
-      for (let s = start; s <= latestRound.round; s += chunkSize) {
-        const e = Math.min(s + chunkSize - 1, latestRound.round);
-        try {
-          const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
-          if (res?.entries?.length) entries.push(...res.entries);
-        } catch (err) {
-          console.warn("round-party-totals chunk failed", { s, e, err });
-          // light backoff then retry once
-          await new Promise(r => setTimeout(r, 300));
-          try {
-            const res2 = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
-            if (res2?.entries?.length) entries.push(...res2.entries);
-          } catch (err2) {
-            console.error("round-party-totals retry failed", { s, e, err2 });
-          }
-        }
-      }
-      return { entries } as { entries: typeof entries };
-    },
-    enabled: !!latestRound,
-    staleTime: 60_000,
-    retry: 0,
-  });
-
   const chartData = (() => {
     const totalsLen = yearlyTotals?.entries?.length || 0;
-    const burnLen = yearlyBurnTotals?.entries?.length || 0;
+    const burnByDay = burnStats?.byDay || {};
     
     console.info("DailyMintBurnChart START:", { 
       totalsLen, 
-      burnLen,
+      burnDaysCount: Object.keys(burnByDay).length,
       mintLoading,
       burnLoading,
       sampleEntry: yearlyTotals?.entries?.[0]
     });
     
-    if (!totalsLen && !burnLen) {
+    if (!totalsLen && !Object.keys(burnByDay).length) {
       console.warn("DailyMintBurnChart: NO DATA AT ALL");
       return [] as Array<{ date: string; minted: number; burned: number }>;
     }
 
     const byDay: Record<string, { minted: number; burned: number; date: Date }> = {};
-    
-    // Build round-to-date mapping from yearlyTotals
-    const roundToDate: Record<number, string> = {};
-    if (yearlyTotals?.entries?.length) {
-      for (const e of yearlyTotals.entries) {
-        const d = new Date(e.closed_round_effective_at);
-        roundToDate[e.closed_round] = d.toISOString().slice(0, 10);
-      }
-      console.info("DailyMintBurnChart: built roundToDate map", { entries: Object.keys(roundToDate).length });
-    }
 
-    // Process minting data (no year filter - show all available data)
+    // Process minting data
     let mintedTotal = 0;
     if (yearlyTotals?.entries?.length) {
       for (const e of yearlyTotals.entries) {
@@ -114,44 +76,14 @@ export const DailyMintBurnChart = () => {
       console.info("DailyMintBurnChart: processed minting", { mintedTotal, days: Object.keys(byDay).length });
     }
 
-    // Always use fallback burn computation from round totals
-    // This derives burn from negative issuance changes
+    // Use comprehensive burn stats from useBurnStats hook
     let burnedTotal = 0;
-    if (yearlyTotals?.entries?.length) {
-      for (const e of yearlyTotals.entries) {
-        const change = parseFloat(e.change_to_initial_amount_as_of_round_zero);
-        const d = new Date(e.closed_round_effective_at);
-        const key = d.toISOString().slice(0, 10);
-        if (!byDay[key]) byDay[key] = { minted: 0, burned: 0, date: new Date(key) };
-        if (!isNaN(change) && change < 0) {
-          byDay[key].burned += Math.abs(change);
-          burnedTotal += Math.abs(change);
-        }
-      }
-      console.info("DailyMintBurnChart: using fallback burn from round totals", { burnedTotal });
+    for (const [dateKey, dayBurn] of Object.entries(burnByDay)) {
+      if (!byDay[dateKey]) byDay[dateKey] = { minted: 0, burned: 0, date: new Date(dateKey) };
+      byDay[dateKey].burned = dayBurn.totalBurn;
+      burnedTotal += dayBurn.totalBurn;
     }
-
-    // Also try to process party totals burn data if available (will be additive)
-    if (yearlyBurnTotals?.entries?.length) {
-      const burnByRound: Record<number, number> = {};
-      for (const e of yearlyBurnTotals.entries) {
-        const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
-        if (isNaN(spent)) continue;
-        if (!burnByRound[e.closed_round]) burnByRound[e.closed_round] = 0;
-        burnByRound[e.closed_round] += spent;
-      }
-
-      // Map rounds to days
-      for (const [roundStr, burnAmount] of Object.entries(burnByRound)) {
-        const round = parseInt(roundStr);
-        const dateKey = roundToDate[round];
-        if (dateKey) {
-          if (!byDay[dateKey]) byDay[dateKey] = { minted: 0, burned: 0, date: new Date(dateKey) };
-          byDay[dateKey].burned += burnAmount;
-        }
-      }
-      console.info("DailyMintBurnChart: added party totals burn data");
-    }
+    console.info("DailyMintBurnChart: using comprehensive burn stats", { burnedTotal });
 
     const result = Object.values(byDay)
       .sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -164,7 +96,7 @@ export const DailyMintBurnChart = () => {
     console.info("DailyMintBurnChart FINAL:", { 
       points: result.length, 
       totalsLen, 
-      burnLen,
+      burnDaysCount: Object.keys(burnByDay).length,
       mintedTotal,
       burnedTotal,
       firstPoint: result[0],
