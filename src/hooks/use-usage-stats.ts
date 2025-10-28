@@ -49,7 +49,12 @@ function extractParties(tx: TransactionHistoryItem): string[] {
   return Array.from(parties);
 }
 
-function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; txCount: number }>, startDate: Date, endDate: Date): UsageCharts {
+function buildSeriesFromDaily(
+  perDay: Record<string, { partySet: Set<string>; txCount: number }>,
+  startDate: Date,
+  endDate: Date,
+  baselineParties: Set<string>,
+): UsageCharts {
   const allDates: string[] = [];
   const cursor = new Date(startDate);
   const end = new Date(endDate);
@@ -64,13 +69,21 @@ function buildSeriesFromDaily(perDay: Record<string, { partySet: Set<string>; tx
   const cumulativeParties: { date: string; parties: number }[] = [];
   const dailyActiveUsers: { date: string; daily: number; avg7d: number }[] = [];
   const dailyTransactions: { date: string; daily: number; avg7d: number }[] = [];
-  const seen = new Set<string>();
+  const seen = new Set<string>(baselineParties);
+  let cumulativeUnique = baselineParties.size;
 
   allDates.forEach((dateKey, idx) => {
     const dayEntry = perDay[dateKey] || { partySet: new Set<string>(), txCount: 0 };
     // cumulative
-    dayEntry.partySet.forEach((p) => seen.add(p));
-    cumulativeParties.push({ date: dateKey, parties: seen.size });
+    let newPartiesToday = 0;
+    dayEntry.partySet.forEach((p) => {
+      if (!seen.has(p)) {
+        seen.add(p);
+        newPartiesToday++;
+      }
+    });
+    cumulativeUnique += newPartiesToday;
+    cumulativeParties.push({ date: dateKey, parties: cumulativeUnique });
 
     // daily users + 7d avg
     const daily = dayEntry.partySet.size;
@@ -111,6 +124,7 @@ export function useUsageStats(days: number = 90) {
       start.setDate(end.getDate() - Math.max(1, days));
 
       const perDay: Record<string, { partySet: Set<string>; txCount: number }> = {};
+      const baselineParties = new Set<string>();
 
       let pageEnd: string | undefined = undefined;
       let pagesFetched = 0;
@@ -132,15 +146,19 @@ export function useUsageStats(days: number = 90) {
             break;
           }
 
-          let reachedCutoff = false;
           let txProcessedThisPage = 0;
-          
+          let txCountedAsBaseline = 0;
+
           for (const tx of txs) {
             const d = new Date(tx.date);
+            const parties = extractParties(tx);
+
             if (d < start) {
-              reachedCutoff = true;
-              break; // Stop processing this page once we reach the cutoff
+              parties.forEach((p) => baselineParties.add(p));
+              txCountedAsBaseline++;
+              continue;
             }
+
             const key = toDateKey(tx.date);
             if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
             const parties = extractParties(tx);
@@ -152,17 +170,13 @@ export function useUsageStats(days: number = 90) {
 
           pageEnd = txs[txs.length - 1].event_id;
           pagesFetched++;
-          
+
           console.log(
             `Page ${pagesFetched}/${maxPages}: Processed ${txProcessedThisPage} txs, ` +
             `Total: ${totalTransactions} txs across ${Object.keys(perDay).length} days, ` +
-            `Oldest date: ${txs[txs.length - 1]?.date || 'N/A'}`
+            `Oldest date: ${txs[txs.length - 1]?.date || 'N/A'}, ` +
+            `Baseline additions: ${txCountedAsBaseline}`
           );
-          
-          if (reachedCutoff) {
-            console.log(`Reached date cutoff at page ${pagesFetched}`);
-            break;
-          }
         } catch (error) {
           console.error(`Error fetching page ${pagesFetched}:`, error);
           break;
