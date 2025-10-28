@@ -161,6 +161,7 @@ export function useUsageStats(days: number = 90) {
 
             const key = toDateKey(tx.date);
             if (!perDay[key]) perDay[key] = { partySet: new Set(), txCount: 0 };
+            const parties = extractParties(tx);
             parties.forEach((p) => perDay[key].partySet.add(p));
             perDay[key].txCount += 1;
             txProcessedThisPage++;
@@ -182,12 +183,9 @@ export function useUsageStats(days: number = 90) {
         }
       }
 
-      console.log(
-        `Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days, ` +
-          `${baselineParties.size} baseline parties before ${start.toISOString()}`,
-      );
-
-      return buildSeriesFromDaily(perDay, start, end, baselineParties);
+      console.log(`Finished fetching. Total: ${totalTransactions} transactions across ${Object.keys(perDay).length} days`);
+      
+      return buildSeriesFromDaily(perDay, start, end);
     },
     staleTime: 5 * 60 * 1000,
     retry: 1,
