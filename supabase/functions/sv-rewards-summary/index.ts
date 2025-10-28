@@ -204,7 +204,6 @@ function processCouponCreated(
 function processCouponExercised(
   event: any,
   state: AppState,
-  weight: number,
   alreadyMintedWeight: number
 ): void {
   const { qualifiedName } = parseTemplateId(event.template_id);
@@ -215,7 +214,6 @@ function processCouponExercised(
   const coupon = state.activeRewards.get(event.contract_id);
   
   if (!coupon) return;
-  if (coupon.weight !== weight) return;
 
   const isExpired = choiceName === 'SvRewardCoupon_DsoExpire';
   const isClaimed = choiceName === 'SvRewardCoupon_ArchiveAsBeneficiary';
@@ -228,7 +226,7 @@ function processCouponExercised(
   const miningRound = rounds.get(coupon.round);
 
   if (miningRound) {
-    const amount = calculateRewardAmount(weight, miningRound.issuancePerSvReward, alreadyMintedWeight);
+    const amount = calculateRewardAmount(coupon.weight, miningRound.issuancePerSvReward, alreadyMintedWeight);
 
     if (isExpired) {
       state.expiredCount++;
@@ -248,7 +246,6 @@ function processEvents(
   state: AppState,
   beneficiary: string,
   endRecordTime: Date,
-  weight: number,
   alreadyMintedWeight: number,
   phase: 'rounds' | 'coupons'
 ): void {
@@ -263,7 +260,7 @@ function processEvents(
         processCouponCreated(event, transaction, state, beneficiary, endRecordTime);
       }
     } else if (event.choice && phase === 'coupons') {
-      processCouponExercised(event, state, weight, alreadyMintedWeight);
+      processCouponExercised(event, state, alreadyMintedWeight);
     }
 
     // Process child events recursively
@@ -275,7 +272,6 @@ function processEvents(
         state,
         beneficiary,
         endRecordTime,
-        weight,
         alreadyMintedWeight,
         phase
       );
@@ -290,7 +286,7 @@ async function calculateRewardsSummary(
   beginRecordTime: string,
   endRecordTime: string,
   beginMigrationId: number,
-  weight: number,
+  _weight: number,
   alreadyMintedWeight: number,
   gracePeriodMinutes: number
 ): Promise<RewardSummary> {
@@ -300,7 +296,7 @@ async function calculateRewardsSummary(
     beginRecordTime,
     endRecordTime,
     beginMigrationId,
-    weight,
+    weight: _weight,
     alreadyMintedWeight,
     gracePeriodMinutes,
     scanUrl
@@ -354,7 +350,6 @@ async function calculateRewardsSummary(
           state,
           beneficiary,
           endTime,
-          weight,
           alreadyMintedWeight,
           'rounds'
         );
@@ -405,7 +400,6 @@ async function calculateRewardsSummary(
           state,
           beneficiary,
           endTime,
-          weight,
           alreadyMintedWeight,
           'coupons'
         );
@@ -474,21 +468,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { 
+    const {
       beneficiary,
       beginRecordTime,
       endRecordTime,
       beginMigrationId,
-      weight,
-      alreadyMintedWeight,
+      weight = null,
+      alreadyMintedWeight = 0,
       gracePeriodMinutes = 60,
       scanUrl = 'https://scan.sv-1.global.canton.network.sync.global'
     } = await req.json();
 
-    if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined || weight === undefined || alreadyMintedWeight === undefined) {
+    if (!beneficiary || !beginRecordTime || !endRecordTime || beginMigrationId === undefined) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Missing required parameters: beneficiary, beginRecordTime, endRecordTime, beginMigrationId, weight, alreadyMintedWeight' 
+        JSON.stringify({
+          error: 'Missing required parameters: beneficiary, beginRecordTime, endRecordTime, beginMigrationId'
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -500,7 +494,7 @@ Deno.serve(async (req) => {
       beginRecordTime,
       endRecordTime,
       beginMigrationId,
-      weight,
+      weight ?? 0,
       alreadyMintedWeight,
       gracePeriodMinutes
     );
