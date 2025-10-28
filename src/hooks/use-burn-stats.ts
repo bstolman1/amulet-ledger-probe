@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
+import type { Transaction } from "@/lib/api-client";
 
 /**
  * Calculate total burnt Canton Coin from transaction events.
@@ -209,17 +210,20 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
-      let pageEndEventId: string | undefined;
+      let pageEndRecordTime: string | undefined;
+      let pageEndMigrationId: number | undefined;
       const maxPages = 100; // Safety limit
       let pagesProcessed = 0;
 
       while (hasMore && pagesProcessed < maxPages) {
         const response = await scanApi.fetchUpdates({
           page_size: 100,
-          after: pageEndEventId ? {
-            after_migration_id: 0,
-            after_record_time: pageEndEventId,
-          } : undefined,
+          after: pageEndRecordTime && pageEndMigrationId !== undefined
+            ? {
+                after_migration_id: pageEndMigrationId,
+                after_record_time: pageEndRecordTime,
+              }
+            : undefined,
         });
 
         if (!response.transactions || response.transactions.length === 0) {
@@ -264,8 +268,17 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
         }
 
         // Set up for next page
-        const lastTx = response.transactions[response.transactions.length - 1];
-        pageEndEventId = lastTx.record_time;
+        const lastTxWithMigration = [...response.transactions]
+          .reverse()
+          .find((tx): tx is Transaction => (tx as Transaction).migration_id !== undefined);
+
+        if (!lastTxWithMigration) {
+          hasMore = false;
+          break;
+        }
+
+        pageEndRecordTime = lastTxWithMigration.record_time;
+        pageEndMigrationId = lastTxWithMigration.migration_id;
         pagesProcessed++;
       }
 
