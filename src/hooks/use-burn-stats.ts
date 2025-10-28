@@ -194,9 +194,8 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
     queryFn: async () => {
       if (!latestRound) return null;
 
-      // Calculate the time range
-      const now = new Date(latestRound.effectiveAt);
-      const startTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      const roundsPerDay = 144;
+      const startRound = Math.max(0, latestRound.round - (days * roundsPerDay - 1));
 
       const result: BurnCalculationResult & { byDay: Record<string, BurnCalculationResult> } = {
         totalBurn: 0,
@@ -207,66 +206,97 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
         byDay: {},
       };
 
-      // Fetch transactions page by page
-      let hasMore = true;
-      let pageEndEventId: string | undefined;
-      const maxPages = 100; // Safety limit
-      let pagesProcessed = 0;
+      // Use round totals to calculate burn from negative issuance changes
+      // This is reliable and captures all burn sources
+      try {
+        const chunkSize = 200;
+        const promises: Promise<{ entries: any[] }>[] = [];
+        
+        for (let start = startRound; start <= latestRound.round; start += chunkSize) {
+          const end = Math.min(start + chunkSize - 1, latestRound.round);
+          promises.push(scanApi.fetchRoundTotals({ start_round: start, end_round: end }));
+        }
+        
+        const results = await Promise.all(promises);
+        const entries = results.flatMap((r) => r?.entries ?? []);
 
-      while (hasMore && pagesProcessed < maxPages) {
-        const response = await scanApi.fetchUpdates({
-          page_size: 100,
-          after: pageEndEventId ? {
-            after_migration_id: 0,
-            after_record_time: pageEndEventId,
-          } : undefined,
+        console.log("useBurnStats: fetched round totals", { entries: entries.length, startRound, endRound: latestRound.round });
+
+        // Process each round's data
+        for (const entry of entries) {
+          const change = parseFloat(entry.change_to_initial_amount_as_of_round_zero || "0");
+          
+          // Negative change means burn
+          if (!isNaN(change) && change < 0) {
+            const burnAmount = Math.abs(change);
+            result.totalBurn += burnAmount;
+            
+            // For now, we categorize all burn as "transferBurn" since we can't distinguish
+            // without transaction-level parsing
+            result.transferBurn += burnAmount;
+
+            // Add to daily breakdown
+            const dateKey = new Date(entry.closed_round_effective_at).toISOString().slice(0, 10);
+            if (!result.byDay[dateKey]) {
+              result.byDay[dateKey] = {
+                totalBurn: 0,
+                trafficBurn: 0,
+                transferBurn: 0,
+                cnsBurn: 0,
+                preapprovalBurn: 0,
+              };
+            }
+            result.byDay[dateKey].totalBurn += burnAmount;
+            result.byDay[dateKey].transferBurn += burnAmount;
+          }
+        }
+
+        // Also add traffic purchases from party totals (this is on top of the issuance changes)
+        try {
+          const partyEntries: any[] = [];
+          const maxChunk = 25;
+          
+          for (let s = startRound; s <= latestRound.round; s += maxChunk) {
+            const e = Math.min(s + maxChunk - 1, latestRound.round);
+            const res = await scanApi.fetchRoundPartyTotals({ start_round: s, end_round: e });
+            if (res?.entries?.length) partyEntries.push(...res.entries);
+            await new Promise(r => setTimeout(r, 100)); // pacing
+          }
+
+          console.log("useBurnStats: fetched party totals", { entries: partyEntries.length });
+
+          // Map rounds to dates
+          const roundToDate: Record<number, string> = {};
+          for (const e of entries) {
+            roundToDate[e.closed_round] = new Date(e.closed_round_effective_at).toISOString().slice(0, 10);
+          }
+
+          // Process traffic burn
+          for (const e of partyEntries) {
+            const spent = parseFloat(e.traffic_purchased_cc_spent ?? "0");
+            if (!isNaN(spent) && spent > 0) {
+              result.trafficBurn += spent;
+              
+              const dateKey = roundToDate[e.closed_round];
+              if (dateKey && result.byDay[dateKey]) {
+                result.byDay[dateKey].trafficBurn += spent;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("useBurnStats: failed to fetch party totals", err);
+        }
+
+        console.log("useBurnStats: result", { 
+          totalBurn: result.totalBurn,
+          trafficBurn: result.trafficBurn,
+          transferBurn: result.transferBurn,
+          days: Object.keys(result.byDay).length
         });
 
-        if (!response.transactions || response.transactions.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        for (const transaction of response.transactions) {
-          // Check if transaction is within our time range
-          const txTime = new Date(transaction.record_time);
-          if (txTime < startTime) {
-            hasMore = false;
-            break;
-          }
-
-          // Calculate burn for this transaction
-          const txBurn = calculateBurnFromTransaction(transaction);
-          
-          // Add to totals
-          result.totalBurn += txBurn.totalBurn;
-          result.trafficBurn += txBurn.trafficBurn;
-          result.transferBurn += txBurn.transferBurn;
-          result.cnsBurn += txBurn.cnsBurn;
-          result.preapprovalBurn += txBurn.preapprovalBurn;
-
-          // Add to daily breakdown
-          const dateKey = txTime.toISOString().slice(0, 10);
-          if (!result.byDay[dateKey]) {
-            result.byDay[dateKey] = {
-              totalBurn: 0,
-              trafficBurn: 0,
-              transferBurn: 0,
-              cnsBurn: 0,
-              preapprovalBurn: 0,
-            };
-          }
-          result.byDay[dateKey].totalBurn += txBurn.totalBurn;
-          result.byDay[dateKey].trafficBurn += txBurn.trafficBurn;
-          result.byDay[dateKey].transferBurn += txBurn.transferBurn;
-          result.byDay[dateKey].cnsBurn += txBurn.cnsBurn;
-          result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
-        }
-
-        // Set up for next page
-        const lastTx = response.transactions[response.transactions.length - 1];
-        pageEndEventId = lastTx.record_time;
-        pagesProcessed++;
+      } catch (err) {
+        console.error("useBurnStats: error fetching data", err);
+        throw err;
       }
 
       return result;
