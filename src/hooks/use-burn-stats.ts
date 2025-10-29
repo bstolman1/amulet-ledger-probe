@@ -209,7 +209,8 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
-      let pageEndEventId: string | undefined;
+      // Start from the beginning of our desired window so we only fetch recent updates
+      let pageEndEventId: string | undefined = startTime.toISOString();
       const maxPages = 100; // Safety limit
       let pagesProcessed = 0;
 
