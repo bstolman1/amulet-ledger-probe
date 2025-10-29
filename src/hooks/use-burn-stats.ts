@@ -209,19 +209,32 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
-      // Start from the beginning of our desired window so we only fetch recent updates
-      let pageEndEventId: string | undefined = startTime.toISOString();
-      const maxPages = 100; // Safety limit
+      // We will try to start near the recent window. Some backends ignore arbitrary timestamps in `after`.
+      // We'll robustly paginate and filter by time window in code.
+      let pageEndEventId: string | undefined = undefined;
+      const maxPages = 400; // allow enough pages to reach the recent window if API returns ascending
       let pagesProcessed = 0;
 
       while (hasMore && pagesProcessed < maxPages) {
-        const response = await scanApi.fetchUpdates({
-          page_size: 100,
-          after: pageEndEventId ? {
-            after_migration_id: 0,
-            after_record_time: pageEndEventId,
-          } : undefined,
-        });
+        // Prefer v1 with descending order if available, then fallback to v2
+        let response;
+        try {
+          response = await scanApi.fetchUpdatesV1({
+            page_size: 200,
+            daml_value_encoding: "compact_json",
+            sort_order: "desc",
+            after: pageEndEventId
+              ? { after_migration_id: 0, after_record_time: pageEndEventId }
+              : undefined,
+          } as any);
+        } catch (e) {
+          response = await scanApi.fetchUpdates({
+            page_size: 200,
+            after: pageEndEventId
+              ? { after_migration_id: 0, after_record_time: pageEndEventId }
+              : undefined,
+          });
+        }
 
         if (!response.transactions || response.transactions.length === 0) {
           console.log(`[useBurnStats] No more transactions. Pages processed: ${pagesProcessed}`);
@@ -229,24 +242,28 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           break;
         }
 
-        console.log(`[useBurnStats] Processing page ${pagesProcessed + 1}, got ${response.transactions.length} transactions`);
+        const firstTxTime = new Date(response.transactions[0].record_time);
+        const lastTxTime = new Date(response.transactions[response.transactions.length - 1].record_time);
+        const isDescending = firstTxTime.getTime() > lastTxTime.getTime();
+        console.log(
+          `[useBurnStats] Processing page ${pagesProcessed + 1} (${isDescending ? "desc" : "asc"}), tx: ${response.transactions.length}, window: ${startTime.toISOString()}..${now.toISOString()}`
+        );
 
         for (const transaction of response.transactions) {
-          // Check if transaction is within our time range
           const txTime = new Date(transaction.record_time);
-          if (txTime < startTime) {
-            console.log(`[useBurnStats] Reached transaction before time range at ${txTime.toISOString()}, stopping`);
-            hasMore = false;
-            break;
+
+          // Only account transactions within [startTime, now]
+          if (txTime < startTime || txTime > now) {
+            continue;
           }
 
           // Calculate burn for this transaction
           const txBurn = calculateBurnFromTransaction(transaction);
-          
+
           if (txBurn.totalBurn > 0) {
             console.log(`[useBurnStats] Found burn in tx at ${txTime.toISOString()}:`, txBurn);
           }
-          
+
           // Add to totals
           result.totalBurn += txBurn.totalBurn;
           result.trafficBurn += txBurn.trafficBurn;
@@ -272,11 +289,22 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
         }
 
-        // Set up for next page
+        // Stop condition for descending order once we've passed below the start time
+        if (isDescending && lastTxTime < startTime) {
+          console.log(`[useBurnStats] Last tx in page (${lastTxTime.toISOString()}) is before start window. Stopping.`);
+          hasMore = false;
+          break;
+        }
+
+        // Prepare cursor for next page (advance toward older records in desc, or newer in asc)
         const lastTx = response.transactions[response.transactions.length - 1];
         pageEndEventId = lastTx.record_time;
         pagesProcessed++;
       }
+
+      console.log(
+        `[useBurnStats] Finished. Total: ${result.totalBurn.toFixed(4)}, byDay keys: ${Object.keys(result.byDay).length}, pages: ${pagesProcessed}`
+      );
 
       console.log(`[useBurnStats] Finished processing. Total burn: ${result.totalBurn}, Pages: ${pagesProcessed}`);
 
