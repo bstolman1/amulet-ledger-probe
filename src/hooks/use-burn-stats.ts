@@ -6,6 +6,76 @@ import {
   type UpdateHistoryRequest,
 } from "@/lib/api-client";
 
+const INPUT_AMOUNT_FIELDS = [
+  "inputAmuletAmount",
+  "inputAppRewardAmount",
+  "inputValidatorRewardAmount",
+  "inputSvRewardAmount",
+  "inputValidatorFaucetAmount",
+];
+
+const OUTPUT_AMOUNT_FIELDS = [
+  "senderChangeAmount",
+  "receiverChangeAmount",
+];
+
+const FLOAT_TOLERANCE = 1e-6;
+
+function parseAmount(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function sumParsedAmounts(values: Array<unknown>): number {
+  return values.reduce((acc, value) => acc + parseAmount(value), 0);
+}
+
+function assertBurnBalance({
+  eventId,
+  choice,
+  summary,
+  burnAmount,
+  additionalInputAmounts = [],
+  additionalOutputAmounts = [],
+}: {
+  eventId: string;
+  choice?: string;
+  summary?: Record<string, unknown> | null;
+  burnAmount: number;
+  additionalInputAmounts?: Array<unknown>;
+  additionalOutputAmounts?: Array<unknown>;
+}) {
+  if (!summary) return;
+
+  const inputTotal =
+    sumParsedAmounts(INPUT_AMOUNT_FIELDS.map((field) => summary[field])) +
+    sumParsedAmounts(additionalInputAmounts);
+
+  const outputTotal =
+    sumParsedAmounts(OUTPUT_AMOUNT_FIELDS.map((field) => summary[field])) +
+    sumParsedAmounts(additionalOutputAmounts);
+
+  // If we cannot infer any meaningful amounts, skip the assertion
+  if (inputTotal === 0 && outputTotal === 0) return;
+
+  const expectedBurn = inputTotal - outputTotal;
+
+  if (Math.abs(expectedBurn - burnAmount) > FLOAT_TOLERANCE) {
+    console.warn("[use-burn-stats] Burn mismatch detected", {
+      eventId,
+      choice,
+      inputTotal,
+      outputTotal,
+      expectedBurn,
+      burnAmount,
+    });
+  }
+}
+
 /**
  * Calculate total burnt Canton Coin from transaction events.
  * Based on Canton Network documentation for computing burnt tokens.
@@ -48,13 +118,20 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
     const senderChangeFee = parseFloat(summary.senderChangeFee || "0");
     const amuletPaid = parseFloat(exerciseResult.amuletPaid || "0");
     result.trafficBurn = holdingFees + senderChangeFee + amuletPaid;
+
+    assertBurnBalance({
+      eventId: event.event_id,
+      choice,
+      summary,
+      burnAmount: result.trafficBurn,
+    });
   }
 
   // 2. Transfers: AmuletRules_Transfer
   else if (choice === "AmuletRules_Transfer" && summary) {
     const holdingFees = parseFloat(summary.holdingFees || "0");
     const senderChangeFee = parseFloat(summary.senderChangeFee || "0");
-    
+
     // Sum all outputFees
     let outputFeesTotal = 0;
     if (Array.isArray(summary.outputFees)) {
@@ -62,8 +139,20 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
         outputFeesTotal += parseFloat(fee || "0");
       }
     }
-    
+
     result.transferBurn = holdingFees + senderChangeFee + outputFeesTotal;
+
+    const transferOutputs = Array.isArray(event.choice_argument?.transfer?.outputs)
+      ? event.choice_argument.transfer.outputs.map((output: any) => output?.amount)
+      : [];
+
+    assertBurnBalance({
+      eventId: event.event_id,
+      choice,
+      summary,
+      burnAmount: result.transferBurn,
+      additionalOutputAmounts: transferOutputs,
+    });
   }
 
   // 3. CNS Entry Purchases: SubscriptionInitialPayment_Collect
@@ -131,7 +220,7 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
       const amuletPaid = parseFloat(exerciseResult.amuletPaid || "0");
       const holdingFees = parseFloat(summary.holdingFees || "0");
       const senderChangeFee = parseFloat(summary.senderChangeFee || "0");
-      
+
       // Sum all outputFees
       let outputFeesTotal = 0;
       if (Array.isArray(summary.outputFees)) {
@@ -139,9 +228,16 @@ function calculateBurnFromEvent(event: any, eventsById: Record<string, any>): Pa
           outputFeesTotal += parseFloat(fee || "0");
         }
       }
-      
+
       // Note: outputFee is NOT included in amuletPaid for pre-approvals (unlike traffic purchases)
       result.preapprovalBurn = amuletPaid + holdingFees + senderChangeFee + outputFeesTotal;
+
+      assertBurnBalance({
+        eventId: event.event_id,
+        choice,
+        summary,
+        burnAmount: result.preapprovalBurn,
+      });
     }
   }
 
