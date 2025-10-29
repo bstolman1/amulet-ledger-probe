@@ -223,20 +223,28 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
         });
 
         if (!response.transactions || response.transactions.length === 0) {
+          console.log(`[useBurnStats] No more transactions. Pages processed: ${pagesProcessed}`);
           hasMore = false;
           break;
         }
+
+        console.log(`[useBurnStats] Processing page ${pagesProcessed + 1}, got ${response.transactions.length} transactions`);
 
         for (const transaction of response.transactions) {
           // Check if transaction is within our time range
           const txTime = new Date(transaction.record_time);
           if (txTime < startTime) {
+            console.log(`[useBurnStats] Reached transaction before time range at ${txTime.toISOString()}, stopping`);
             hasMore = false;
             break;
           }
 
           // Calculate burn for this transaction
           const txBurn = calculateBurnFromTransaction(transaction);
+          
+          if (txBurn.totalBurn > 0) {
+            console.log(`[useBurnStats] Found burn in tx at ${txTime.toISOString()}:`, txBurn);
+          }
           
           // Add to totals
           result.totalBurn += txBurn.totalBurn;
@@ -268,6 +276,8 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
         pageEndEventId = lastTx.record_time;
         pagesProcessed++;
       }
+
+      console.log(`[useBurnStats] Finished processing. Total burn: ${result.totalBurn}, Pages: ${pagesProcessed}`);
 
       return result;
     },
