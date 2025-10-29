@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { scanApi } from "@/lib/api-client";
+import {
+  scanApi,
+  getUpdatesPaginationCursor,
+  isTransactionUpdate,
+  type UpdateHistoryRequest,
+} from "@/lib/api-client";
 
 /**
  * Calculate total burnt Canton Coin from transaction events.
@@ -209,25 +214,27 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
 
       // Fetch transactions page by page
       let hasMore = true;
-      let pageEndEventId: string | undefined;
+      let paginationCursor: UpdateHistoryRequest["after"] | undefined;
       const maxPages = 100; // Safety limit
       let pagesProcessed = 0;
+      const pageSize = 100;
 
       while (hasMore && pagesProcessed < maxPages) {
         const response = await scanApi.fetchUpdates({
-          page_size: 100,
-          after: pageEndEventId ? {
-            after_migration_id: 0,
-            after_record_time: pageEndEventId,
-          } : undefined,
+          page_size: pageSize,
+          ...(paginationCursor ? { after: paginationCursor } : {}),
         });
 
-        if (!response.transactions || response.transactions.length === 0) {
+        const pageTransactions = response.transactions ?? [];
+
+        if (pageTransactions.length === 0) {
           hasMore = false;
           break;
         }
 
-        for (const transaction of response.transactions) {
+        for (const transaction of pageTransactions) {
+          if (!isTransactionUpdate(transaction)) continue;
+
           // Check if transaction is within our time range
           const txTime = new Date(transaction.record_time);
           if (txTime < startTime) {
@@ -263,10 +270,23 @@ export function useBurnStats(options: UseBurnStatsOptions = {}) {
           result.byDay[dateKey].preapprovalBurn += txBurn.preapprovalBurn;
         }
 
+        if (!hasMore) {
+          break;
+        }
+
         // Set up for next page
-        const lastTx = response.transactions[response.transactions.length - 1];
-        pageEndEventId = lastTx.record_time;
+        const nextCursor = getUpdatesPaginationCursor(pageTransactions);
+        if (!nextCursor) {
+          hasMore = false;
+          break;
+        }
+
+        paginationCursor = nextCursor;
         pagesProcessed++;
+
+        if (pageTransactions.length < pageSize) {
+          hasMore = false;
+        }
       }
 
       return result;
