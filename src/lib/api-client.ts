@@ -87,38 +87,6 @@ export interface ExercisedEvent extends TreeEvent {
   interface_id?: string;
 }
 
-export type UpdateEntry = Transaction | Reassignment;
-
-export const isTransactionUpdate = (entry: UpdateEntry): entry is Transaction =>
-  (entry as Transaction).events_by_id !== undefined;
-
-const isReassignmentUpdate = (entry: UpdateEntry): entry is Reassignment =>
-  (entry as Reassignment).event !== undefined;
-
-export const getUpdatesPaginationCursor = (
-  entries: UpdateEntry[]
-): UpdateHistoryRequest["after"] | undefined => {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-
-    if (isTransactionUpdate(entry)) {
-      return {
-        after_migration_id: entry.migration_id,
-        after_record_time: entry.record_time,
-      };
-    }
-
-    if (isReassignmentUpdate(entry) && entry.event?.migration_id !== undefined) {
-      return {
-        after_migration_id: entry.event.migration_id,
-        after_record_time: entry.record_time,
-      };
-    }
-  }
-
-  return undefined;
-};
-
 export interface TransactionHistoryRequest {
   page_end_event_id?: string;
   sort_order?: "asc" | "desc";
@@ -526,88 +494,53 @@ export const scanApi = {
     closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[];
   }> {
     try {
-      const PAGE_SIZE = 500;
-      const MAX_PAGES = 50;
+      const res = await fetch(`${API_BASE}/v2/updates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_size: 1000 }),
+      });
+      if (!res.ok) throw new Error(`v2/updates error ${res.status}`);
+      const data: UpdateHistoryResponse = await res.json();
 
       // Track rounds by their round number to determine current state
-      const roundStates = new Map<
-        number,
-        {
-          contract_id: string;
-          round_number: number;
-          state: "open" | "issuing" | "closed";
-          timestamp: string;
-          payload?: any;
-        }
-      >();
+      const roundStates = new Map<number, {
+        contract_id: string;
+        round_number: number;
+        state: 'open' | 'issuing' | 'closed';
+        timestamp: string;
+        payload?: any;
+      }>();
 
-      let cursor: UpdateHistoryRequest["after"] | undefined;
-      let pagesFetched = 0;
-      let hasMore = true;
+      for (const tx of data.transactions || []) {
+        const events = (tx as Transaction).events_by_id || {};
+        for (const [, ev] of Object.entries(events)) {
+          const tid = (ev as TreeEvent).template_id || "";
+          const createdEv = ev as CreatedEvent;
+          const roundNum = createdEv.create_arguments?.round?.number;
+          
+          if (!roundNum) continue;
 
-      while (hasMore && pagesFetched < MAX_PAGES) {
-        const request: UpdateHistoryRequest = {
-          page_size: PAGE_SIZE,
-          ...(cursor ? { after: cursor } : {}),
-        };
+          let state: 'open' | 'issuing' | 'closed' | null = null;
+          if (tid.includes("OpenMiningRound")) state = 'open';
+          else if (tid.includes("IssuingMiningRound")) state = 'issuing';
+          else if (tid.includes("ClosedMiningRound")) state = 'closed';
 
-        const page = await this.fetchUpdates(request);
-        const pageEntries = page.transactions ?? [];
-
-        if (pageEntries.length === 0) {
-          break;
-        }
-
-        for (const entry of pageEntries) {
-          if (!isTransactionUpdate(entry)) continue;
-
-          const events = entry.events_by_id || {};
-          for (const event of Object.values(events)) {
-            if (event.event_type !== "created_event") continue;
-
-            const createdEvent = event as CreatedEvent;
-            const templateId = createdEvent.template_id || "";
-            const roundNumberRaw = createdEvent.create_arguments?.round?.number;
-            const roundNumber = roundNumberRaw !== undefined ? Number(roundNumberRaw) : undefined;
-
-            if (!Number.isFinite(roundNumber)) continue;
-
-            let state: "open" | "issuing" | "closed" | null = null;
-            if (templateId.includes("OpenMiningRound")) state = "open";
-            else if (templateId.includes("IssuingMiningRound")) state = "issuing";
-            else if (templateId.includes("ClosedMiningRound")) state = "closed";
-
-            if (state) {
-              const existing = roundStates.get(roundNumber!);
-              const timestamp = entry.record_time;
-
-              if (!existing || new Date(timestamp) > new Date(existing.timestamp)) {
-                roundStates.set(roundNumber!, {
-                  contract_id: createdEvent.contract_id,
-                  round_number: roundNumber!,
-                  state,
-                  timestamp,
-                  payload: createdEvent.create_arguments,
-                });
-              }
+          if (state) {
+            const existing = roundStates.get(roundNum);
+            const timestamp = (tx as Transaction).record_time;
+            
+            // Update if this is a newer state or first time seeing this round
+            if (!existing || new Date(timestamp) > new Date(existing.timestamp)) {
+              roundStates.set(roundNum, {
+                contract_id: ev.contract_id,
+                round_number: roundNum,
+                state,
+                timestamp,
+                payload: createdEv.create_arguments,
+              });
             }
           }
         }
-
-        pagesFetched += 1;
-
-        if (pageEntries.length < PAGE_SIZE) {
-          hasMore = false;
-          break;
-        }
-
-        const nextCursor = getUpdatesPaginationCursor(pageEntries);
-        if (!nextCursor) {
-          hasMore = false;
-          break;
-        }
-
-        cursor = nextCursor;
       }
 
       // Separate rounds by their current state
@@ -616,21 +549,21 @@ export const scanApi = {
       const closed_rounds: { contract_id: string; round_number?: number; closed_at?: string; payload?: any }[] = [];
 
       for (const round of roundStates.values()) {
-        if (round.state === "open") {
+        if (round.state === 'open') {
           open_rounds.push({
             contract_id: round.contract_id,
             round_number: round.round_number,
             opened_at: round.timestamp,
             payload: round.payload,
           });
-        } else if (round.state === "issuing") {
+        } else if (round.state === 'issuing') {
           issuing_rounds.push({
             contract_id: round.contract_id,
             round_number: round.round_number,
             issued_at: round.timestamp,
             payload: round.payload,
           });
-        } else if (round.state === "closed") {
+        } else if (round.state === 'closed') {
           closed_rounds.push({
             contract_id: round.contract_id,
             round_number: round.round_number,
@@ -930,11 +863,7 @@ export const scanApi = {
 
   async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {
     const params = new URLSearchParams();
-    validator_ids.forEach((id) => {
-      if (id) {
-        params.append("validator_ids", id);
-      }
-    });
+    for (const id of validator_ids) params.append("validator_ids", id);
     const res = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, { mode: "cors" });
     if (!res.ok) throw new Error("Failed to fetch validator liveness");
     return res.json();
