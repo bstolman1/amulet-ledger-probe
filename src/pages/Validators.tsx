@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, FileDown, RefreshCw, Trophy, Zap, Award, Download, TrendingUp } from "lucide-react";
 import { fetchConfigData, scheduleDailySync } from "@/lib/config-sync";
 import { scanApi } from "@/lib/api-client";
+import type { PartyAndRewards, ValidatorFaucetInfo } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -273,6 +274,15 @@ const Validators = () => {
 // ─────────────────────────────
 // Subcomponent for Active Validators Section
 // ─────────────────────────────
+type ActiveValidator = PartyAndRewards & {
+  lastActiveDate?: string;
+  liveness?: ValidatorFaucetInfo;
+};
+
+type ActiveValidatorsResponse = {
+  validatorsAndRewards: ActiveValidator[];
+};
+
 const ActiveValidatorsSection = () => {
   const { toast } = useToast();
 
@@ -280,9 +290,9 @@ const ActiveValidatorsSection = () => {
     data: topValidators,
     isLoading,
     isError,
-  } = useQuery({
+  } = useQuery<ActiveValidatorsResponse>({
     queryKey: ["topValidators"],
-    queryFn: async () => {
+    queryFn: async (): Promise<ActiveValidatorsResponse> => {
       const data = await scanApi.fetchTopValidators();
       const validatorIds = data.validatorsAndRewards.map((v) => v.provider);
       const livenessData = await scanApi.fetchValidatorLiveness(validatorIds);
@@ -298,19 +308,36 @@ const ActiveValidatorsSection = () => {
         roundDates.set(entry.closed_round, entry.closed_round_effective_at);
       });
 
+      const livenessByValidator = new Map(
+        livenessData.validatorsReceivedFaucets.map((info) => [info.validator, info] as const),
+      );
+
       return {
-        ...data,
         validatorsAndRewards: data.validatorsAndRewards.map((validator) => {
-          const livenessInfo = livenessData.validatorsReceivedFaucets.find((v) => v.validator === validator.provider);
+          const livenessInfo = livenessByValidator.get(validator.provider);
           const lastActiveDate = livenessInfo?.lastCollectedInRound
             ? roundDates.get(livenessInfo.lastCollectedInRound)
             : undefined;
-          return { ...validator, lastActiveDate };
+          return {
+            ...validator,
+            lastActiveDate,
+            liveness: livenessInfo,
+          };
         }),
       };
     },
     retry: 1,
   });
+
+  useEffect(() => {
+    if (isError) {
+      toast({
+        variant: "destructive",
+        title: "Unable to load validator liveness",
+        description: "The validators faucet endpoint may be unavailable. Please try again shortly.",
+      });
+    }
+  }, [isError, toast]);
 
   const getRankColor = (rank: number) => {
     switch (rank) {
@@ -363,6 +390,9 @@ const ActiveValidatorsSection = () => {
             <div className="space-y-4">
               {topValidators.validatorsAndRewards.map((validator, index) => {
                 const rank = index + 1;
+                const liveness = validator.liveness;
+                const roundsCollected =
+                  liveness?.numRoundsCollected ?? Number.parseFloat(validator.rewards);
                 return (
                   <div
                     key={validator.provider}
@@ -382,6 +412,7 @@ const ActiveValidatorsSection = () => {
                           <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
                             {validator.provider}
                           </p>
+                          <p className="text-xs text-muted-foreground mt-1">Rank #{rank}</p>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
@@ -397,22 +428,43 @@ const ActiveValidatorsSection = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Collected</p>
                         <p className="text-2xl font-bold text-primary">
-                          {parseFloat(validator.rewards).toLocaleString(undefined, {
-                            maximumFractionDigits: 0,
-                          })}
+                          {Number.isFinite(roundsCollected)
+                            ? roundsCollected.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                            : "—"}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Rank</p>
-                        <p className="text-2xl font-bold text-foreground">#{rank}</p>
+                        <p className="text-sm text-muted-foreground mb-1">Rounds Missed</p>
+                        <p className="text-2xl font-bold text-destructive">
+                          {liveness?.numRoundsMissed != null
+                            ? liveness.numRoundsMissed.toLocaleString()
+                            : "—"}
+                        </p>
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
-                        <p className="text-sm text-muted-foreground mb-1">Status</p>
-                        <p className="text-2xl font-bold text-success">Active</p>
+                        <p className="text-sm text-muted-foreground mb-1">First Collected Round</p>
+                        <p className="text-2xl font-bold text-foreground">
+                          {liveness?.firstCollectedInRound != null
+                            ? liveness.firstCollectedInRound.toLocaleString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-background/50">
+                        <p className="text-sm text-muted-foreground mb-1">Last Collected Round</p>
+                        <p className="text-2xl font-bold text-foreground">
+                          {liveness?.lastCollectedInRound != null
+                            ? liveness.lastCollectedInRound.toLocaleString()
+                            : "—"}
+                        </p>
+                        {validator.lastActiveDate && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(validator.lastActiveDate).toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
