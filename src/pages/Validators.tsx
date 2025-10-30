@@ -436,6 +436,11 @@ const ActiveValidatorsSection = () => {
                             ? roundsCollected.toLocaleString(undefined, { maximumFractionDigits: 0 })
                             : "—"}
                         </p>
+                        {liveness && (
+                          <p className="text-[0.7rem] uppercase tracking-wide text-muted-foreground mt-2">
+                            numRoundsMissed
+                          </p>
+                        )}
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Missed</p>
@@ -467,6 +472,26 @@ const ActiveValidatorsSection = () => {
                         )}
                       </div>
                     </div>
+                    {liveness && (
+                      <div className="mt-4 rounded-md border border-border/40 bg-background/30 p-3 text-xs">
+                        <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground mb-2">
+                          Faucet JSON
+                        </p>
+                        <pre className="whitespace-pre-wrap break-words font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
+                          {JSON.stringify(
+                            {
+                              validator: liveness.validator,
+                              numRoundsCollected: Number.isFinite(roundsCollected) ? roundsCollected : null,
+                              numRoundsMissed: roundsMissed ?? null,
+                              firstCollectedInRound: firstCollectedRound ?? null,
+                              lastCollectedInRound: lastCollectedRound ?? null,
+                            },
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 );
               })}
