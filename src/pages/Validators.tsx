@@ -392,19 +392,7 @@ const ActiveValidatorsSection = () => {
                 const rank = index + 1;
                 const liveness = validator.liveness;
                 const roundsCollected =
-                  liveness?.numRoundsCollected != null
-                    ? Number(liveness.numRoundsCollected)
-                    : Number.parseFloat(validator.rewards);
-                const roundsMissed =
-                  liveness?.numRoundsMissed != null ? Number(liveness.numRoundsMissed) : undefined;
-                const firstCollectedRound =
-                  liveness?.firstCollectedInRound != null
-                    ? Number(liveness.firstCollectedInRound)
-                    : undefined;
-                const lastCollectedRound =
-                  liveness?.lastCollectedInRound != null
-                    ? Number(liveness.lastCollectedInRound)
-                    : undefined;
+                  liveness?.numRoundsCollected ?? Number.parseFloat(validator.rewards);
                 return (
                   <div
                     key={validator.provider}
@@ -424,11 +412,6 @@ const ActiveValidatorsSection = () => {
                           <p className="font-mono text-sm text-muted-foreground truncate max-w-md">
                             {validator.provider}
                           </p>
-                          {liveness?.validator && liveness.validator !== validator.provider && (
-                            <p className="font-mono text-xs text-muted-foreground truncate max-w-md">
-                              Faucet ID: {liveness.validator}
-                            </p>
-                          )}
                           <p className="text-xs text-muted-foreground mt-1">Rank #{rank}</p>
                         </div>
                       </div>
@@ -455,48 +438,33 @@ const ActiveValidatorsSection = () => {
                         </p>
                         {liveness && (
                           <p className="text-[0.7rem] uppercase tracking-wide text-muted-foreground mt-2">
-                            numRoundsCollected
+                            numRoundsMissed
                           </p>
                         )}
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Rounds Missed</p>
                         <p className="text-2xl font-bold text-destructive">
-                          {roundsMissed != null
-                            ? roundsMissed.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                          {liveness?.numRoundsMissed != null
+                            ? liveness.numRoundsMissed.toLocaleString()
                             : "—"}
                         </p>
-                        {liveness && (
-                          <p className="text-[0.7rem] uppercase tracking-wide text-muted-foreground mt-2">
-                            numRoundsMissed
-                          </p>
-                        )}
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">First Collected Round</p>
                         <p className="text-2xl font-bold text-foreground">
-                          {firstCollectedRound != null
-                            ? firstCollectedRound.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                          {liveness?.firstCollectedInRound != null
+                            ? liveness.firstCollectedInRound.toLocaleString()
                             : "—"}
                         </p>
-                        {liveness && (
-                          <p className="text-[0.7rem] uppercase tracking-wide text-muted-foreground mt-2">
-                            firstCollectedInRound
-                          </p>
-                        )}
                       </div>
                       <div className="p-4 rounded-lg bg-background/50">
                         <p className="text-sm text-muted-foreground mb-1">Last Collected Round</p>
                         <p className="text-2xl font-bold text-foreground">
-                          {lastCollectedRound != null
-                            ? lastCollectedRound.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                          {liveness?.lastCollectedInRound != null
+                            ? liveness.lastCollectedInRound.toLocaleString()
                             : "—"}
                         </p>
-                        {liveness && (
-                          <p className="text-[0.7rem] uppercase tracking-wide text-muted-foreground mt-2">
-                            lastCollectedInRound
-                          </p>
-                        )}
                         {validator.lastActiveDate && (
                           <p className="text-xs text-muted-foreground mt-1">
                             {new Date(validator.lastActiveDate).toLocaleString()}
