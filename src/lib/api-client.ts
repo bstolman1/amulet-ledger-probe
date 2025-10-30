@@ -930,7 +930,11 @@ export const scanApi = {
 
   async fetchValidatorLiveness(validator_ids: string[]): Promise<ValidatorLivenessResponse> {
     const params = new URLSearchParams();
-    params.set("validator_ids", JSON.stringify(validator_ids));
+    validator_ids.forEach((id) => {
+      if (id) {
+        params.append("validator_ids", id);
+      }
+    });
     const res = await fetch(`${API_BASE}/v0/validators/validator-faucets?${params.toString()}`, { mode: "cors" });
     if (!res.ok) throw new Error("Failed to fetch validator liveness");
     return res.json();
