@@ -31,7 +31,7 @@ function parseAmount(value: unknown): number {
 }
 
 function sumParsedAmounts(values: Array<unknown>): number {
-  return values.reduce((acc, value) => acc + parseAmount(value), 0);
+  return values.reduce<number>((acc, value) => acc + parseAmount(value), 0);
 }
 
 function assertBurnBalance({
