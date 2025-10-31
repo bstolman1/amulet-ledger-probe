@@ -4,4 +4,4 @@ project_id = "mbbjmxubfeaudnhxmwqf"
 verify_jwt = false
 
 [functions.fetch-acs-snapshot]
-verify_jwt = true
+verify_jwt = false

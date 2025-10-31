@@ -91,16 +91,7 @@ export function useTriggerACSSnapshot() {
 
   return useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error("You must be logged in to trigger a snapshot");
-      }
-
-      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot");
 
       if (error) throw error;
       return data;
