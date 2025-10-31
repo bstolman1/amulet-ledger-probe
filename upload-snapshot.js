@@ -22,34 +22,33 @@ async function uploadSnapshot() {
     // Load the summary file
     const summary = JSON.parse(fs.readFileSync('circulating-supply-single-sv.json', 'utf8'));
     
-    // Load the templates file
-    const templatesFile = JSON.parse(fs.readFileSync('circulating-supply-single-sv.templates.json', 'utf8'));
-    
-    // Load all template data files
+    // Load all template data files from acs_full directory
     const templateFiles = fs.readdirSync('./acs_full').filter(f => f.endsWith('.json'));
     console.log(`Found ${templateFiles.length} template files`);
     
-    // Build templates object with data
+    // Build templates object by reading each file
     const templates = {};
-    for (const [tid, stats] of Object.entries(templatesFile.templates)) {
-      const fileName = tid.replace(/[:.]/g, '_') + '.json';
+    for (const fileName of templateFiles) {
       const filePath = `./acs_full/${fileName}`;
+      const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       
-      if (fs.existsSync(filePath)) {
-        const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        templates[tid] = {
-          count: stats.count,
-          fields: stats.fields || null,
-          status: stats.status || null,
-          data: fileData.data, // Include raw create_arguments
-        };
-      } else {
-        templates[tid] = {
-          count: stats.count,
-          fields: stats.fields || null,
-          status: stats.status || null,
-        };
+      // Extract template_id from metadata
+      const templateId = fileData.metadata?.template_id;
+      if (!templateId) {
+        console.warn(`Skipping ${fileName} - no template_id in metadata`);
+        continue;
       }
+      
+      // Get the data array
+      const dataArray = fileData.data || [];
+      
+      // Calculate basic stats
+      templates[templateId] = {
+        count: dataArray.length,
+        fields: null, // Will be calculated on server if needed
+        status: null, // Will be calculated on server if needed
+        data: dataArray, // Include raw create_arguments
+      };
     }
     
     console.log(`📤 Uploading snapshot with ${Object.keys(templates).length} templates...`);
