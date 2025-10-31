@@ -1,16 +1,16 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Decimal arithmetic helpers (10 decimal precision)
+// ---------- Decimal arithmetic helpers ----------
 class Decimal {
   private value: string;
 
   constructor(val: string | number) {
-    this.value = typeof val === 'number' ? val.toFixed(10) : val;
+    this.value = typeof val === "number" ? val.toFixed(10) : val;
   }
 
   plus(other: Decimal): Decimal {
@@ -40,51 +40,48 @@ interface TemplateStats {
   status?: Record<string, number>;
 }
 
+// ---------- Helpers ----------
 function isTemplate(event: any, moduleName: string, entityName: string): boolean {
   const templateId = event?.template_id;
   if (!templateId) return false;
-  const parts = templateId.split(':');
+  const parts = templateId.split(":");
   const entity = parts.pop();
   const module = parts.pop();
   return module === moduleName && entity === entityName;
 }
 
 function analyzeArgs(args: any, agg: TemplateStats): void {
-  if (!args || typeof args !== 'object') return;
+  if (!args || typeof args !== "object") return;
 
-  const candidates = [
-    args?.amount?.initialAmount,
-    args?.amulet?.amount?.initialAmount,
-    args?.stake?.initialAmount,
-  ];
+  const candidates = [args?.amount?.initialAmount, args?.amulet?.amount?.initialAmount, args?.stake?.initialAmount];
 
   const DECIMAL_RE = /^[+-]?\d+(\.\d+)?$/;
   for (const c of candidates) {
-    if (typeof c === 'string' && DECIMAL_RE.test(c)) {
-      addField(agg, 'initialAmount', new Decimal(c));
+    if (typeof c === "string" && DECIMAL_RE.test(c)) {
+      addField(agg, "initialAmount", new Decimal(c));
     }
   }
 
-  const STATUS_KEYS = ['status', 'state', 'phase', 'result'];
+  const STATUS_KEYS = ["status", "state", "phase", "result"];
   const stack = [args];
-  
+
   while (stack.length > 0) {
     const cur = stack.pop();
-    if (!cur || typeof cur !== 'object') continue;
+    if (!cur || typeof cur !== "object") continue;
 
     for (const [k, v] of Object.entries(cur)) {
-      if (STATUS_KEYS.includes(k) && typeof v === 'string' && v.length) {
+      if (STATUS_KEYS.includes(k) && typeof v === "string" && v.length) {
         agg.status = agg.status || {};
         agg.status[v] = (agg.status[v] || 0) + 1;
       }
 
-      if (typeof v === 'string' && DECIMAL_RE.test(v) && v.includes('.')) {
+      if (typeof v === "string" && DECIMAL_RE.test(v) && v.includes(".")) {
         if (!/id|hash|cid|guid|index/i.test(k)) {
           addField(agg, k, new Decimal(v));
         }
       }
 
-      if (v && typeof v === 'object') stack.push(v);
+      if (v && typeof v === "object") stack.push(v);
     }
   }
 }
@@ -95,14 +92,17 @@ function addField(agg: TemplateStats, fieldName: string, bnVal: Decimal): void {
   agg.fields[fieldName] = prev ? prev.plus(bnVal) : bnVal;
 }
 
+// ---------- Migration helpers ----------
 async function detectLatestMigration(baseUrl: string): Promise<number> {
-  console.log('🔎 Probing for latest valid migration ID...');
+  console.log("🔎 Probing for latest valid migration ID...");
   let id = 1;
   let latest: number | null = null;
-  
+
   while (true) {
     try {
-      const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
+      const res = await fetch(
+        `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`,
+      );
       const data = await res.json();
       if (data?.record_time) {
         latest = id;
@@ -112,19 +112,23 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
       break;
     }
   }
-  
-  if (!latest) throw new Error('No valid migration found.');
+
+  if (!latest) throw new Error("No valid migration found.");
   console.log(`📘 Using latest migration_id: ${latest}`);
   return latest;
 }
 
 async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Promise<string> {
-  const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`);
+  const res = await fetch(
+    `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`,
+  );
   const data = await res.json();
   let record_time = data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
+  const verify = await fetch(
+    `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`,
+  );
   const verifyData = await verify.json();
   if (verifyData?.record_time && verifyData.record_time !== record_time) {
     record_time = verifyData.record_time;
@@ -133,43 +137,134 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
+// ---------- Fetch and process ACS ----------
 async function fetchAllACS(
   baseUrl: string,
   migration_id: number,
   record_time: string,
   supabaseAdmin: any,
-  snapshotId: string
-) {
-  // ... (same as before, no changes here)
-}
+  snapshotId: string,
+): Promise<{
+  amuletTotal: Decimal;
+  lockedTotal: Decimal;
+  canonicalPkg: string;
+  templateStats: Record<string, TemplateStats>;
+  entryCount: number;
+}> {
+  console.log("📦 Fetching ACS snapshot...");
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+  const templatesData: Record<string, any[]> = {};
+  const templateStats: Record<string, TemplateStats> = {};
+  const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
+  const templatesByPackage: Record<string, Set<string>> = {};
+
+  let amuletTotal = new Decimal("0");
+  let lockedTotal = new Decimal("0");
+  let after = 0;
+  const pageSize = 1000;
+  let page = 1;
+  const seen = new Set<string>();
+
+  while (true) {
+    const res = await fetch(`${baseUrl}/v0/state/acs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        migration_id,
+        record_time,
+        page_size: pageSize,
+        after,
+        daml_value_encoding: "compact_json",
+      }),
+    });
+
+    const data = await res.json();
+    const events = data.created_events || [];
+    const rangeTo = data.range?.to;
+
+    if (events.length === 0) break;
+
+    for (const e of events) {
+      const id = e.contract_id || e.event_id;
+      if (id && seen.has(id)) continue;
+      seen.add(id);
+
+      const templateId = e.template_id || "unknown";
+      const pkg = templateId.split(":")[0] || "unknown";
+      const args = e.create_arguments || {};
+
+      perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal("0"), locked: new Decimal("0") };
+      templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
+      templatesByPackage[pkg].add(templateId);
+
+      templatesData[templateId] = templatesData[templateId] || [];
+      templateStats[templateId] = templateStats[templateId] || { count: 0 };
+
+      templatesData[templateId].push(args);
+      templateStats[templateId].count += 1;
+      analyzeArgs(args, templateStats[templateId]);
+
+      if (isTemplate(e, "Splice.Amulet", "Amulet")) {
+        const val = args?.amount?.initialAmount ?? "0";
+        if (typeof val === "string" && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+          const bn = new Decimal(val);
+          amuletTotal = amuletTotal.plus(bn);
+          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
+        }
+      } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
+        const val = args?.amulet?.amount?.initialAmount ?? "0";
+        if (typeof val === "string" && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+          const bn = new Decimal(val);
+          lockedTotal = lockedTotal.plus(bn);
+          perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
+        }
+      }
+    }
+
+    if (events.length < pageSize) break;
+    after = rangeTo ?? after + events.length;
+    page++;
+    await new Promise((r) => setTimeout(r, 100));
   }
 
+  const canonicalPkgEntry = Object.entries(perPackage).sort(
+    (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber(),
+  )[0];
+  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
+
+  return {
+    amuletTotal,
+    lockedTotal,
+    canonicalPkg,
+    templateStats,
+    entryCount: seen.size,
+  };
+}
+
+// ---------- Edge Function ----------
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
-    );
+    const supabaseClient = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
+      global: {
+        headers: { Authorization: req.headers.get("Authorization")! },
+      },
+    });
 
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
-    // Verify user is logged in
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    // ✅ Require login but not admin
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -180,7 +275,6 @@ Deno.serve(async (req) => {
     //   .eq('user_id', user.id)
     //   .eq('role', 'admin')
     //   .maybeSingle();
-
     // if (!roleData) {
     //   return new Response(JSON.stringify({ error: 'Admin access required' }), {
     //     status: 403,
@@ -188,25 +282,24 @@ Deno.serve(async (req) => {
     //   });
     // }
 
-    const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
+    const BASE_URL = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
-    // Create snapshot record
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
-      .from('acs_snapshots')
+      .from("acs_snapshots")
       .insert({
         sv_url: BASE_URL,
         migration_id: 0,
-        record_time: '',
-        amulet_total: '0',
-        locked_total: '0',
-        circulating_supply: '0',
+        record_time: "",
+        amulet_total: "0",
+        locked_total: "0",
+        circulating_supply: "0",
         entry_count: 0,
-        status: 'processing',
+        status: "processing",
       })
       .select()
       .single();
 
-    if (snapshotError || !snapshot) throw new Error('Failed to create snapshot record');
+    if (snapshotError || !snapshot) throw new Error("Failed to create snapshot record");
 
     const backgroundTask = async () => {
       try {
@@ -217,13 +310,13 @@ Deno.serve(async (req) => {
           migration_id,
           record_time,
           supabaseAdmin,
-          snapshot.id
+          snapshot.id,
         );
 
         const circulating = amuletTotal.minus(lockedTotal);
 
         await supabaseAdmin
-          .from('acs_snapshots')
+          .from("acs_snapshots")
           .update({
             migration_id,
             record_time,
@@ -232,31 +325,30 @@ Deno.serve(async (req) => {
             locked_total: lockedTotal.toString(),
             circulating_supply: circulating.toString(),
             entry_count: entryCount,
-            status: 'completed',
+            status: "completed",
           })
-          .eq('id', snapshot.id);
+          .eq("id", snapshot.id);
 
-        console.log('✅ ACS snapshot completed successfully');
+        console.log("✅ ACS snapshot completed successfully");
       } catch (error: any) {
-        console.error('❌ ACS snapshot failed:', error);
+        console.error("❌ ACS snapshot failed:", error);
         await supabaseAdmin
-          .from('acs_snapshots')
-          .update({ status: 'failed', error_message: error.message })
-          .eq('id', snapshot.id);
+          .from("acs_snapshots")
+          .update({ status: "failed", error_message: error.message })
+          .eq("id", snapshot.id);
       }
     };
 
     backgroundTask();
 
-    return new Response(
-      JSON.stringify({ message: 'ACS snapshot started', snapshot_id: snapshot.id }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ message: "ACS snapshot started", snapshot_id: snapshot.id }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error: any) {
-    console.error('Error:', error);
+    console.error("Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
