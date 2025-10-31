@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,14 @@ export default function Snapshots() {
   const [logs, setLogs] = useState<SnapshotLog[]>([]);
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(null);
   const { data: snapshots } = useACSSnapshots();
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (scrollRef.current && logs.length > 0) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs]);
 
   // Get the latest processing or recently created snapshot
   useEffect(() => {
@@ -161,9 +169,12 @@ export default function Snapshots() {
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[500px] w-full rounded-md border p-4">
-              {logs.length === 0 ? (
+              <div ref={scrollRef} className="h-full overflow-y-auto">
+                {logs.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No logs yet. Trigger a snapshot to see progress.
+                  {currentSnapshot?.status === 'processing' 
+                    ? 'Waiting for logs... This snapshot was started before logging was enabled. Trigger a new snapshot to see real-time progress.'
+                    : 'No logs yet. Trigger a snapshot to see progress.'}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -193,6 +204,7 @@ export default function Snapshots() {
                   ))}
                 </div>
               )}
+              </div>
             </ScrollArea>
           </CardContent>
         </Card>
