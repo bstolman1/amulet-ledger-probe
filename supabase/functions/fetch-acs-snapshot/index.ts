@@ -139,6 +139,26 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
+// Helper to log to database
+async function logToDatabase(
+  supabaseAdmin: any,
+  snapshotId: string,
+  level: string,
+  message: string,
+  metadata?: any
+) {
+  try {
+    await supabaseAdmin.from('snapshot_logs').insert({
+      snapshot_id: snapshotId,
+      log_level: level,
+      message,
+      metadata: metadata || null,
+    });
+  } catch (error) {
+    console.error('Failed to log to database:', error);
+  }
+}
+
 async function fetchAllACS(
   baseUrl: string,
   migration_id: number,
@@ -153,6 +173,7 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
+  await logToDatabase(supabaseAdmin, snapshotId, 'info', 'Starting ACS data fetch');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -186,6 +207,7 @@ async function fetchAllACS(
 
       if (events.length === 0) {
         console.log('✅ No more events — finished.');
+        await logToDatabase(supabaseAdmin, snapshotId, 'info', 'Finished fetching all pages');
         break;
       }
 
@@ -232,6 +254,15 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
+      
+      // Log progress every 5 pages
+      if (page % 5 === 0) {
+        await logToDatabase(supabaseAdmin, snapshotId, 'info', `Processed page ${page}`, {
+          total_entries: seen.size,
+          amulet_total: amuletTotal.toString(),
+          locked_total: lockedTotal.toString(),
+        });
+      }
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
@@ -243,6 +274,7 @@ async function fetchAllACS(
       await new Promise(r => setTimeout(r, 100));
     } catch (err: any) {
       console.error(`⚠️ Page ${page} failed:`, err.message);
+      await logToDatabase(supabaseAdmin, snapshotId, 'error', `Page ${page} failed: ${err.message}`);
       throw err;
     }
   }
@@ -254,8 +286,14 @@ async function fetchAllACS(
   const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
+  await logToDatabase(supabaseAdmin, snapshotId, 'info', `Identified canonical package: ${canonicalPkg}`);
 
   // Upload per-template JSON files to storage
+  await logToDatabase(supabaseAdmin, snapshotId, 'info', `Starting to upload ${Object.keys(templatesData).length} template JSON files`);
+  
+  let uploadedCount = 0;
+  const totalTemplates = Object.keys(templatesData).length;
+  
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
@@ -281,8 +319,15 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
+      await logToDatabase(supabaseAdmin, snapshotId, 'error', `Failed to upload ${fileName}.json: ${uploadError.message}`);
     } else {
       console.log(`✅ Uploaded ${filePath}`);
+      uploadedCount++;
+      
+      // Log progress every 20 files
+      if (uploadedCount % 20 === 0) {
+        await logToDatabase(supabaseAdmin, snapshotId, 'info', `Uploaded ${uploadedCount}/${totalTemplates} template files`);
+      }
     }
 
     // Store template stats in DB
@@ -302,6 +347,8 @@ async function fetchAllACS(
       storage_path: filePath,
     });
   }
+
+  await logToDatabase(supabaseAdmin, snapshotId, 'success', `Successfully uploaded ${uploadedCount} template JSON files`);
 
   return {
     amuletTotal,
@@ -357,6 +404,10 @@ Deno.serve(async (req) => {
     }
 
     console.log(`📝 Created snapshot record: ${snapshot.id}`);
+    await logToDatabase(supabaseAdmin, snapshot.id, 'info', 'ACS snapshot process initiated', {
+      migration_id,
+      record_time,
+    });
 
     try {
       // Fetch all ACS data synchronously
@@ -395,6 +446,14 @@ Deno.serve(async (req) => {
       }
 
       console.log('✅ ACS snapshot completed successfully');
+      
+      await logToDatabase(supabaseAdmin, snapshot.id, 'success', 'ACS snapshot completed successfully', {
+        entry_count: entryCount,
+        amulet_total: amuletTotal.toString(),
+        locked_total: lockedTotal.toString(),
+        circulating_supply: circulating.toString(),
+        canonical_package: canonicalPkg,
+      });
 
       return new Response(
         JSON.stringify({
@@ -414,6 +473,8 @@ Deno.serve(async (req) => {
       );
     } catch (processingError: any) {
       console.error('❌ Snapshot processing failed:', processingError);
+
+      await logToDatabase(supabaseAdmin, snapshot.id, 'error', `Snapshot processing failed: ${processingError.message}`);
 
       // Update snapshot status to failed
       await supabaseAdmin
