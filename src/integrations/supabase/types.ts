@@ -14,6 +14,98 @@ export type Database = {
   }
   public: {
     Tables: {
+      acs_snapshots: {
+        Row: {
+          amulet_total: number
+          canonical_package: string | null
+          circulating_supply: number
+          created_at: string
+          entry_count: number
+          error_message: string | null
+          id: string
+          locked_total: number
+          migration_id: number
+          record_time: string
+          status: string
+          sv_url: string
+          timestamp: string
+          updated_at: string
+        }
+        Insert: {
+          amulet_total: number
+          canonical_package?: string | null
+          circulating_supply: number
+          created_at?: string
+          entry_count: number
+          error_message?: string | null
+          id?: string
+          locked_total: number
+          migration_id: number
+          record_time: string
+          status?: string
+          sv_url: string
+          timestamp?: string
+          updated_at?: string
+        }
+        Update: {
+          amulet_total?: number
+          canonical_package?: string | null
+          circulating_supply?: number
+          created_at?: string
+          entry_count?: number
+          error_message?: string | null
+          id?: string
+          locked_total?: number
+          migration_id?: number
+          record_time?: string
+          status?: string
+          sv_url?: string
+          timestamp?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      acs_template_stats: {
+        Row: {
+          contract_count: number
+          created_at: string
+          field_sums: Json | null
+          id: string
+          snapshot_id: string
+          status_tallies: Json | null
+          storage_path: string | null
+          template_id: string
+        }
+        Insert: {
+          contract_count: number
+          created_at?: string
+          field_sums?: Json | null
+          id?: string
+          snapshot_id: string
+          status_tallies?: Json | null
+          storage_path?: string | null
+          template_id: string
+        }
+        Update: {
+          contract_count?: number
+          created_at?: string
+          field_sums?: Json | null
+          id?: string
+          snapshot_id?: string
+          status_tallies?: Json | null
+          storage_path?: string | null
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acs_template_stats_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "acs_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cip_types: {
         Row: {
           created_at: string
@@ -37,6 +129,7 @@ export type Database = {
           cip_number: string
           cip_type: string | null
           created_at: string
+          explorer_url: string | null
           github_link: string | null
           id: string
           requires_onchain_vote: boolean
@@ -50,6 +143,7 @@ export type Database = {
           cip_number: string
           cip_type?: string | null
           created_at?: string
+          explorer_url?: string | null
           github_link?: string | null
           id?: string
           requires_onchain_vote?: boolean
@@ -63,6 +157,7 @@ export type Database = {
           cip_number?: string
           cip_type?: string | null
           created_at?: string
+          explorer_url?: string | null
           github_link?: string | null
           id?: string
           requires_onchain_vote?: boolean
@@ -236,15 +331,42 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -371,6 +493,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
