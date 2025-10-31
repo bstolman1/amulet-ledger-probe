@@ -122,27 +122,27 @@ export default function Snapshots() {
           <TriggerACSSnapshotButton />
         </div>
 
-        <Card className="border-yellow-500/50 bg-yellow-500/10">
+        <Card className="border-primary/50 bg-primary/10">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-yellow-500" />
-              Canton API Not Accessible
+              <CheckCircle className="h-5 w-5 text-primary" />
+              Automated Snapshot Scheduler
             </CardTitle>
             <CardDescription>
-              The Canton API cannot be reached from our edge functions. Use your working Node.js script to generate snapshots and upload them here.
+              ACS snapshots run automatically every 3 hours via CRON job
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-sm space-y-2">
-              <p className="font-semibold">Steps to upload a snapshot:</p>
-              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>Run your working Node.js snapshot script locally</li>
-                <li>This will generate files in ./acs_full/ and circulating-supply-single-sv.json</li>
-                <li>Run: <code className="px-2 py-1 bg-muted rounded">node upload-snapshot.js</code></li>
-                <li>The snapshot will appear below with real-time upload progress</li>
-              </ol>
+              <p className="font-semibold">How it works:</p>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                <li>Snapshots run every 3 hours (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC)</li>
+                <li>Automatically fetches data from the Canton network</li>
+                <li>Stores all template data and statistics in the database</li>
+                <li>Real-time logs stream below during processing</li>
+              </ul>
               <p className="text-xs text-muted-foreground mt-2">
-                The upload-snapshot.js file has been created in your project root directory.
+                Manual uploads are still available via <code className="px-2 py-1 bg-muted rounded">node upload-snapshot.js</code> if needed.
               </p>
             </div>
           </CardContent>
