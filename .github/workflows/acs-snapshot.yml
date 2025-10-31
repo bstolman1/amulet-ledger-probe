@@ -1,0 +1,44 @@
+name: ACS Snapshot Scheduler
+
+on:
+  schedule:
+    # Run every 3 hours at :00 (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC)
+    - cron: '0 */3 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  fetch-and-upload-snapshot:
+    runs-on: self-hosted # Uses your machine with whitelisted IP
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install axios
+      
+      - name: Run snapshot script
+        run: |
+          # Run your Canton API snapshot script here
+          # This should generate:
+          # - circulating-supply-single-sv.json
+          # - circulating-supply-single-sv.templates.json
+          # - acs_full/ directory with template JSON files
+          node your-snapshot-script.js
+        continue-on-error: false
+      
+      - name: Upload to Supabase
+        run: node upload-snapshot.js
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          # Optional: Clean up generated files after upload
+          rm -f circulating-supply-single-sv.json
+          rm -f circulating-supply-single-sv.templates.json
+          rm -rf acs_full
