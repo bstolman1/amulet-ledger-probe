@@ -116,11 +116,37 @@ export default function Snapshots() {
           <div>
             <h1 className="text-3xl font-bold">ACS Snapshots</h1>
             <p className="text-muted-foreground">
-              Trigger and monitor ACS snapshot processing
+              Monitor ACS snapshot processing and upload external snapshots
             </p>
           </div>
           <TriggerACSSnapshotButton />
         </div>
+
+        <Card className="border-yellow-500/50 bg-yellow-500/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-yellow-500" />
+              Canton API Not Accessible
+            </CardTitle>
+            <CardDescription>
+              The Canton API cannot be reached from our edge functions. Use your working Node.js script to generate snapshots and upload them here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm space-y-2">
+              <p className="font-semibold">Steps to upload a snapshot:</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>Run your working Node.js snapshot script locally</li>
+                <li>This will generate files in ./acs_full/ and circulating-supply-single-sv.json</li>
+                <li>Run: <code className="px-2 py-1 bg-muted rounded">node upload-snapshot.js</code></li>
+                <li>The snapshot will appear below with real-time upload progress</li>
+              </ol>
+              <p className="text-xs text-muted-foreground mt-2">
+                The upload-snapshot.js file has been created in your project root directory.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {currentSnapshot && (
           <Card>
