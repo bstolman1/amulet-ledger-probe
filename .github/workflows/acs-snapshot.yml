@@ -20,16 +20,10 @@ jobs:
           node-version: '18'
       
       - name: Install dependencies
-        run: npm install axios
+        run: npm install axios bignumber.js
       
       - name: Run snapshot script
-        run: |
-          # Run your Canton API snapshot script here
-          # This should generate:
-          # - circulating-supply-single-sv.json
-          # - circulating-supply-single-sv.templates.json
-          # - acs_full/ directory with template JSON files
-          node your-snapshot-script.js
+        run: node fetch-canton-snapshot.js
         continue-on-error: false
       
       - name: Upload to Supabase
