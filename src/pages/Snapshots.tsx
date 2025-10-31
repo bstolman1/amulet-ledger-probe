@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useACSSnapshots } from "@/hooks/use-acs-snapshots";
-import { AlertCircle, CheckCircle, Info, Loader2 } from "lucide-react";
+import { CheckCircle, Info, Loader2, Clock, AlertCircle } from "lucide-react";
 
 interface SnapshotLog {
   id: string;
@@ -112,38 +111,41 @@ export default function Snapshots() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">ACS Snapshots</h1>
-            <p className="text-muted-foreground">
-              Monitor ACS snapshot processing and upload external snapshots
-            </p>
-          </div>
-          <TriggerACSSnapshotButton />
+        <div>
+          <h1 className="text-3xl font-bold">ACS Snapshots</h1>
+          <p className="text-muted-foreground">
+            Automated snapshots run every 3 hours via CRON scheduler
+          </p>
         </div>
 
         <Card className="border-primary/50 bg-primary/10">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-primary" />
+              <Clock className="h-5 w-5 text-primary" />
               Automated Snapshot Scheduler
             </CardTitle>
             <CardDescription>
-              ACS snapshots run automatically every 3 hours via CRON job
+              Snapshots run automatically every 3 hours
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-sm space-y-2">
-              <p className="font-semibold">How it works:</p>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li>Snapshots run every 3 hours (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC)</li>
-                <li>Automatically fetches data from the Canton network</li>
-                <li>Stores all template data and statistics in the database</li>
-                <li>Real-time logs stream below during processing</li>
-              </ul>
-              <p className="text-xs text-muted-foreground mt-2">
-                Manual uploads are still available via <code className="px-2 py-1 bg-muted rounded">node upload-snapshot.js</code> if needed.
-              </p>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>Fetches data from Canton network automatically</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>Stores template data and statistics in database</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>Real-time logs stream below during processing</span>
+              </div>
+              <div className="mt-4 p-3 bg-muted rounded-lg">
+                <p className="text-xs font-semibold mb-1">Schedule (UTC):</p>
+                <p className="text-xs text-muted-foreground">00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00</p>
+              </div>
             </div>
           </CardContent>
         </Card>
