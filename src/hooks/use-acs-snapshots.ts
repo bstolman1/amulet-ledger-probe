@@ -97,13 +97,24 @@ export function useTriggerACSSnapshot() {
       return data;
     },
     onSuccess: (data) => {
-      toast.success("ACS snapshot started", {
-        description: `Snapshot ID: ${data.snapshot_id}`,
-      });
+      if (data?.status === 'completed') {
+        const entryCount = data.entry_count?.toLocaleString() || '0';
+        const amuletTotal = parseFloat(data.amulet_total || 0).toFixed(2);
+        const circulating = parseFloat(data.circulating_supply || 0).toFixed(2);
+        
+        toast.success("ACS snapshot completed!", {
+          description: `Processed ${entryCount} entries. Amulet: ${amuletTotal}, Circulating: ${circulating}`,
+        });
+      } else {
+        toast.success("ACS snapshot started", {
+          description: `Snapshot ID: ${data.snapshot_id}`,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
+      queryClient.invalidateQueries({ queryKey: ["latestAcsSnapshot"] });
     },
     onError: (error: Error) => {
-      toast.error("Failed to start ACS snapshot", {
+      toast.error("ACS snapshot failed", {
         description: error.message,
       });
     },
