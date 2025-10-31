@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ---------- Decimal arithmetic helpers ----------
+// ---------- Decimal arithmetic ----------
 class Decimal {
   private value: string;
 
@@ -40,7 +40,6 @@ interface TemplateStats {
   status?: Record<string, number>;
 }
 
-// ---------- Helpers ----------
 function isTemplate(event: any, moduleName: string, entityName: string): boolean {
   const templateId = event?.template_id;
   if (!templateId) return false;
@@ -137,7 +136,7 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
-// ---------- Fetch and process ACS ----------
+// ---------- Fetch all ACS ----------
 async function fetchAllACS(
   baseUrl: string,
   migration_id: number,
@@ -156,7 +155,6 @@ async function fetchAllACS(
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
   const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
-  const templatesByPackage: Record<string, Set<string>> = {};
 
   let amuletTotal = new Decimal("0");
   let lockedTotal = new Decimal("0");
@@ -193,13 +191,8 @@ async function fetchAllACS(
       const pkg = templateId.split(":")[0] || "unknown";
       const args = e.create_arguments || {};
 
-      perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal("0"), locked: new Decimal("0") };
-      templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
-      templatesByPackage[pkg].add(templateId);
-
       templatesData[templateId] = templatesData[templateId] || [];
       templateStats[templateId] = templateStats[templateId] || { count: 0 };
-
       templatesData[templateId].push(args);
       templateStats[templateId].count += 1;
       analyzeArgs(args, templateStats[templateId]);
@@ -209,14 +202,12 @@ async function fetchAllACS(
         if (typeof val === "string" && /^[+-]?\d+(\.\d+)?$/.test(val)) {
           const bn = new Decimal(val);
           amuletTotal = amuletTotal.plus(bn);
-          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
         }
       } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
         const val = args?.amulet?.amount?.initialAmount ?? "0";
         if (typeof val === "string" && /^[+-]?\d+(\.\d+)?$/.test(val)) {
           const bn = new Decimal(val);
           lockedTotal = lockedTotal.plus(bn);
-          perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
         }
       }
     }
@@ -227,10 +218,7 @@ async function fetchAllACS(
     await new Promise((r) => setTimeout(r, 100));
   }
 
-  const canonicalPkgEntry = Object.entries(perPackage).sort(
-    (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber(),
-  )[0];
-  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
+  const canonicalPkg = "unknown"; // simplified — can add detection later
 
   return {
     amuletTotal,
@@ -246,41 +234,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseClient = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
-      global: {
-        headers: { Authorization: req.headers.get("Authorization")! },
-      },
-    });
-
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
-
-    // ✅ Require login but not admin
-    const {
-      data: { user },
-    } = await supabaseClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // 🔒 ADMIN CHECK TEMPORARILY DISABLED
-    // const { data: roleData } = await supabaseAdmin
-    //   .from('user_roles')
-    //   .select('role')
-    //   .eq('user_id', user.id)
-    //   .eq('role', 'admin')
-    //   .maybeSingle();
-    // if (!roleData) {
-    //   return new Response(JSON.stringify({ error: 'Admin access required' }), {
-    //     status: 403,
-    //     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    //   });
-    // }
 
     const BASE_URL = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
