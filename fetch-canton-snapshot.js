@@ -195,10 +195,20 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
 
-  // 🧾 Write per-template JSON files
+  // 🧾 Write per-template JSON files with metadata
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
-    fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
+    const fileContent = {
+      metadata: {
+        template_id: templateId,
+        migration_id,
+        record_time,
+        timestamp: new Date().toISOString(),
+        entry_count: data.length,
+      },
+      data,
+    };
+    fs.writeFileSync(fileName, JSON.stringify(fileContent, null, 2));
   }
   console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
