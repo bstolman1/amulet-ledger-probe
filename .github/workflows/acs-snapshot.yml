@@ -32,6 +32,8 @@ jobs:
         continue-on-error: false
         env:
           FORCE_FULL_SNAPSHOT: ${{ github.event.inputs.force_full || 'false' }}
+          SUPA_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPA_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       
       - name: Upload to Supabase
         run: node upload-snapshot.js
