@@ -17,6 +17,11 @@ export interface ACSSnapshot {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+  is_delta: boolean | null;
+  previous_snapshot_id: string | null;
+  updates_processed: number | null;
+  last_update_id: string | null;
+  processing_mode: 'full' | 'delta' | null;
 }
 
 export interface ACSTemplateStats {

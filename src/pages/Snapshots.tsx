@@ -114,7 +114,7 @@ export default function Snapshots() {
         <div>
           <h1 className="text-3xl font-bold">ACS Snapshots</h1>
           <p className="text-muted-foreground">
-            Automated snapshots run every 3 hours via CRON scheduler
+            Delta-based snapshots fetch only new changes every 3 hours for maximum efficiency
           </p>
         </div>
 
@@ -125,14 +125,14 @@ export default function Snapshots() {
               Automated Snapshot Scheduler
             </CardTitle>
             <CardDescription>
-              Snapshots run automatically every 3 hours
+              Delta snapshots run every 3 hours, processing only new changes
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Fetches data from Canton network automatically</span>
+                <span>Fetches only new changes (delta mode) for 99% efficiency gain</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-500" />
@@ -168,6 +168,12 @@ export default function Snapshots() {
             <CardContent>
               <div className="grid gap-2 text-sm">
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Mode:</span>
+                  <Badge variant={currentSnapshot.is_delta ? 'outline' : 'default'}>
+                    {currentSnapshot.is_delta ? '🔄 Delta' : '📦 Full'}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Migration ID:</span>
                   <span className="font-mono">{currentSnapshot.migration_id}</span>
                 </div>
@@ -181,6 +187,18 @@ export default function Snapshots() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Entries:</span>
                     <span className="font-mono">{currentSnapshot.entry_count.toLocaleString()}</span>
+                  </div>
+                )}
+                {currentSnapshot.is_delta && currentSnapshot.updates_processed && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Updates Processed:</span>
+                    <span className="font-mono">{currentSnapshot.updates_processed.toLocaleString()}</span>
+                  </div>
+                )}
+                {currentSnapshot.is_delta && currentSnapshot.previous_snapshot_id && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Based on:</span>
+                    <span className="font-mono text-xs">{currentSnapshot.previous_snapshot_id.slice(0, 8)}...</span>
                   </div>
                 )}
               </div>

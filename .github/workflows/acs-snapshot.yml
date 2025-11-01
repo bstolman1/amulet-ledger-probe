@@ -5,6 +5,11 @@ on:
     # Run every 3 hours at :00 (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC)
     - cron: '0 */3 * * *'
   workflow_dispatch: # Allow manual trigger
+    inputs:
+      force_full:
+        description: 'Force full snapshot (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   fetch-and-upload-snapshot:
@@ -22,9 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm install axios bignumber.js
       
-      - name: Run snapshot script
-        run: node fetch-canton-snapshot.js
+      - name: Run delta snapshot script
+        run: node fetch-canton-delta.js
         continue-on-error: false
+        env:
+          FORCE_FULL_SNAPSHOT: ${{ github.event.inputs.force_full || 'false' }}
       
       - name: Upload to Supabase
         run: node upload-snapshot.js
