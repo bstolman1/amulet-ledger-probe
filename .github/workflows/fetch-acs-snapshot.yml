@@ -1,0 +1,44 @@
+name: Fetch ACS Snapshot
+
+on:
+  workflow_dispatch: # Manual trigger
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+
+jobs:
+  fetch-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install axios bignumber.js @supabase/supabase-js
+      
+      - name: Fetch ACS Data
+        run: node scripts/fetch-acs-data.js
+        env:
+          BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
+      
+      - name: Upload to Supabase
+        run: node scripts/upload-to-supabase.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      
+      - name: Upload artifacts (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: acs-snapshot-${{ github.run_number }}
+          path: |
+            acs_full/
+            circulating-supply-single-sv.json
+          retention-days: 30
