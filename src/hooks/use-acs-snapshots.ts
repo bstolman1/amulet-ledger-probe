@@ -89,22 +89,13 @@ export function useTemplateStats(snapshotId: string | undefined) {
 export function useTriggerACSSnapshot() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error("You must be logged in to trigger a snapshot");
-      }
-
-      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (error) throw error;
-      return data;
-    },
+    return useMutation({
+      mutationFn: async () => {
+        // Public invocation – no auth required
+        const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot");
+        if (error) throw error;
+        return data as { message: string; snapshot_id: string };
+      },
     onSuccess: (data) => {
       toast.success("ACS snapshot started", {
         description: `Snapshot ID: ${data.snapshot_id}`,
