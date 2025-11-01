@@ -73,10 +73,10 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
 }
 
 async function fetchAllACS(baseUrl, migration_id, record_time) {
-  console.log("📦 Fetching ACS snapshot...");
+  console.log("📦 Fetching ACS snapshot and exporting per-template files…");
 
   const allEvents = [];
-  let after = undefined; // Start with undefined - API will use its default range
+  let after = 0;
   const pageSize = 1000;
   let page = 1;
   const seen = new Set();
@@ -92,21 +92,15 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   while (true) {
     try {
-      const requestBody = {
-        migration_id,
-        record_time,
-        page_size: pageSize,
-        daml_value_encoding: "compact_json",
-      };
-      
-      // Only include 'after' if it's defined (not on first request)
-      if (after !== undefined) {
-        requestBody.after = after;
-      }
-
       const res = await axios.post(
         `${baseUrl}/v0/state/acs`,
-        requestBody,
+        {
+          migration_id,
+          record_time,
+          page_size: pageSize,
+          after,
+          daml_value_encoding: "compact_json",
+        },
         { headers: { "Content-Type": "application/json" } }
       );
 
@@ -149,12 +143,17 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       allEvents.push(...events);
 
+      process.stdout.clearLine(0);
+      process.stdout.cursorTo(0);
       process.stdout.write(
-        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}\n`
+        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
       );
 
+      console.log(`\n   Templates on this page:`);
+      for (const t of pageTemplates) console.log(`      • ${t}`);
+
       if (events.length < pageSize) {
-        console.log("✅ Last page reached.");
+        console.log("\n✅ Last page reached.");
         break;
       }
 
@@ -163,15 +162,36 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
       await sleep(100);
     } catch (err) {
       const msg = err.response?.data?.error || err.message;
-      console.error(`⚠️ Page ${page} failed: ${msg}`);
+      console.error(`\n⚠️ Page ${page} failed: ${msg}`);
+
+      const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
+      if (match) {
+        const minRange = parseInt(match[1]);
+        const maxRange = parseInt(match[2]);
+        console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
+        after = minRange;
+        console.log(`🔁 Restarting from offset ${after}…`);
+        continue;
+      }
       throw err;
     }
   }
 
-  // Write per-template JSON files
+  console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
+
+  // 🧾 Write per-template JSON files
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
     fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
+  }
+  console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
+
+  // 📊 Package summaries
+  console.log("\n📊 Per-package totals:");
+  for (const [pkg, vals] of Object.entries(perPackage)) {
+    console.log(
+      `  ${pkg.slice(0, 12)}…  Amulet: ${vals.amulet.toFixed(10)} | Locked: ${vals.locked.toFixed(10)}`
+    );
   }
 
   const canonicalPkgEntry = Object.entries(perPackage).sort(
@@ -182,6 +202,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const canonicalTemplates = templatesByPackage[canonicalPkg]
     ? Array.from(templatesByPackage[canonicalPkg])
     : [];
+
+  console.log(`\n📦 Canonical package detected: ${canonicalPkg}`);
+  console.log(`📜 Templates found in canonical package (${canonicalPkg}):`);
+  for (const t of canonicalTemplates) console.log(`   • ${t}`);
 
   return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
 }
@@ -194,6 +218,17 @@ async function run() {
       await fetchAllACS(BASE_URL, migration_id, record_time);
 
     const circulating = amuletTotal.minus(lockedTotal);
+
+    console.log("\n\n🌍 Circulating Supply Summary:");
+    console.log("-------------------------------------------");
+    console.log(`💎 Total Amulet:        ${amuletTotal.toFixed(10)}`);
+    console.log(`🔒 Total LockedAmulet:  ${lockedTotal.toFixed(10)}`);
+    console.log("-------------------------------------------");
+    console.log(`🌐 Circulating Supply:  ${circulating.toFixed(10)}`);
+    console.log(`📦 Canonical Package:   ${canonicalPkg}`);
+    console.log(`📘 Migration ID:        ${migration_id}`);
+    console.log(`⏰ Record Time (UTC):   ${record_time}`);
+    console.log("-------------------------------------------");
 
     const summary = {
       timestamp: new Date().toISOString(),
@@ -211,10 +246,10 @@ async function run() {
     };
 
     fs.writeFileSync("circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
-    console.log("✅ Fetch complete. Summary saved.");
+    console.log("💾 Saved summary to circulating-supply-single-sv.json");
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
-    process.exit(1);
+    if (err.response) console.error("Response:", err.response.data);
   }
 }
 
