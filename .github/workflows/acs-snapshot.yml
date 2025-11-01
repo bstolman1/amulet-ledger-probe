@@ -32,7 +32,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          # Optional: Clean up generated files after upload
-          rm -f circulating-supply-single-sv.json
-          rm -f circulating-supply-single-sv.templates.json
-          rm -rf acs_full
+          # Optional: Clean up generated files after upload (Windows PowerShell syntax)
+          if (Test-Path "circulating-supply-single-sv.json") { Remove-Item "circulating-supply-single-sv.json" -Force }
+          if (Test-Path "circulating-supply-single-sv.templates.json") { Remove-Item "circulating-supply-single-sv.templates.json" -Force }
+          if (Test-Path "acs_full") { Remove-Item "acs_full" -Recurse -Force }
