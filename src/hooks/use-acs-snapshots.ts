@@ -91,35 +91,6 @@ export function useTemplateStats(snapshotId: string | undefined) {
   });
 }
 
-export interface ACSCurrentState {
-  id: string;
-  amulet_total: number;
-  locked_total: number;
-  circulating_supply: number;
-  active_contracts: number;
-  last_update_id: string | null;
-  last_record_time: string | null;
-  migration_id: number;
-  updated_at: string;
-  streamer_heartbeat: string;
-}
-
-export function useCurrentACSState() {
-  return useQuery({
-    queryKey: ["acsCurrentState"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("acs_current_state")
-        .select("*")
-        .single();
-
-      if (error) throw error;
-      return data as ACSCurrentState;
-    },
-    refetchInterval: 5_000, // Refetch every 5 seconds
-  });
-}
-
 export function useTriggerACSSnapshot() {
   const queryClient = useQueryClient();
 
@@ -146,7 +117,6 @@ export function useTriggerACSSnapshot() {
       }
       queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
       queryClient.invalidateQueries({ queryKey: ["latestAcsSnapshot"] });
-      queryClient.invalidateQueries({ queryKey: ["acsCurrentState"] });
     },
     onError: (error: Error) => {
       toast.error("ACS snapshot failed", {

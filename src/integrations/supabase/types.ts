@@ -61,45 +61,6 @@ export type Database = {
           },
         ]
       }
-      acs_current_state: {
-        Row: {
-          active_contracts: number
-          amulet_total: number
-          circulating_supply: number
-          id: string
-          last_record_time: string | null
-          last_update_id: string | null
-          locked_total: number
-          migration_id: number
-          streamer_heartbeat: string
-          updated_at: string
-        }
-        Insert: {
-          active_contracts?: number
-          amulet_total?: number
-          circulating_supply?: number
-          id?: string
-          last_record_time?: string | null
-          last_update_id?: string | null
-          locked_total?: number
-          migration_id: number
-          streamer_heartbeat?: string
-          updated_at?: string
-        }
-        Update: {
-          active_contracts?: number
-          amulet_total?: number
-          circulating_supply?: number
-          id?: string
-          last_record_time?: string | null
-          last_update_id?: string | null
-          locked_total?: number
-          migration_id?: number
-          streamer_heartbeat?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       acs_snapshots: {
         Row: {
           amulet_total: number

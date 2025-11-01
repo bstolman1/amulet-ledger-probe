@@ -1,11 +1,10 @@
-import { useCurrentACSState } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Coins, Lock, TrendingUp, Radio } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Coins, Lock, TrendingUp } from "lucide-react";
 
 export const ACSSnapshotCard = () => {
-  const { data: currentState, isPending } = useCurrentACSState();
+  const { data: snapshot, isPending } = useLatestACSSnapshot();
 
   if (isPending) {
     return (
@@ -20,41 +19,27 @@ export const ACSSnapshotCard = () => {
     );
   }
 
-  if (!currentState) {
+  if (!snapshot) {
     return (
       <Card className="glass-card p-6">
         <p className="text-muted-foreground text-center">
-          No real-time supply data available. Start the Canton stream to view live metrics.
+          No ACS snapshot data available. Trigger a snapshot to view supply metrics.
         </p>
       </Card>
     );
   }
 
-  const amuletTotal = parseFloat(currentState.amulet_total.toString());
-  const lockedTotal = parseFloat(currentState.locked_total.toString());
-  const circulatingSupply = parseFloat(currentState.circulating_supply.toString());
-  
-  // Check if stream is active (heartbeat within 2 minutes)
-  const now = new Date();
-  const heartbeat = new Date(currentState.streamer_heartbeat);
-  const diffMinutes = (now.getTime() - heartbeat.getTime()) / 1000 / 60;
-  const isLive = diffMinutes < 2;
+  const amuletTotal = snapshot.amulet_total;
+  const lockedTotal = snapshot.locked_total;
+  const circulatingSupply = snapshot.circulating_supply;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            Real-Time Supply
-            {isLive && (
-              <Badge variant="default" className="flex items-center gap-1 text-xs">
-                <Radio className="h-3 w-3 animate-pulse" />
-                Live
-              </Badge>
-            )}
-          </h3>
+          <h3 className="text-lg font-semibold">ACS Snapshot</h3>
           <p className="text-sm text-muted-foreground">
-            Last updated: {new Date(currentState.updated_at).toLocaleString()}
+            Latest: {new Date(snapshot.timestamp).toLocaleString()}
           </p>
         </div>
       </div>
@@ -101,20 +86,24 @@ export const ACSSnapshotCard = () => {
       </div>
 
       <Card className="glass-card p-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-muted-foreground">Migration ID</p>
-            <p className="font-mono">{currentState.migration_id}</p>
+            <p className="font-mono">{snapshot.migration_id}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Active Contracts</p>
-            <p className="font-mono">{currentState.active_contracts.toLocaleString()}</p>
+            <p className="text-muted-foreground">Entry Count</p>
+            <p className="font-mono">{snapshot.entry_count.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-muted-foreground">Stream Status</p>
-            <Badge variant={isLive ? "default" : "secondary"} className="text-xs">
-              {isLive ? "🟢 Active" : "🔴 Inactive"}
-            </Badge>
+            <p className="text-muted-foreground">Canonical Package</p>
+            <p className="font-mono text-xs truncate">{snapshot.canonical_package || 'N/A'}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Record Time</p>
+            <p className="font-mono text-xs truncate" title={snapshot.record_time}>
+              {new Date(snapshot.record_time).toLocaleTimeString()}
+            </p>
           </div>
         </div>
       </Card>

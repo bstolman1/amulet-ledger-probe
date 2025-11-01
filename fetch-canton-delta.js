@@ -1,37 +1,5 @@
-import axios from 'axios';
-import fs from 'fs';
-
-// ==================== CONFIG ====================
-
-const SUPA_URL = process.env.SUPA_URL;
-const SUPA_KEY = process.env.SUPA_KEY;
-const SV_URL = process.env.SV_URL || 'https://sv.sv-2.network.canton.global';
-const FORCE_FULL = process.env.FORCE_FULL_SNAPSHOT === 'true';
-
-// Auth configuration
-const SV_AUTH_BEARER = process.env.SV_AUTH_BEARER;
-const SV_API_KEY = process.env.SV_API_KEY;
-const SV_AUTH_HEADER_NAME = process.env.SV_AUTH_HEADER_NAME;
-const SV_AUTH_HEADER_VALUE = process.env.SV_AUTH_HEADER_VALUE;
-
-// Discovery overrides
-const SV_MIGRATION_ID = process.env.SV_MIGRATION_ID;
-const SV_RECORD_TIME = process.env.SV_RECORD_TIME;
-
-// Build auth headers for SV API calls
-function buildAuthHeaders() {
-  const headers = {};
-  if (SV_AUTH_BEARER) {
-    headers['Authorization'] = `Bearer ${SV_AUTH_BEARER}`;
-  }
-  if (SV_API_KEY) {
-    headers['x-api-key'] = SV_API_KEY;
-  }
-  if (SV_AUTH_HEADER_NAME && SV_AUTH_HEADER_VALUE) {
-    headers[SV_AUTH_HEADER_NAME] = SV_AUTH_HEADER_VALUE;
-  }
-  return headers;
-}
+const axios = require("axios");
+const fs = require("fs");
 
 // ==================== HELPERS ====================
 
@@ -54,6 +22,7 @@ function safeFileName(templateId) {
 
 async function getLastCompletedSnapshot() {
   try {
+    const { SUPA_URL, SUPA_KEY } = process.env;
     if (!SUPA_URL || !SUPA_KEY) {
       console.log("⚠️ Supabase credentials not found. Will do full snapshot.");
       return null;
@@ -89,7 +58,6 @@ async function getLastCompletedSnapshot() {
 
 async function detectLatestMigration(baseUrl) {
   console.log("\n🔍 Detecting latest migration ID...");
-  const authHeaders = buildAuthHeaders();
   let migrationId = 0;
   
   while (true) {
@@ -97,7 +65,6 @@ async function detectLatestMigration(baseUrl) {
       const now = new Date().toISOString();
       const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
         params: { before: now, migration_id: migrationId },
-        headers: authHeaders,
         timeout: 10000,
       });
       
@@ -107,24 +74,12 @@ async function detectLatestMigration(baseUrl) {
       } else {
         break;
       }
-    } catch (error) {
-      const status = error.response?.status;
-      console.log(`   Migration ${migrationId}: ❌ Failed (${status || error.message})`);
-      
-      if (status === 403) {
-        console.log(`\n⚠️  RBAC ERROR: The SV endpoint denied access.`);
-        console.log(`   This usually means you need to:`);
-        console.log(`   1. Provide authentication credentials (bearer token or API key), OR`);
-        console.log(`   2. Whitelist your runner's IP address with the SV operator, OR`);
-        console.log(`   3. Use a different sv_url that allows your access`);
-        console.log(`   Proceeding with fallback: using last successful migration (likely 0).\n`);
-      }
-      
+    } catch {
       break;
     }
   }
   
-  const latest = Math.max(0, migrationId - 1);
+  const latest = migrationId - 1;
   console.log(`✅ Latest migration ID: ${latest}\n`);
   return latest;
 }
@@ -133,42 +88,25 @@ async function detectLatestMigration(baseUrl) {
 
 async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   console.log(`\n📅 Fetching snapshot timestamp for migration ${migration_id}...`);
-  const authHeaders = buildAuthHeaders();
   const now = new Date().toISOString();
-
-  try {
-    const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
-      params: { before: now, migration_id },
-      headers: authHeaders,
-    });
-
-    const recordTime = res.data.record_time;
-    console.log(`   Initial record_time: ${recordTime}`);
-
-    await sleep(2000);
-
-    const res2 = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
-      params: { before: now, migration_id },
-      headers: authHeaders,
-    });
-
-    const recordTime2 = res2.data.record_time;
-    console.log(`   Re-verified record_time: ${recordTime2}`);
-
-    return recordTime2;
-  } catch (error) {
-    const status = error.response?.status;
-    if (status === 403) {
-      console.log(`\n⚠️  RBAC ERROR while fetching snapshot timestamp (403).`);
-      console.log(`   Proceeding with fallback: using current time as record_time.`);
-    } else {
-      console.log(`\n⚠️  Failed to fetch snapshot timestamp (${status || error.message}).`);
-      console.log(`   Proceeding with fallback: using current time as record_time.`);
-    }
-    const fallback = new Date().toISOString();
-    console.log(`✅ Using fallback record_time: ${fallback}\n`);
-    return fallback;
-  }
+  
+  const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+    params: { before: now, migration_id },
+  });
+  
+  const recordTime = res.data.record_time;
+  console.log(`   Initial record_time: ${recordTime}`);
+  
+  await sleep(2000);
+  
+  const res2 = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+    params: { before: now, migration_id },
+  });
+  
+  const recordTime2 = res2.data.record_time;
+  console.log(`   Re-verified record_time: ${recordTime2}`);
+  
+  return recordTime2;
 }
 
 // ==================== FETCH DELTA UPDATES ====================
@@ -178,7 +116,6 @@ async function fetchDeltaUpdates(baseUrl, lastSnapshot) {
   console.log(`   After Migration ID: ${lastSnapshot.migration_id}`);
   console.log(`   After Record Time: ${lastSnapshot.record_time}`);
 
-  const authHeaders = buildAuthHeaders();
   const allUpdates = [];
   let pageCount = 0;
   const maxPages = 1000;
@@ -194,9 +131,7 @@ async function fetchDeltaUpdates(baseUrl, lastSnapshot) {
         daml_value_encoding: "compact_json",
       };
 
-      const res = await axios.post(`${baseUrl}/v2/updates`, payload, {
-        headers: authHeaders,
-      });
+      const res = await axios.post(`${baseUrl}/v2/updates`, payload);
       
       const transactions = res.data.transactions || [];
       console.log(`📥 Page ${pageCount + 1}: ${transactions.length} updates`);
@@ -311,7 +246,6 @@ function processDeltaUpdates(updates, lastSnapshot) {
 async function fetchFullACS(baseUrl, migration_id, record_time) {
   console.log("\n📦 Fetching FULL ACS snapshot...");
   
-  const authHeaders = buildAuthHeaders();
   let after = 0;
   let page = 0;
   const pageSize = 1000;
@@ -339,10 +273,7 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
           after,
           page_size: pageSize,
         },
-        { 
-          headers: authHeaders,
-          timeout: 60000 
-        }
+        { timeout: 60000 }
       );
 
       const events = res.data.created_events || [];
@@ -435,41 +366,29 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
 // ==================== MAIN RUN ====================
 
 async function run() {
+  const baseUrl = process.env.SV_URL || "https://sv.sv-2.network.canton.global";
+  const forceFullSnapshot = process.env.FORCE_FULL_SNAPSHOT === "true";
+
   console.log("=".repeat(60));
-  console.log("  ACS SNAPSHOT FETCHER");
+  console.log("  DELTA-BASED ACS SNAPSHOT FETCHER");
   console.log("=".repeat(60));
-  console.log(`SV URL: ${SV_URL}`);
-  console.log(`Force Full Snapshot: ${FORCE_FULL}`);
-  
-  // Log auth status
-  const authMethods = [];
-  if (SV_AUTH_BEARER) authMethods.push('Bearer token');
-  if (SV_API_KEY) authMethods.push('API key');
-  if (SV_AUTH_HEADER_NAME) authMethods.push(`Custom header (${SV_AUTH_HEADER_NAME})`);
-  console.log(`Auth: ${authMethods.length > 0 ? authMethods.join(', ') : 'None'}`);
-  
-  // Log discovery overrides
-  if (SV_MIGRATION_ID || SV_RECORD_TIME) {
-    console.log('\nDiscovery overrides:');
-    if (SV_MIGRATION_ID) console.log(`  Migration ID: ${SV_MIGRATION_ID}`);
-    if (SV_RECORD_TIME) console.log(`  Record Time: ${SV_RECORD_TIME}`);
-  }
+  console.log(`SV URL: ${baseUrl}`);
+  console.log(`Force Full Snapshot: ${forceFullSnapshot}`);
 
   try {
     let result;
     let isDelta = false;
     let previousSnapshotId = null;
 
-    if (!FORCE_FULL) {
+    if (!forceFullSnapshot) {
       const lastSnapshot = await getLastCompletedSnapshot();
       
       if (lastSnapshot) {
-        // DELTA MODE
-        console.log("\n🎯 MODE: DELTA SNAPSHOT (incremental from last snapshot)\n");
+        // Delta mode
         isDelta = true;
         previousSnapshotId = lastSnapshot.id;
         
-        const updates = await fetchDeltaUpdates(SV_URL, lastSnapshot);
+        const updates = await fetchDeltaUpdates(baseUrl, lastSnapshot);
         
         if (updates.length === 0) {
           console.log("\n✅ No new updates since last snapshot. Nothing to do.");
@@ -481,42 +400,22 @@ async function run() {
         result.previous_snapshot_id = previousSnapshotId;
       } else {
         // No previous snapshot, do full ACS
-        console.log("\n🎯 MODE: FULL SNAPSHOT (no previous snapshot found)\n");
         isDelta = false;
-        
-        let migration_id, record_time;
-        if (SV_MIGRATION_ID && SV_RECORD_TIME) {
-          console.log("📌 Using provided migration_id and record_time (skipping discovery)\n");
-          migration_id = parseInt(SV_MIGRATION_ID, 10);
-          record_time = SV_RECORD_TIME;
-        } else {
-          migration_id = SV_MIGRATION_ID ? parseInt(SV_MIGRATION_ID, 10) : await detectLatestMigration(SV_URL);
-          record_time = SV_RECORD_TIME || await fetchSnapshotTimestamp(SV_URL, migration_id);
-        }
-        
-        result = await fetchFullACS(SV_URL, migration_id, record_time);
+        const migration_id = await detectLatestMigration(baseUrl);
+        const record_time = await fetchSnapshotTimestamp(baseUrl, migration_id);
+        result = await fetchFullACS(baseUrl, migration_id, record_time);
       }
     } else {
-      // FORCE FULL SNAPSHOT
-      console.log("\n🎯 MODE: FULL SNAPSHOT (forced)\n");
+      // Force full snapshot
       isDelta = false;
-      
-      let migration_id, record_time;
-      if (SV_MIGRATION_ID && SV_RECORD_TIME) {
-        console.log("📌 Using provided migration_id and record_time (skipping discovery)\n");
-        migration_id = parseInt(SV_MIGRATION_ID, 10);
-        record_time = SV_RECORD_TIME;
-      } else {
-        migration_id = SV_MIGRATION_ID ? parseInt(SV_MIGRATION_ID, 10) : await detectLatestMigration(SV_URL);
-        record_time = SV_RECORD_TIME || await fetchSnapshotTimestamp(SV_URL, migration_id);
-      }
-      
-      result = await fetchFullACS(SV_URL, migration_id, record_time);
+      const migration_id = await detectLatestMigration(baseUrl);
+      const record_time = await fetchSnapshotTimestamp(baseUrl, migration_id);
+      result = await fetchFullACS(baseUrl, migration_id, record_time);
     }
 
     // Write summary file
     const summary = {
-      sv_url: SV_URL,
+      sv_url: baseUrl,
       migration_id: result.migration_id,
       record_time: result.record_time,
       entry_count: result.entry_count,
