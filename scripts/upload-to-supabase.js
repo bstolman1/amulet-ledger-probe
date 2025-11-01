@@ -14,6 +14,12 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
+// Log the JWT role safely to verify privileges (no secrets printed)
+try {
+  const roleClaim = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role;
+  console.log(`🔐 Using auth role: ${roleClaim || 'unknown'}`);
+} catch {}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function uploadToSupabase() {

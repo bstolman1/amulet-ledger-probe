@@ -17,6 +17,11 @@ if (!supabaseUrl || !supabaseKey) {
   console.error("❌ Missing Supabase credentials. Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL)");
   process.exit(1);
 }
+// Log the JWT role safely to verify privileges (no secrets printed)
+try {
+  const roleClaim = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role;
+  console.log(`🔐 Using auth role: ${roleClaim || 'unknown'}`);
+} catch {}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
