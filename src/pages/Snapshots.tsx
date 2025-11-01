@@ -3,8 +3,9 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { useACSSnapshots } from "@/hooks/use-acs-snapshots";
+import { useACSSnapshots, useTriggerACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { AlertCircle, CheckCircle, Info, Loader2, Clock } from "lucide-react";
 
 interface SnapshotLog {
@@ -20,6 +21,7 @@ export default function Snapshots() {
   const [logs, setLogs] = useState<SnapshotLog[]>([]);
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(null);
   const { data: snapshots } = useACSSnapshots();
+  const triggerSnapshot = useTriggerACSSnapshot();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new logs arrive
@@ -118,6 +120,9 @@ export default function Snapshots() {
               View automated snapshots from GitHub Actions running every 3 hours
             </p>
           </div>
+          <Button onClick={() => triggerSnapshot.mutate()} disabled={triggerSnapshot.isPending}>
+            {triggerSnapshot.isPending ? 'Starting…' : 'Run Snapshot Now'}
+          </Button>
         </div>
 
         <Card className="border-primary/50 bg-primary/5">
