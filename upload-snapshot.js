@@ -9,8 +9,8 @@
  *   2. Run: node upload-snapshot.js
  */
 
-const fs = require('fs');
-const axios = require('axios');
+import fs from 'fs';
+import axios from 'axios';
 
 const SUPABASE_URL = 'https://mbbjmxubfeaudnhxmwqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1iYmpteHViZmVhdWRuaHhtd3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5NzMxOTMsImV4cCI6MjA3NTU0OTE5M30.yc9pYrMnctKubAetS97p01cT99d0w07GaLJ4k0iiHUc';
@@ -26,21 +26,40 @@ async function uploadSnapshot() {
     const templateFiles = fs.readdirSync('./acs_full').filter(f => f.endsWith('.json'));
     console.log(`Found ${templateFiles.length} template files`);
     
+    // Build a lookup map from canonical_templates for resolving template_id
+    const canonicalTemplates = summary.canonical_templates || [];
+    const fileNameToTemplateId = {};
+    for (const tid of canonicalTemplates) {
+      const safeName = tid.replace(/[:.]/g, '_');
+      fileNameToTemplateId[safeName] = tid;
+    }
+    
     // Build templates object by reading each file
     const templates = {};
     for (const fileName of templateFiles) {
       const filePath = `./acs_full/${fileName}`;
       const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       
-      // Extract template_id from metadata
-      const templateId = fileData.metadata?.template_id;
-      if (!templateId) {
-        console.warn(`Skipping ${fileName} - no template_id in metadata`);
+      let templateId = null;
+      let dataArray = [];
+      
+      // Handle both formats: plain array or object with metadata
+      if (Array.isArray(fileData)) {
+        // Plain array format (from fetch-canton-snapshot.js)
+        dataArray = fileData;
+        // Derive template_id from filename
+        const baseName = fileName.replace('.json', '');
+        templateId = fileNameToTemplateId[baseName] || baseName.replace(/_/g, ':');
+      } else if (fileData.metadata?.template_id) {
+        // Object with metadata format
+        templateId = fileData.metadata.template_id;
+        dataArray = fileData.data || [];
+      } else {
+        console.warn(`Skipping ${fileName} - unable to determine template_id`);
         continue;
       }
       
-      // Get the data array
-      const dataArray = fileData.data || [];
+      console.log(`  ✓ ${templateId} (${dataArray.length} entries)`);
       
       // Calculate basic stats
       templates[templateId] = {
@@ -81,11 +100,16 @@ async function uploadSnapshot() {
     console.log('\n🎉 You can now view the snapshot in your Snapshots page!');
     
   } catch (error) {
-    console.error('❌ Upload failed:', error.response?.data || error.message);
+    console.error('❌ Upload failed:');
     if (error.response) {
       console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
+      console.error('Response headers:', error.response.headers);
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    } else {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
     }
+    process.exit(1);
   }
 }
 
