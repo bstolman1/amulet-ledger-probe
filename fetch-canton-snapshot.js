@@ -159,13 +159,12 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       allEvents.push(...events);
 
-      process.stdout.clearLine(0);
-      process.stdout.cursorTo(0);
-      process.stdout.write(
+      // Progress update (safe for CI environments)
+      console.log(
         `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
       );
 
-      console.log(`\n   Templates on this page:`);
+      console.log(`   Templates on this page:`);
       for (const t of pageTemplates) console.log(`      • ${t}`);
 
       if (events.length < pageSize) {
