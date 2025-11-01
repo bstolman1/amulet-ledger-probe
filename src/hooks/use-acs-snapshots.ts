@@ -13,7 +13,7 @@ export interface ACSSnapshot {
   locked_total: number;
   circulating_supply: number;
   entry_count: number;
-  status: 'processing' | 'completed' | 'failed' | 'timeout';
+  status: 'processing' | 'completed' | 'failed';
   error_message: string | null;
   created_at: string;
   updated_at: string;
@@ -91,53 +91,28 @@ export function useTriggerACSSnapshot() {
 
   return useMutation({
     mutationFn: async () => {
-      // Primary: invoke via Supabase client
-      try {
-        const { data, error } = await supabase.functions.invoke("snapshot-scheduler", { body: {} });
-        if (error) throw error;
-        return data;
-      } catch (primaryError: any) {
-        // Fallback: direct HTTP call with full URL (in case of client routing issues)
-        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/snapshot-scheduler`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({}),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || primaryError?.message || 'Failed to start snapshot');
-        }
-        return await res.json();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("You must be logged in to trigger a snapshot");
       }
-    },
-    onMutate: () => {
-      toast.info("Starting ACS snapshot...", {
-        description: "This may take a few minutes. You can watch logs below.",
+
+      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
+
+      if (error) throw error;
+      return data;
     },
     onSuccess: (data) => {
-      if (data?.status === 'completed') {
-        const entryCount = data.entry_count?.toLocaleString() || '0';
-        const amuletTotal = parseFloat(data.amulet_total || 0).toFixed(2);
-        const circulating = parseFloat(data.circulating_supply || 0).toFixed(2);
-        
-        toast.success("ACS snapshot completed!", {
-          description: `Processed ${entryCount} entries. Amulet: ${amuletTotal}, Circulating: ${circulating}`,
-        });
-      } else {
-        toast.success("ACS snapshot started", {
-          description: `Snapshot ID: ${data.snapshot_id}`,
-        });
-      }
+      toast.success("ACS snapshot started", {
+        description: `Snapshot ID: ${data.snapshot_id}`,
+      });
       queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
-      queryClient.invalidateQueries({ queryKey: ["latestAcsSnapshot"] });
     },
     onError: (error: Error) => {
-      toast.error("ACS snapshot failed", {
+      toast.error("Failed to start ACS snapshot", {
         description: error.message,
       });
     },

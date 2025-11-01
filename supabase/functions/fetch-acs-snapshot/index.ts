@@ -105,109 +105,38 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
   let id = 1;
   let latest: number | null = null;
   
-  try {
-    while (id <= 10) {
-      try {
-        const url = `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`;
-        console.log(`Checking migration ${id} at: ${url}`);
-        
-        const startTime = Date.now();
-        const res = await fetch(url);
-        const elapsed = Date.now() - startTime;
-        
-        console.log(`Migration ${id}: Response received in ${elapsed}ms, status: ${res.status}`);
-        
-        if (!res.ok) {
-          const text = await res.text();
-          console.log(`Migration ${id}: HTTP ${res.status}, body: ${text.substring(0, 200)}`);
-          break;
-        }
-        
-        const text = await res.text();
-        console.log(`Migration ${id}: Response body: ${text.substring(0, 500)}`);
-        
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.error(`Migration ${id}: Failed to parse JSON:`, e);
-          break;
-        }
-        
-        if (data?.record_time) {
-          latest = id;
-          console.log(`✓ Migration ${id} is valid, record_time: ${data.record_time}`);
-          id++;
-        } else {
-          console.log(`Migration ${id} has no record_time, keys:`, Object.keys(data || {}));
-          break;
-        }
-      } catch (err: any) {
-        console.error(`Migration ${id} check failed:`, err.name, err.message, err.stack);
-        break;
-      }
+  while (true) {
+    try {
+      const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
+      const data = await res.json();
+      if (data?.record_time) {
+        latest = id;
+        id++;
+      } else break;
+    } catch {
+      break;
     }
-    
-    if (!latest) {
-      console.error('No valid migration found. Checked migrations 1-' + (id - 1));
-      throw new Error('No valid migration found. The Canton API may be down or inaccessible.');
-    }
-    console.log(`📘 Using latest migration_id: ${latest}`);
-    return latest;
-  } catch (error: any) {
-    console.error('detectLatestMigration error:', error.name, error.message);
-    throw error;
   }
+  
+  if (!latest) throw new Error('No valid migration found.');
+  console.log(`📘 Using latest migration_id: ${latest}`);
+  return latest;
 }
 
 async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Promise<string> {
-  console.log(`Fetching snapshot timestamp for migration ${migration_id}...`);
-  
-  try {
-    const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`);
-    
-    const data = await res.json();
-    let record_time = data.record_time;
-    
-    if (!record_time) {
-      throw new Error('No record_time in response');
-    }
-    
-    console.log(`📅 Initial snapshot timestamp: ${record_time}`);
+  const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`);
+  const data = await res.json();
+  let record_time = data.record_time;
+  console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-    // Re-verify
-    const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
-    
-    const verifyData = await verify.json();
-    if (verifyData?.record_time && verifyData.record_time !== record_time) {
-      record_time = verifyData.record_time;
-      console.log(`🔁 Updated to verified snapshot: ${record_time}`);
-    }
-    return record_time;
-  } catch (error: any) {
-    console.error('fetchSnapshotTimestamp error:', error.message);
-    throw error;
+  // Re-verify
+  const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
+  const verifyData = await verify.json();
+  if (verifyData?.record_time && verifyData.record_time !== record_time) {
+    record_time = verifyData.record_time;
+    console.log(`🔁 Updated to verified snapshot: ${record_time}`);
   }
-}
-
-// Helper to log to database
-async function logToDatabase(
-  supabaseAdmin: any,
-  snapshotId: string,
-  level: string,
-  message: string,
-  metadata?: any
-) {
-  try {
-    await supabaseAdmin.from('snapshot_logs').insert({
-      snapshot_id: snapshotId,
-      log_level: level,
-      message,
-      metadata: metadata || null,
-    });
-  } catch (error) {
-    console.error('Failed to log to database:', error);
-  }
+  return record_time;
 }
 
 async function fetchAllACS(
@@ -224,7 +153,6 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
-  await logToDatabase(supabaseAdmin, snapshotId, 'info', 'Starting ACS data fetch');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -258,7 +186,6 @@ async function fetchAllACS(
 
       if (events.length === 0) {
         console.log('✅ No more events — finished.');
-        await logToDatabase(supabaseAdmin, snapshotId, 'info', 'Finished fetching all pages');
         break;
       }
 
@@ -305,15 +232,6 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
-      
-      // Log progress every 5 pages
-      if (page % 5 === 0) {
-        await logToDatabase(supabaseAdmin, snapshotId, 'info', `Processed page ${page}`, {
-          total_entries: seen.size,
-          amulet_total: amuletTotal.toString(),
-          locked_total: lockedTotal.toString(),
-        });
-      }
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
@@ -325,7 +243,6 @@ async function fetchAllACS(
       await new Promise(r => setTimeout(r, 100));
     } catch (err: any) {
       console.error(`⚠️ Page ${page} failed:`, err.message);
-      await logToDatabase(supabaseAdmin, snapshotId, 'error', `Page ${page} failed: ${err.message}`);
       throw err;
     }
   }
@@ -337,14 +254,8 @@ async function fetchAllACS(
   const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
-  await logToDatabase(supabaseAdmin, snapshotId, 'info', `Identified canonical package: ${canonicalPkg}`);
 
   // Upload per-template JSON files to storage
-  await logToDatabase(supabaseAdmin, snapshotId, 'info', `Starting to upload ${Object.keys(templatesData).length} template JSON files`);
-  
-  let uploadedCount = 0;
-  const totalTemplates = Object.keys(templatesData).length;
-  
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
@@ -370,15 +281,8 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
-      await logToDatabase(supabaseAdmin, snapshotId, 'error', `Failed to upload ${fileName}.json: ${uploadError.message}`);
     } else {
       console.log(`✅ Uploaded ${filePath}`);
-      uploadedCount++;
-      
-      // Log progress every 20 files
-      if (uploadedCount % 20 === 0) {
-        await logToDatabase(supabaseAdmin, snapshotId, 'info', `Uploaded ${uploadedCount}/${totalTemplates} template files`);
-      }
     }
 
     // Store template stats in DB
@@ -399,8 +303,6 @@ async function fetchAllACS(
     });
   }
 
-  await logToDatabase(supabaseAdmin, snapshotId, 'success', `Successfully uploaded ${uploadedCount} template JSON files`);
-
   return {
     amuletTotal,
     lockedTotal,
@@ -416,30 +318,53 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: req.headers.get('Authorization')! },
+        },
+      }
+    );
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Verify user is admin
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { data: roleData } = await supabaseAdmin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (!roleData) {
+      return new Response(JSON.stringify({ error: 'Admin access required' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
-
-    console.log('🚀 Starting ACS snapshot process...');
-
-    // For now, hardcode migration_id and use a recent timestamp
-    // TODO: Fix auto-detection when Canton API is accessible from edge functions
-    const migration_id = 1;
-    const record_time = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
-    
-    console.log(`📘 Using migration_id: ${migration_id}`);
-    console.log(`⏰ Using record_time: ${record_time}`);
 
     // Create snapshot record
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
       .from('acs_snapshots')
       .insert({
         sv_url: BASE_URL,
-        migration_id,
-        record_time,
+        migration_id: 0, // Will be updated
+        record_time: '',
         amulet_total: '0',
         locked_total: '0',
         circulating_supply: '0',
@@ -450,108 +375,70 @@ Deno.serve(async (req) => {
       .single();
 
     if (snapshotError || !snapshot) {
-      console.error('❌ Failed to create snapshot record:', snapshotError);
       throw new Error('Failed to create snapshot record');
     }
 
-    console.log(`📝 Created snapshot record: ${snapshot.id}`);
-    await logToDatabase(supabaseAdmin, snapshot.id, 'info', 'ACS snapshot process initiated (testing mode)', {
-      migration_id,
-      record_time,
-      note: 'Using hardcoded migration_id due to Canton API connectivity issues from edge function',
-    });
+    // Start background task
+    const backgroundTask = async () => {
+      try {
+        const migration_id = await detectLatestMigration(BASE_URL);
+        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
-    try {
-      // Fetch all ACS data synchronously
-      const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
-        BASE_URL,
-        migration_id,
-        record_time,
-        supabaseAdmin,
-        snapshot.id
-      );
-
-      const circulating = amuletTotal.minus(lockedTotal);
-
-      console.log(`✅ Processed ${entryCount} entries`);
-      console.log(`💰 Amulet Total: ${amuletTotal.toString()}`);
-      console.log(`🔒 Locked Total: ${lockedTotal.toString()}`);
-      console.log(`💱 Circulating: ${circulating.toString()}`);
-      console.log(`📦 Canonical Package: ${canonicalPkg}`);
-
-      // Update snapshot with results
-      const { error: updateError } = await supabaseAdmin
-        .from('acs_snapshots')
-        .update({
-          canonical_package: canonicalPkg,
-          amulet_total: amuletTotal.toString(),
-          locked_total: lockedTotal.toString(),
-          circulating_supply: circulating.toString(),
-          entry_count: entryCount,
-          status: 'completed',
-        })
-        .eq('id', snapshot.id);
-
-      if (updateError) {
-        console.error('❌ Failed to update snapshot:', updateError);
-        throw updateError;
-      }
-
-      console.log('✅ ACS snapshot completed successfully');
-      
-      await logToDatabase(supabaseAdmin, snapshot.id, 'success', 'ACS snapshot completed successfully', {
-        entry_count: entryCount,
-        amulet_total: amuletTotal.toString(),
-        locked_total: lockedTotal.toString(),
-        circulating_supply: circulating.toString(),
-        canonical_package: canonicalPkg,
-      });
-
-      return new Response(
-        JSON.stringify({
-          status: 'completed',
-          snapshot_id: snapshot.id,
+        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
+          BASE_URL,
           migration_id,
           record_time,
-          entry_count: entryCount,
-          amulet_total: amuletTotal.toString(),
-          locked_total: lockedTotal.toString(),
-          circulating_supply: circulating.toString(),
-          canonical_package: canonicalPkg,
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    } catch (processingError: any) {
-      console.error('❌ Snapshot processing failed:', processingError);
+          supabaseAdmin,
+          snapshot.id
+        );
 
-      await logToDatabase(supabaseAdmin, snapshot.id, 'error', `Snapshot processing failed: ${processingError.message}`);
+        const circulating = amuletTotal.minus(lockedTotal);
 
-      // Update snapshot status to failed
-      await supabaseAdmin
-        .from('acs_snapshots')
-        .update({
-          status: 'failed',
-          error_message: processingError.message || 'Processing failed',
-        })
-        .eq('id', snapshot.id);
+        // Update snapshot with results
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            migration_id,
+            record_time,
+            canonical_package: canonicalPkg,
+            amulet_total: amuletTotal.toString(),
+            locked_total: lockedTotal.toString(),
+            circulating_supply: circulating.toString(),
+            entry_count: entryCount,
+            status: 'completed',
+          })
+          .eq('id', snapshot.id);
 
-      return new Response(
-        JSON.stringify({
-          error: processingError.message || 'Snapshot processing failed',
-          snapshot_id: snapshot.id,
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    }
-  } catch (error: any) {
-    console.error('❌ Error starting snapshot:', error);
+        console.log('✅ ACS snapshot completed successfully');
+      } catch (error: any) {
+        console.error('❌ ACS snapshot failed:', error);
+        
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            status: 'failed',
+            error_message: error.message,
+          })
+          .eq('id', snapshot.id);
+      }
+    };
+
+    // Start background task (fire and forget)
+    backgroundTask();
+
     return new Response(
-      JSON.stringify({ error: error.message || 'Failed to start snapshot' }),
+      JSON.stringify({
+        message: 'ACS snapshot started',
+        snapshot_id: snapshot.id,
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
+  } catch (error: any) {
+    console.error('Error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

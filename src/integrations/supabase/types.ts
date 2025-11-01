@@ -287,41 +287,6 @@ export type Database = {
         }
         Relationships: []
       }
-      snapshot_logs: {
-        Row: {
-          created_at: string
-          id: string
-          log_level: string
-          message: string
-          metadata: Json | null
-          snapshot_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          log_level?: string
-          message: string
-          metadata?: Json | null
-          snapshot_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          log_level?: string
-          message?: string
-          metadata?: Json | null
-          snapshot_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "snapshot_logs_snapshot_id_fkey"
-            columns: ["snapshot_id"]
-            isOneToOne: false
-            referencedRelation: "acs_snapshots"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       sv_votes: {
         Row: {
           cip_id: string
