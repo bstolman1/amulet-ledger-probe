@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 const BASE_URL = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
@@ -349,7 +350,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Create snapshot record
+    // Create snapshot record immediately
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
       .from('acs_snapshots')
       .insert({
@@ -375,66 +376,78 @@ Deno.serve(async (req) => {
     await supabaseAdmin.from('snapshot_logs').insert({
       snapshot_id: snapshot.id,
       log_level: 'info',
-      message: 'Snapshot started by CRON scheduler',
+      message: 'Snapshot started by UI/manual trigger',
     });
 
-    // Detect migration and fetch data
-    const migration_id = await detectLatestMigration(BASE_URL);
-    const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    // Heavy work in the background to avoid function timeout
+    const run = (async () => {
+      try {
+        const migration_id = await detectLatestMigration(BASE_URL);
+        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
-    await supabaseAdmin.from('snapshot_logs').insert({
-      snapshot_id: snapshot.id,
-      log_level: 'info',
-      message: `Detected migration ${migration_id} at ${record_time}`,
-    });
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshot.id,
+          log_level: 'info',
+          message: `Detected migration ${migration_id} at ${record_time}`,
+        });
 
-    const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
-      supabaseAdmin,
-      snapshot.id,
-      BASE_URL,
-      migration_id,
-      record_time
-    );
+        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
+          supabaseAdmin,
+          snapshot.id,
+          BASE_URL,
+          migration_id,
+          record_time
+        );
 
-    const circulating = amuletTotal - lockedTotal;
+        const circulating = amuletTotal - lockedTotal;
 
-    // Update snapshot with final data
-    await supabaseAdmin
-      .from('acs_snapshots')
-      .update({
-        migration_id,
-        record_time,
-        canonical_package: canonicalPkg,
-        amulet_total: amuletTotal.toFixed(10),
-        locked_total: lockedTotal.toFixed(10),
-        circulating_supply: circulating.toFixed(10),
-        entry_count: entryCount,
-        status: 'completed',
-      })
-      .eq('id', snapshot.id);
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            migration_id,
+            record_time,
+            canonical_package: canonicalPkg,
+            amulet_total: amuletTotal.toFixed(10),
+            locked_total: lockedTotal.toFixed(10),
+            circulating_supply: circulating.toFixed(10),
+            entry_count: entryCount,
+            status: 'completed',
+          })
+          .eq('id', snapshot.id);
 
-    console.log("✅ Snapshot completed successfully");
+        console.log('✅ Snapshot completed successfully');
+      } catch (error: any) {
+        console.error('❌ Background error in snapshot scheduler:', error);
 
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            status: 'failed',
+            error_message: error?.message || 'Snapshot failed',
+          })
+          .eq('id', snapshot.id);
+
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshot.id,
+          log_level: 'error',
+          message: `Snapshot failed: ${error?.message || 'Unknown error'}`,
+        });
+      }
+    })();
+
+    // @ts-ignore - EdgeRuntime is provided by the runtime
+    EdgeRuntime.waitUntil(run);
+
+    // Return immediately so the client doesn't time out
     return new Response(
-      JSON.stringify({
-        success: true,
-        snapshot_id: snapshot.id,
-        totals: {
-          amulet: amuletTotal.toFixed(10),
-          locked: lockedTotal.toFixed(10),
-          circulating: circulating.toFixed(10),
-        },
-      }),
+      JSON.stringify({ success: true, status: 'started', snapshot_id: snapshot.id }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('❌ Error in snapshot scheduler:', error);
+    console.error('❌ Error creating snapshot:', error);
     return new Response(
-      JSON.stringify({ error: error.message || 'Failed to run snapshot' }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({ error: error.message || 'Failed to start snapshot' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
