@@ -265,7 +265,7 @@ function processDeltaUpdates(updates, lastSnapshot) {
     }
   }
 
-  const circulatingSupply = amuletTotal.minus(lockedTotal);
+  const circulatingSupply = amuletTotal.plus(lockedTotal);
 
   console.log(`✅ Processed ${updates.length} updates`);
   console.log(`   Created: ${contractChanges.created.length} contracts`);
@@ -373,7 +373,6 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
       }
 
       console.log(`   Page ${page}: ${events.length} events, ${pageTemplates.size} templates`);
-      for (const t of pageTemplates) console.log(`      • ${t}`);
 
       if (events.length < pageSize) {
         console.log("\n✅ Last page reached (partial page).");
@@ -430,7 +429,7 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
     }
   }
 
-  const circulatingSupply = amuletTotal.minus(lockedTotal);
+  const circulatingSupply = amuletTotal.plus(lockedTotal);
   const entryCount = Object.values(templatesData).reduce(
     (sum, t) => sum + t.contracts.length,
     0

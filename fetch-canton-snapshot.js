@@ -173,11 +173,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       // Progress update (safe for CI environments)
       console.log(
-        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
+        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)} | Templates: ${pageTemplates.size}`
       );
-
-      console.log(`   Templates on this page:`);
-      for (const t of pageTemplates) console.log(`      • ${t}`);
 
       if (events.length < pageSize) {
         console.log("\n✅ Last page reached (partial page).");
@@ -262,7 +259,7 @@ async function run() {
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
       await fetchAllACS(BASE_URL, migration_id, record_time);
 
-    const circulating = amuletTotal.minus(lockedTotal);
+    const circulating = amuletTotal.plus(lockedTotal);
 
     console.log("\n\n🌍 Circulating Supply Summary:");
     console.log("-------------------------------------------");

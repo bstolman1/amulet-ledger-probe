@@ -32,23 +32,24 @@ async function uploadSnapshot() {
     console.log('\n📤 Creating snapshot record...');
     const snapshotResponse = await axios.post(
       `${SUPABASE_URL}/rest/v1/acs_snapshots`,
-      {
-        timestamp: new Date().toISOString(),
-        migration_id: snapshot.migration_id,
-        record_time: snapshot.record_time,
-        sv_url: snapshot.sv_url,
-        canonical_package: snapshot.canonical_package,
-        amulet_total: snapshot.amulet_total,
-        locked_total: snapshot.locked_total,
-        circulating_supply: snapshot.circulating_supply,
-        entry_count: snapshot.entry_count,
-        status: 'completed',
-        is_delta: snapshot.is_delta || false,
-        previous_snapshot_id: snapshot.previous_snapshot_id || null,
-        updates_processed: snapshot.updates_processed || 0,
-        last_update_id: snapshot.last_update_id || null,
-        processing_mode: snapshot.is_delta ? 'delta' : 'full',
-      },
+    {
+      timestamp: new Date().toISOString(),
+      migration_id: snapshot.migration_id,
+      record_time: snapshot.record_time,
+      sv_url: snapshot.sv_url,
+      canonical_package: snapshot.canonical_package,
+      amulet_total: parseFloat(snapshot.amulet_total),
+      locked_total: parseFloat(snapshot.locked_total),
+      // Safety net: recompute circulating supply as amulet + locked
+      circulating_supply: parseFloat(snapshot.amulet_total) + parseFloat(snapshot.locked_total),
+      entry_count: snapshot.entry_count,
+      status: 'completed',
+      is_delta: snapshot.is_delta || false,
+      previous_snapshot_id: snapshot.previous_snapshot_id || null,
+      updates_processed: snapshot.updates_processed || 0,
+      last_update_id: snapshot.last_update_id || null,
+      processing_mode: snapshot.is_delta ? 'delta' : 'full',
+    },
       {
         headers: {
           'Content-Type': 'application/json',
