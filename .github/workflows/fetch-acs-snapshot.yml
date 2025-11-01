@@ -6,35 +6,19 @@ on:
     - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00)
 
 jobs:
-  fetch-and-upload:
-    runs-on: self-hosted
+  trigger-snapshot:
+    runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      
-      - name: Install dependencies
+      - name: Invoke backend snapshot function
         run: |
-          npm init -y
-          npm install axios bignumber.js @supabase/supabase-js
-      
-      - name: Fetch and Upload ACS Data
-        run: node scripts/fetch-acs-data.js
+          set -e
+          echo "Triggering ACS snapshot..."
+          RESP=$(curl -sS -X POST \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/functions/v1/fetch-acs-snapshot")
+          echo "Response: $RESP"
         env:
-          BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
-          SUPA_URL: ${{ secrets.SUPA_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      
-      - name: Upload artifacts (backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: acs-snapshot-${{ github.run_number }}
-          path: |
-            acs_full/
-            circulating-supply-single-sv.json
-          retention-days: 30
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
