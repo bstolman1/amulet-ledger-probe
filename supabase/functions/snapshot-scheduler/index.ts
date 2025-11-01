@@ -379,65 +379,69 @@ Deno.serve(async (req) => {
       message: 'Snapshot started by UI/manual trigger',
     });
 
-    // Heavy work in the background to avoid function timeout
-    const run = (async () => {
-      try {
-        const migration_id = await detectLatestMigration(BASE_URL);
-        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+// Detect migration immediately so UI can reflect it
+const migration_id = await detectLatestMigration(BASE_URL);
+const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshot.id,
-          log_level: 'info',
-          message: `Detected migration ${migration_id} at ${record_time}`,
-        });
+// Update snapshot with detected migration and record_time
+await supabaseAdmin
+  .from('acs_snapshots')
+  .update({ migration_id, record_time })
+  .eq('id', snapshot.id);
 
-        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
-          supabaseAdmin,
-          snapshot.id,
-          BASE_URL,
-          migration_id,
-          record_time
-        );
+await supabaseAdmin.from('snapshot_logs').insert({
+  snapshot_id: snapshot.id,
+  log_level: 'info',
+  message: `Detected migration ${migration_id} at ${record_time}`,
+});
 
-        const circulating = amuletTotal - lockedTotal;
+// Heavy work in the background to avoid function timeout
+const run = (async () => {
+  try {
+    const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
+      supabaseAdmin,
+      snapshot.id,
+      BASE_URL,
+      migration_id,
+      record_time
+    );
 
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({
-            migration_id,
-            record_time,
-            canonical_package: canonicalPkg,
-            amulet_total: amuletTotal.toFixed(10),
-            locked_total: lockedTotal.toFixed(10),
-            circulating_supply: circulating.toFixed(10),
-            entry_count: entryCount,
-            status: 'completed',
-          })
-          .eq('id', snapshot.id);
+    const circulating = amuletTotal - lockedTotal;
 
-        console.log('✅ Snapshot completed successfully');
-      } catch (error: any) {
-        console.error('❌ Background error in snapshot scheduler:', error);
+    await supabaseAdmin
+      .from('acs_snapshots')
+      .update({
+        canonical_package: canonicalPkg,
+        amulet_total: amuletTotal.toFixed(10),
+        locked_total: lockedTotal.toFixed(10),
+        circulating_supply: circulating.toFixed(10),
+        entry_count: entryCount,
+        status: 'completed',
+      })
+      .eq('id', snapshot.id);
 
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({
-            status: 'failed',
-            error_message: error?.message || 'Snapshot failed',
-          })
-          .eq('id', snapshot.id);
+    console.log('✅ Snapshot completed successfully');
+  } catch (error: any) {
+    console.error('❌ Background error in snapshot scheduler:', error);
 
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshot.id,
-          log_level: 'error',
-          message: `Snapshot failed: ${error?.message || 'Unknown error'}`,
-        });
-      }
-    })();
+    await supabaseAdmin
+      .from('acs_snapshots')
+      .update({
+        status: 'failed',
+        error_message: error?.message || 'Snapshot failed',
+      })
+      .eq('id', snapshot.id);
 
-    // @ts-ignore - EdgeRuntime is provided by the runtime
-    EdgeRuntime.waitUntil(run);
+    await supabaseAdmin.from('snapshot_logs').insert({
+      snapshot_id: snapshot.id,
+      log_level: 'error',
+      message: `Snapshot failed: ${error?.message || 'Unknown error'}`,
+    });
+  }
+})();
 
+// @ts-ignore - EdgeRuntime is provided by the runtime
+EdgeRuntime.waitUntil(run);
     // Return immediately so the client doesn't time out
     return new Response(
       JSON.stringify({ success: true, status: 'started', snapshot_id: snapshot.id }),

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useACSSnapshots, useTriggerACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { AlertCircle, CheckCircle, Info, Loader2, Clock } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface SnapshotLog {
   id: string;
@@ -23,6 +24,7 @@ export default function Snapshots() {
   const { data: snapshots } = useACSSnapshots();
   const triggerSnapshot = useTriggerACSSnapshot();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -109,6 +111,29 @@ export default function Snapshots() {
   };
 
   const currentSnapshot = snapshots?.find(s => s.id === currentSnapshotId);
+
+  // Poll snapshots while processing to keep migration/status fresh
+  useEffect(() => {
+    if (!currentSnapshot || currentSnapshot.status !== 'processing') return;
+    const id = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
+    }, 3000);
+    return () => clearInterval(id);
+  }, [currentSnapshot?.id, currentSnapshot?.status, queryClient]);
+
+  // Fallback polling for logs (in case realtime isn't available)
+  useEffect(() => {
+    if (!currentSnapshotId) return;
+    const id = setInterval(async () => {
+      const { data } = await supabase
+        .from('snapshot_logs')
+        .select('*')
+        .eq('snapshot_id', currentSnapshotId)
+        .order('created_at', { ascending: true });
+      if (data) setLogs(data as SnapshotLog[]);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [currentSnapshotId]);
 
   return (
     <DashboardLayout>
