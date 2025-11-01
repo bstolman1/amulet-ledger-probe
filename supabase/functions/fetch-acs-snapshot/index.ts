@@ -158,6 +158,12 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
+  await supabaseAdmin.from('snapshot_logs').insert({
+    snapshot_id: snapshotId,
+    message: 'Fetching ACS snapshot...',
+    log_level: 'info',
+    metadata: { migration_id, record_time }
+  });
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -241,9 +247,28 @@ async function fetchAllACS(
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
       console.log(`   Templates on this page: ${Array.from(pageTemplates).slice(0, 3).join(', ')}${pageTemplates.size > 3 ? ` (+${pageTemplates.size - 3} more)` : ''}`);
+      await supabaseAdmin.from('snapshot_logs').insert({
+        snapshot_id: snapshotId,
+        message: `Page ${page} processed`,
+        log_level: 'info',
+        metadata: {
+          page,
+          after,
+          events_count: events.length,
+          amulet_total: amuletTotal.toString(),
+          locked_total: lockedTotal.toString(),
+          sample_templates: Array.from(pageTemplates).slice(0, 3)
+        }
+      });
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshotId,
+          message: 'Last page reached',
+          log_level: 'info',
+          metadata: { page, after }
+        });
         break;
       }
 
@@ -253,6 +278,12 @@ async function fetchAllACS(
     } catch (err: any) {
       const msg = err.message || 'Unknown error';
       console.error(`⚠️ Page ${page} failed: ${msg}`);
+      await supabaseAdmin.from('snapshot_logs').insert({
+        snapshot_id: snapshotId,
+        message: `Page ${page} failed`,
+        log_level: 'error',
+        metadata: { page, after, error: msg }
+      });
 
       // Try to handle range errors by detecting snapshot range
       const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
@@ -275,6 +306,11 @@ async function fetchAllACS(
   const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
+  await supabaseAdmin.from('snapshot_logs').insert({
+    snapshot_id: snapshotId,
+    message: `Canonical package selected: ${canonicalPkg}`,
+    log_level: 'info'
+  });
 
   // Upload per-template JSON files to storage
   for (const [templateId, data] of Object.entries(templatesData)) {
@@ -366,9 +402,20 @@ Deno.serve(async (req) => {
       throw new Error('Failed to create snapshot record');
     }
 
+    await supabaseAdmin.from('snapshot_logs').insert({
+      snapshot_id: snapshot.id,
+      message: 'Snapshot record created',
+      log_level: 'info'
+    });
+
     // Start background task
     const backgroundTask = async () => {
       try {
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshot.id,
+          message: 'Background task started',
+          log_level: 'info'
+        });
         const migration_id = await detectLatestMigration(BASE_URL);
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
@@ -398,6 +445,11 @@ Deno.serve(async (req) => {
           .eq('id', snapshot.id);
 
         console.log('✅ ACS snapshot completed successfully');
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshot.id,
+          message: 'ACS snapshot completed successfully',
+          log_level: 'info'
+        });
       } catch (error: any) {
         console.error('❌ ACS snapshot failed:', error);
         
@@ -408,11 +460,19 @@ Deno.serve(async (req) => {
             error_message: error.message,
           })
           .eq('id', snapshot.id);
+
+        await supabaseAdmin.from('snapshot_logs').insert({
+          snapshot_id: snapshot.id,
+          message: 'ACS snapshot failed',
+          log_level: 'error',
+          metadata: { error: error?.message || String(error) }
+        });
       }
     };
 
-    // Start background task (fire and forget)
-    backgroundTask();
+    // Start background task and keep function alive until it finishes
+    // @ts-ignore - EdgeRuntime is provided by the runtime
+    EdgeRuntime.waitUntil(backgroundTask());
 
     return new Response(
       JSON.stringify({
