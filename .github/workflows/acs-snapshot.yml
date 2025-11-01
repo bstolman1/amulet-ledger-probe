@@ -14,6 +14,30 @@ on:
         description: 'Override Canton SV base URL (optional)'
         required: false
         default: ''
+      sv_bearer:
+        description: 'Bearer token for SV authentication (optional)'
+        required: false
+        default: ''
+      sv_api_key:
+        description: 'API key for SV authentication (optional)'
+        required: false
+        default: ''
+      sv_auth_header_name:
+        description: 'Custom auth header name (optional)'
+        required: false
+        default: ''
+      sv_auth_header_value:
+        description: 'Custom auth header value (optional)'
+        required: false
+        default: ''
+      sv_migration_id:
+        description: 'Override migration ID (skip discovery, optional)'
+        required: false
+        default: ''
+      sv_record_time:
+        description: 'Override record time (skip discovery, optional)'
+        required: false
+        default: ''
 
 jobs:
   fetch-and-upload-snapshot:
@@ -39,6 +63,12 @@ jobs:
           SUPA_URL: ${{ secrets.VITE_SUPABASE_URL }}
           SUPA_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SV_URL: ${{ github.event.inputs.sv_url || secrets.SV_URL }}
+          SV_AUTH_BEARER: ${{ github.event.inputs.sv_bearer || secrets.SV_AUTH_BEARER }}
+          SV_API_KEY: ${{ github.event.inputs.sv_api_key || secrets.SV_API_KEY }}
+          SV_AUTH_HEADER_NAME: ${{ github.event.inputs.sv_auth_header_name || secrets.SV_AUTH_HEADER_NAME }}
+          SV_AUTH_HEADER_VALUE: ${{ github.event.inputs.sv_auth_header_value || secrets.SV_AUTH_HEADER_VALUE }}
+          SV_MIGRATION_ID: ${{ github.event.inputs.sv_migration_id || secrets.SV_MIGRATION_ID }}
+          SV_RECORD_TIME: ${{ github.event.inputs.sv_record_time || secrets.SV_RECORD_TIME }}
       
       - name: Upload to Supabase
         run: node upload-snapshot.js
