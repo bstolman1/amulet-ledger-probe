@@ -6,11 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+const supabaseUrl = process.env.SUPA_URL;
+const supabaseKey = process.env.SUPA_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_KEY");
+  console.error("❌ Missing SUPA_URL or SUPA_KEY");
   process.exit(1);
 }
 
