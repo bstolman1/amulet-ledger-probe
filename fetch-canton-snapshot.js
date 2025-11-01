@@ -12,7 +12,6 @@
 
 import axios from "axios";
 import fs from "fs";
-import BigNumber from "bignumber.js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -94,9 +93,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   let page = 1;
   const seen = new Set();
 
-  // Totals
-  let amuletTotal = new BigNumber(0);
-  let lockedTotal = new BigNumber(0);
+  // Just track templates and packages
   const perPackage = {};
   const templatesByPackage = {};
   const templatesData = {}; // template_id -> [raw JSONs]
@@ -147,33 +144,23 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
         const templateId = e.template_id || "unknown";
         const pkg = templateId.split(":")[0] || "unknown";
-        perPackage[pkg] ||= { amulet: new BigNumber(0), locked: new BigNumber(0) };
+        perPackage[pkg] ||= { count: 0 };
         templatesByPackage[pkg] ||= new Set();
         templatesData[templateId] ||= [];
 
         templatesByPackage[pkg].add(templateId);
         pageTemplates.add(templateId);
+        perPackage[pkg].count++;
 
         const { create_arguments } = e;
         templatesData[templateId].push(create_arguments || {});
-
-        // Track totals for Amulet / LockedAmulet
-        if (isTemplate(e, "Splice.Amulet", "Amulet")) {
-          const amount = new BigNumber(create_arguments?.amount?.initialAmount ?? "0");
-          amuletTotal = amuletTotal.plus(amount);
-          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(amount);
-        } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
-          const amount = new BigNumber(create_arguments?.amulet?.amount?.initialAmount ?? "0");
-          lockedTotal = lockedTotal.plus(amount);
-          perPackage[pkg].locked = perPackage[pkg].locked.plus(amount);
-        }
       }
 
       allEvents.push(...events);
 
-      // Progress update (safe for CI environments)
+      // Progress update
       console.log(
-        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)} | Templates: ${pageTemplates.size}`
+        `📄 Page ${page} | Contracts: ${allEvents.length} | Templates: ${pageTemplates.size}`
       );
 
       if (events.length < pageSize) {
@@ -228,15 +215,13 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
   // 📊 Package summaries
-  console.log("\n📊 Per-package totals:");
+  console.log("\n📊 Per-package contract counts:");
   for (const [pkg, vals] of Object.entries(perPackage)) {
-    console.log(
-      `  ${pkg.slice(0, 12)}…  Amulet: ${vals.amulet.toFixed(10)} | Locked: ${vals.locked.toFixed(10)}`
-    );
+    console.log(`  ${pkg.slice(0, 12)}…  Contracts: ${vals.count}`);
   }
 
   const canonicalPkgEntry = Object.entries(perPackage).sort(
-    (a, b) => b[1].amulet.minus(a[1].amulet)
+    (a, b) => b[1].count - a[1].count
   )[0];
   const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
 
@@ -248,7 +233,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log(`📜 Templates found in canonical package (${canonicalPkg}):`);
   for (const t of canonicalTemplates) console.log(`   • ${t}`);
 
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
+  return { allEvents, canonicalPkg, canonicalTemplates };
 }
 
 /* ---------- Main Runner ---------- */
@@ -256,21 +241,17 @@ async function run() {
   try {
     const migration_id = await detectLatestMigration(BASE_URL);
     const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
+    const { allEvents, canonicalPkg, canonicalTemplates } =
       await fetchAllACS(BASE_URL, migration_id, record_time);
 
-    const circulating = amuletTotal.plus(lockedTotal);
-
-    console.log("\n\n🌍 Circulating Supply Summary:");
+    console.log("\n\n📦 Snapshot Summary:");
     console.log("-------------------------------------------");
-    console.log(`💎 Total Amulet:        ${amuletTotal.toFixed(10)}`);
-    console.log(`🔒 Total LockedAmulet:  ${lockedTotal.toFixed(10)}`);
-    console.log("-------------------------------------------");
-    console.log(`🌐 Circulating Supply:  ${circulating.toFixed(10)}`);
     console.log(`📦 Canonical Package:   ${canonicalPkg}`);
     console.log(`📘 Migration ID:        ${migration_id}`);
     console.log(`⏰ Record Time (UTC):   ${record_time}`);
+    console.log(`📊 Total Contracts:     ${allEvents.length}`);
     console.log("-------------------------------------------");
+    console.log("💡 Totals will be calculated after upload from database");
 
     const summary = {
       timestamp: new Date().toISOString(),
@@ -279,11 +260,6 @@ async function run() {
       sv_url: BASE_URL,
       canonical_package: canonicalPkg,
       canonical_templates: canonicalTemplates,
-      totals: {
-        amulet: amuletTotal.toFixed(10),
-        locked: lockedTotal.toFixed(10),
-        circulating: circulating.toFixed(10),
-      },
       entry_count: allEvents.length,
     };
 

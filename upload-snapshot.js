@@ -38,12 +38,11 @@ async function uploadSnapshot() {
       record_time: snapshot.record_time,
       sv_url: snapshot.sv_url,
       canonical_package: snapshot.canonical_package,
-      amulet_total: parseFloat(snapshot.amulet_total),
-      locked_total: parseFloat(snapshot.locked_total),
-      // Safety net: recompute circulating supply as amulet + locked
-      circulating_supply: parseFloat(snapshot.amulet_total) + parseFloat(snapshot.locked_total),
+      amulet_total: 0, // Will be calculated by edge function
+      locked_total: 0, // Will be calculated by edge function
+      circulating_supply: 0, // Will be calculated by edge function
       entry_count: snapshot.entry_count,
-      status: 'completed',
+      status: 'processing', // Will be updated to 'completed' after calculation
       is_delta: snapshot.is_delta || false,
       previous_snapshot_id: snapshot.previous_snapshot_id || null,
       updates_processed: snapshot.updates_processed || 0,
@@ -193,6 +192,27 @@ async function uploadSnapshot() {
     
     console.log(`✅ Templates uploaded: ${templatesUploaded}`);
     console.log(`✅ Files uploaded: ${filesUploaded}`);
+    
+    // Calculate totals from uploaded data
+    console.log('\n🧮 Calculating totals from uploaded data...');
+    try {
+      const calcResponse = await axios.post(
+        `${SUPABASE_URL}/functions/v1/calculate-snapshot-totals`,
+        { snapshot_id: snapshotId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+          },
+        }
+      );
+      
+      console.log(`✅ Totals calculated: ${JSON.stringify(calcResponse.data, null, 2)}`);
+    } catch (calcError) {
+      console.error('⚠️ Failed to calculate totals:', calcError.message);
+      console.log('   (Totals can be calculated later via edge function)');
+    }
     
     console.log('\n' + '='.repeat(60));
     console.log('  ✅ UPLOAD COMPLETE');

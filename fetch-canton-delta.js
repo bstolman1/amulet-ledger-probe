@@ -1,6 +1,5 @@
 const axios = require("axios");
 const fs = require("fs");
-const BigNumber = require("bignumber.js");
 
 // ==================== HELPERS ====================
 
@@ -166,10 +165,6 @@ async function fetchDeltaUpdates(baseUrl, lastSnapshot) {
 function processDeltaUpdates(updates, lastSnapshot) {
   console.log("\n⚙️ Processing delta updates...");
 
-  const packageTotals = JSON.parse(lastSnapshot.canonical_package || "{}").packageTotals || {};
-  let amuletTotal = new BigNumber(lastSnapshot.amulet_total || 0);
-  let lockedTotal = new BigNumber(lastSnapshot.locked_total || 0);
-  
   const templatesData = {};
   const contractChanges = {
     created: [],
@@ -213,29 +208,6 @@ function processDeltaUpdates(updates, lastSnapshot) {
           };
         }
         templatesData[templateId].contracts.push(created);
-
-        // Update Amulet totals if this is an Amulet contract
-        if (isTemplate(created, "Splice.Amulet", "Amulet")) {
-          const args = created.create_arguments || {};
-          const amount = args.amount?.initialAmount || 0;
-          const amountBN = new BigNumber(amount);
-          
-          amuletTotal = amuletTotal.plus(amountBN);
-          
-          if (!packageTotals[packageName]) {
-            packageTotals[packageName] = "0";
-          }
-          packageTotals[packageName] = new BigNumber(packageTotals[packageName])
-            .plus(amountBN)
-            .toString();
-        }
-
-        // Update LockedAmulet totals
-        if (isTemplate(created, "Splice.Amulet", "LockedAmulet")) {
-          const args = created.create_arguments || {};
-          const lockedAmount = args.amulet?.amount?.initialAmount || 0;
-          lockedTotal = lockedTotal.plus(new BigNumber(lockedAmount));
-        }
       }
 
       // Process archived events
@@ -254,32 +226,12 @@ function processDeltaUpdates(updates, lastSnapshot) {
     }
   }
 
-  // Calculate canonical package
-  let canonicalPackage = null;
-  let maxTotal = new BigNumber(0);
-  for (const [pkg, total] of Object.entries(packageTotals)) {
-    const totalBN = new BigNumber(total);
-    if (totalBN.gt(maxTotal)) {
-      maxTotal = totalBN;
-      canonicalPackage = pkg;
-    }
-  }
-
-  const circulatingSupply = amuletTotal.plus(lockedTotal);
-
   console.log(`✅ Processed ${updates.length} updates`);
   console.log(`   Created: ${contractChanges.created.length} contracts`);
   console.log(`   Archived: ${contractChanges.archived.length} contracts`);
-  console.log(`   New Amulet Total: ${amuletTotal.toFixed(10)}`);
-  console.log(`   New Locked Total: ${lockedTotal.toFixed(10)}`);
-  console.log(`   New Circulating Supply: ${circulatingSupply.toFixed(10)}`);
+  console.log("💡 Totals will be calculated after upload from database");
 
   return {
-    amulet_total: amuletTotal.toFixed(10),
-    locked_total: lockedTotal.toFixed(10),
-    circulating_supply: circulatingSupply.toFixed(10),
-    canonical_package: canonicalPackage,
-    package_totals: packageTotals,
     templates_data: templatesData,
     contract_changes: contractChanges,
     entry_count: contractChanges.created.length,
@@ -297,10 +249,6 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
   let after = 0;
   let page = 0;
   const pageSize = 1000;
-
-  const packageTotals = {};
-  let amuletTotal = new BigNumber(0);
-  let lockedTotal = new BigNumber(0);
 
   const templatesData = {};
   const outputDir = "./acs_full";
@@ -352,24 +300,6 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
           };
         }
         templatesData[templateId].contracts.push(ev);
-
-        if (isTemplate(ev, "Splice.Amulet", "Amulet")) {
-          const args = ev.create_arguments || {};
-          const amount = args.amount?.initialAmount || 0;
-          const amountBN = new BigNumber(amount);
-          amuletTotal = amuletTotal.plus(amountBN);
-
-          if (!packageTotals[packageName]) packageTotals[packageName] = "0";
-          packageTotals[packageName] = new BigNumber(packageTotals[packageName])
-            .plus(amountBN)
-            .toString();
-        }
-
-        if (isTemplate(ev, "Splice.Amulet", "LockedAmulet")) {
-          const args = ev.create_arguments || {};
-          const lockedAmount = args.amulet?.amount?.initialAmount || 0;
-          lockedTotal = lockedTotal.plus(new BigNumber(lockedAmount));
-        }
       }
 
       console.log(`   Page ${page}: ${events.length} events, ${pageTemplates.size} templates`);
@@ -418,31 +348,16 @@ async function fetchFullACS(baseUrl, migration_id, record_time) {
     console.log(`   ✅ ${filename} (${data.contracts.length} contracts)`);
   }
 
-  // Canonical package
-  let canonicalPackage = null;
-  let maxTotal = new BigNumber(0);
-  for (const [pkg, total] of Object.entries(packageTotals)) {
-    const totalBN = new BigNumber(total);
-    if (totalBN.gt(maxTotal)) {
-      maxTotal = totalBN;
-      canonicalPackage = pkg;
-    }
-  }
-
-  const circulatingSupply = amuletTotal.plus(lockedTotal);
   const entryCount = Object.values(templatesData).reduce(
     (sum, t) => sum + t.contracts.length,
     0
   );
 
+  console.log("💡 Totals will be calculated after upload from database");
+
   return {
     migration_id,
     record_time,
-    amulet_total: amuletTotal.toFixed(10),
-    locked_total: lockedTotal.toFixed(10),
-    circulating_supply: circulatingSupply.toFixed(10),
-    canonical_package: canonicalPackage,
-    package_totals: packageTotals,
     templates_data: templatesData,
     entry_count: entryCount,
   };
@@ -503,10 +418,6 @@ async function run() {
       sv_url: baseUrl,
       migration_id: result.migration_id,
       record_time: result.record_time,
-      amulet_total: result.amulet_total,
-      locked_total: result.locked_total,
-      circulating_supply: result.circulating_supply,
-      canonical_package: result.canonical_package,
       entry_count: result.entry_count,
       is_delta: isDelta,
       previous_snapshot_id: previousSnapshotId,
@@ -514,7 +425,6 @@ async function run() {
       last_update_id: result.last_update_id || null,
       templates_data: result.templates_data,
       contract_changes: result.contract_changes,
-      packageTotals: result.package_totals,
     };
 
     fs.writeFileSync(
@@ -542,15 +452,12 @@ async function run() {
     console.log(`Mode: ${isDelta ? "DELTA" : "FULL"}`);
     console.log(`Migration ID: ${result.migration_id}`);
     console.log(`Record Time: ${result.record_time}`);
-    console.log(`Amulet Total: ${result.amulet_total}`);
-    console.log(`Locked Total: ${result.locked_total}`);
-    console.log(`Circulating Supply: ${result.circulating_supply}`);
-    console.log(`Canonical Package: ${result.canonical_package}`);
     console.log(`Entry Count: ${result.entry_count}`);
     if (isDelta) {
       console.log(`Updates Processed: ${result.updates_processed}`);
       console.log(`Previous Snapshot: ${previousSnapshotId}`);
     }
+    console.log("💡 Totals will be calculated after upload");
     console.log("=".repeat(60));
   } catch (error) {
     console.error("\n❌ Fatal error:", error);
