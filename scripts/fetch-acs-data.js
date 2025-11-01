@@ -76,7 +76,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log("📦 Fetching ACS snapshot...");
 
   const allEvents = [];
-  let after = 0;
+  let after = undefined; // Start with undefined - API will use its default range
   const pageSize = 1000;
   let page = 1;
   const seen = new Set();
@@ -92,15 +92,21 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   while (true) {
     try {
+      const requestBody = {
+        migration_id,
+        record_time,
+        page_size: pageSize,
+        daml_value_encoding: "compact_json",
+      };
+      
+      // Only include 'after' if it's defined (not on first request)
+      if (after !== undefined) {
+        requestBody.after = after;
+      }
+
       const res = await axios.post(
         `${baseUrl}/v0/state/acs`,
-        {
-          migration_id,
-          record_time,
-          page_size: pageSize,
-          after,
-          daml_value_encoding: "compact_json",
-        },
+        requestBody,
         { headers: { "Content-Type": "application/json" } }
       );
 
