@@ -89,13 +89,13 @@ export function useTemplateStats(snapshotId: string | undefined) {
 export function useTriggerACSSnapshot() {
   const queryClient = useQueryClient();
 
-    return useMutation({
-      mutationFn: async () => {
-        // Public invocation – no auth required
-        const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot");
-        if (error) throw error;
-        return data as { message: string; snapshot_id: string };
-      },
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot");
+
+      if (error) throw error;
+      return data;
+    },
     onSuccess: (data) => {
       toast.success("ACS snapshot started", {
         description: `Snapshot ID: ${data.snapshot_id}`,

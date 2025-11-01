@@ -110,15 +110,10 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
       const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
       const data = await res.json();
       if (data?.record_time) {
-        console.log(`✓ Migration ${id} is valid`);
         latest = id;
         id++;
-      } else {
-        console.log(`✗ Migration ${id} not found`);
-        break;
-      }
-    } catch (err) {
-      console.log(`✗ Migration ${id} failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      } else break;
+    } catch {
       break;
     }
   }
@@ -134,7 +129,7 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   let record_time = data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  // Reverify snapshot (handles lag)
+  // Re-verify
   const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
   const verifyData = await verify.json();
   if (verifyData?.record_time && verifyData.record_time !== record_time) {
@@ -158,12 +153,6 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
-  await supabaseAdmin.from('snapshot_logs').insert({
-    snapshot_id: snapshotId,
-    message: 'Fetching ACS snapshot...',
-    log_level: 'info',
-    metadata: { migration_id, record_time }
-  });
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -200,8 +189,6 @@ async function fetchAllACS(
         break;
       }
 
-      const pageTemplates = new Set<string>();
-
       for (const e of events) {
         const id = e.contract_id || e.event_id;
         if (id && seen.has(id)) continue;
@@ -215,7 +202,6 @@ async function fetchAllACS(
         perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
         templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
         templatesByPackage[pkg].add(templateId);
-        pageTemplates.add(templateId);
 
         templatesData[templateId] = templatesData[templateId] || [];
         templateStats[templateId] = templateStats[templateId] || { count: 0 };
@@ -246,29 +232,9 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
-      console.log(`   Templates on this page: ${Array.from(pageTemplates).slice(0, 3).join(', ')}${pageTemplates.size > 3 ? ` (+${pageTemplates.size - 3} more)` : ''}`);
-      await supabaseAdmin.from('snapshot_logs').insert({
-        snapshot_id: snapshotId,
-        message: `Page ${page} processed`,
-        log_level: 'info',
-        metadata: {
-          page,
-          after,
-          events_count: events.length,
-          amulet_total: amuletTotal.toString(),
-          locked_total: lockedTotal.toString(),
-          sample_templates: Array.from(pageTemplates).slice(0, 3)
-        }
-      });
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshotId,
-          message: 'Last page reached',
-          log_level: 'info',
-          metadata: { page, after }
-        });
         break;
       }
 
@@ -276,25 +242,7 @@ async function fetchAllACS(
       page++;
       await new Promise(r => setTimeout(r, 100));
     } catch (err: any) {
-      const msg = err.message || 'Unknown error';
-      console.error(`⚠️ Page ${page} failed: ${msg}`);
-      await supabaseAdmin.from('snapshot_logs').insert({
-        snapshot_id: snapshotId,
-        message: `Page ${page} failed`,
-        log_level: 'error',
-        metadata: { page, after, error: msg }
-      });
-
-      // Try to handle range errors by detecting snapshot range
-      const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
-      if (match) {
-        const minRange = parseInt(match[1]);
-        const maxRange = parseInt(match[2]);
-        console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
-        after = minRange;
-        console.log(`🔁 Restarting from offset ${after}…`);
-        continue;
-      }
+      console.error(`⚠️ Page ${page} failed:`, err.message);
       throw err;
     }
   }
@@ -306,11 +254,6 @@ async function fetchAllACS(
   const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
-  await supabaseAdmin.from('snapshot_logs').insert({
-    snapshot_id: snapshotId,
-    message: `Canonical package selected: ${canonicalPkg}`,
-    log_level: 'info'
-  });
 
   // Upload per-template JSON files to storage
   for (const [templateId, data] of Object.entries(templatesData)) {
@@ -402,20 +345,9 @@ Deno.serve(async (req) => {
       throw new Error('Failed to create snapshot record');
     }
 
-    await supabaseAdmin.from('snapshot_logs').insert({
-      snapshot_id: snapshot.id,
-      message: 'Snapshot record created',
-      log_level: 'info'
-    });
-
     // Start background task
     const backgroundTask = async () => {
       try {
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshot.id,
-          message: 'Background task started',
-          log_level: 'info'
-        });
         const migration_id = await detectLatestMigration(BASE_URL);
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
@@ -445,11 +377,6 @@ Deno.serve(async (req) => {
           .eq('id', snapshot.id);
 
         console.log('✅ ACS snapshot completed successfully');
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshot.id,
-          message: 'ACS snapshot completed successfully',
-          log_level: 'info'
-        });
       } catch (error: any) {
         console.error('❌ ACS snapshot failed:', error);
         
@@ -460,19 +387,11 @@ Deno.serve(async (req) => {
             error_message: error.message,
           })
           .eq('id', snapshot.id);
-
-        await supabaseAdmin.from('snapshot_logs').insert({
-          snapshot_id: snapshot.id,
-          message: 'ACS snapshot failed',
-          log_level: 'error',
-          metadata: { error: error?.message || String(error) }
-        });
       }
     };
 
-    // Start background task and keep function alive until it finishes
-    // @ts-ignore - EdgeRuntime is provided by the runtime
-    EdgeRuntime.waitUntil(backgroundTask());
+    // Start background task (fire and forget)
+    backgroundTask();
 
     return new Response(
       JSON.stringify({

@@ -3,6 +3,7 @@ import { StatCard } from "@/components/StatCard";
 import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { Card } from "@/components/ui/card";
+import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -85,6 +86,9 @@ const Dashboard = () => {
         <div className="relative">
           <div className="absolute inset-0 gradient-primary rounded-2xl blur-3xl opacity-20" />
           <div className="relative glass-card p-8">
+            <div className="flex justify-end mb-4">
+              <TriggerACSSnapshotButton />
+            </div>
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="text-4xl font-bold mb-2">Welcome to SCANTON</h2>
