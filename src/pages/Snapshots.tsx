@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useACSSnapshots } from "@/hooks/use-acs-snapshots";
-import { CheckCircle, Info, Loader2, Clock, AlertCircle } from "lucide-react";
+import { AlertCircle, CheckCircle, Info, Loader2 } from "lucide-react";
 
 interface SnapshotLog {
   id: string;
@@ -20,14 +21,6 @@ export default function Snapshots() {
   const [logs, setLogs] = useState<SnapshotLog[]>([]);
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(null);
   const { data: snapshots } = useACSSnapshots();
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (scrollRef.current && logs.length > 0) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs]);
 
   // Get the latest processing or recently created snapshot
   useEffect(() => {
@@ -111,44 +104,15 @@ export default function Snapshots() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">ACS Snapshots</h1>
-          <p className="text-muted-foreground">
-            Automated snapshots run every 3 hours via CRON scheduler
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">ACS Snapshots</h1>
+            <p className="text-muted-foreground">
+              Trigger and monitor ACS snapshot processing
+            </p>
+          </div>
+          <TriggerACSSnapshotButton />
         </div>
-
-        <Card className="border-primary/50 bg-primary/10">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-primary" />
-              Automated Snapshot Scheduler
-            </CardTitle>
-            <CardDescription>
-              Snapshots run automatically every 3 hours
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Fetches data from Canton network automatically</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Stores template data and statistics in database</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Real-time logs stream below during processing</span>
-              </div>
-              <div className="mt-4 p-3 bg-muted rounded-lg">
-                <p className="text-xs font-semibold mb-1">Schedule (UTC):</p>
-                <p className="text-xs text-muted-foreground">00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
         {currentSnapshot && (
           <Card>
@@ -197,12 +161,9 @@ export default function Snapshots() {
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[500px] w-full rounded-md border p-4">
-              <div ref={scrollRef} className="h-full overflow-y-auto">
-                {logs.length === 0 ? (
+              {logs.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  {currentSnapshot?.status === 'processing' 
-                    ? 'Waiting for logs... This snapshot was started before logging was enabled. Trigger a new snapshot to see real-time progress.'
-                    : 'No logs yet. Trigger a snapshot to see progress.'}
+                  No logs yet. Trigger a snapshot to see progress.
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -232,7 +193,6 @@ export default function Snapshots() {
                   ))}
                 </div>
               )}
-              </div>
             </ScrollArea>
           </CardContent>
         </Card>
