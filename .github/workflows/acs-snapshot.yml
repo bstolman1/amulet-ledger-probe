@@ -10,6 +10,10 @@ on:
         description: 'Force full snapshot (true/false)'
         required: false
         default: 'false'
+      sv_url:
+        description: 'Override Canton SV base URL (optional)'
+        required: false
+        default: ''
 
 jobs:
   fetch-and-upload-snapshot:
@@ -27,11 +31,14 @@ jobs:
       - name: Install dependencies
         run: npm install axios bignumber.js
       
-      - name: Run delta snapshot script
+      - name: Run snapshot script (full/delta)
         run: node fetch-canton-delta.js
         continue-on-error: false
         env:
           FORCE_FULL_SNAPSHOT: ${{ github.event.inputs.force_full || 'false' }}
+          SUPA_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPA_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SV_URL: ${{ github.event.inputs.sv_url || secrets.SV_URL }}
       
       - name: Upload to Supabase
         run: node upload-snapshot.js

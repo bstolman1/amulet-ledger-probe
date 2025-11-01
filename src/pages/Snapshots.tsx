@@ -4,8 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
-import { useACSSnapshots } from "@/hooks/use-acs-snapshots";
-import { CheckCircle, Info, Loader2, Clock, AlertCircle } from "lucide-react";
+import { useACSSnapshots, useCurrentACSState } from "@/hooks/use-acs-snapshots";
+import { CheckCircle, Info, Loader2, Clock, AlertCircle, Radio } from "lucide-react";
 
 interface SnapshotLog {
   id: string;
@@ -19,7 +19,9 @@ interface SnapshotLog {
 export default function Snapshots() {
   const [logs, setLogs] = useState<SnapshotLog[]>([]);
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(null);
+  const [isStreamActive, setIsStreamActive] = useState(false);
   const { data: snapshots } = useACSSnapshots();
+  const { data: currentState } = useCurrentACSState();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new logs arrive
@@ -29,18 +31,48 @@ export default function Snapshots() {
     }
   }, [logs]);
 
-  // Get the latest processing or recently created snapshot
+  // Get the latest processing or recently created snapshot, or real-time stream
   useEffect(() => {
+    // Check if real-time stream is active (special UUID)
+    const realtimeStreamId = '00000000-0000-0000-0000-000000000001';
+    
     if (snapshots && snapshots.length > 0) {
       const processing = snapshots.find(s => s.status === 'processing');
       if (processing) {
         setCurrentSnapshotId(processing.id);
+        setIsStreamActive(false);
       } else {
-        // Show logs from the most recent snapshot
-        setCurrentSnapshotId(snapshots[0].id);
+        // Check if there are real-time stream logs
+        supabase
+          .from('snapshot_logs')
+          .select('id')
+          .eq('snapshot_id', realtimeStreamId)
+          .limit(1)
+          .then(({ data }) => {
+            if (data && data.length > 0) {
+              setCurrentSnapshotId(realtimeStreamId);
+              setIsStreamActive(true);
+            } else {
+              // Show logs from the most recent snapshot
+              setCurrentSnapshotId(snapshots[0]?.id || null);
+              setIsStreamActive(false);
+            }
+          });
       }
     }
   }, [snapshots]);
+
+  // Check stream heartbeat to detect if stream is active
+  useEffect(() => {
+    if (!currentState) return;
+    
+    const now = new Date();
+    const heartbeat = new Date(currentState.streamer_heartbeat);
+    const diffMinutes = (now.getTime() - heartbeat.getTime()) / 1000 / 60;
+    
+    // Stream is active if heartbeat is less than 2 minutes old
+    setIsStreamActive(diffMinutes < 2);
+  }, [currentState]);
 
   // Subscribe to real-time logs
   useEffect(() => {
@@ -112,49 +144,106 @@ export default function Snapshots() {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">ACS Snapshots</h1>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            ACS Real-Time Updates
+            {isStreamActive && (
+              <Badge variant="default" className="flex items-center gap-1">
+                <Radio className="h-3 w-3 animate-pulse" />
+                Live
+              </Badge>
+            )}
+          </h1>
           <p className="text-muted-foreground">
-            Delta-based snapshots fetch only new changes every 3 hours for maximum efficiency
+            Real-time contract state updates with periodic full snapshots for data integrity
           </p>
         </div>
 
-        <Card className="border-primary/50 bg-primary/10">
+        {currentState && (
+          <Card className="border-primary/50 bg-primary/10">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-primary" />
+                Current Supply Totals
+              </CardTitle>
+              <CardDescription>
+                Live calculations from active contracts
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Amulet Total</p>
+                  <p className="text-2xl font-bold">{parseFloat(currentState.amulet_total.toString()).toLocaleString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Locked Total</p>
+                  <p className="text-2xl font-bold">{parseFloat(currentState.locked_total.toString()).toLocaleString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Circulating Supply</p>
+                  <p className="text-2xl font-bold">{parseFloat(currentState.circulating_supply.toString()).toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Active Contracts:</span>
+                  <span className="ml-2 font-mono">{currentState.active_contracts.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Last Update:</span>
+                  <span className="ml-2 font-mono">{new Date(currentState.updated_at).toLocaleTimeString()}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-primary" />
-              Automated Snapshot Scheduler
+              Update Architecture
             </CardTitle>
             <CardDescription>
-              Delta snapshots run every 3 hours, processing only new changes
+              Real-time streaming with periodic full snapshots
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Fetches only new changes (delta mode) for 99% efficiency gain</span>
+                <span>Continuous stream polls Canton API every 30 seconds for new updates</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Stores template data and statistics in database</span>
+                <span>Supply totals recalculate automatically from active contracts</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Real-time logs stream below during processing</span>
+                <span>Full snapshots run every 3 hours for data integrity verification</span>
               </div>
               <div className="mt-4 p-3 bg-muted rounded-lg">
-                <p className="text-xs font-semibold mb-1">Schedule (UTC):</p>
-                <p className="text-xs text-muted-foreground">00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00</p>
+                <p className="text-xs font-semibold mb-1">Stream Status:</p>
+                <div className="flex items-center gap-2">
+                  <Badge variant={isStreamActive ? "default" : "secondary"}>
+                    {isStreamActive ? "🟢 Active" : "🔴 Inactive"}
+                  </Badge>
+                  {currentState && (
+                    <span className="text-xs text-muted-foreground">
+                      Last heartbeat: {new Date(currentState.streamer_heartbeat).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {currentSnapshot && (
+        {currentSnapshot && currentSnapshotId !== '00000000-0000-0000-0000-000000000001' && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                Current Snapshot
+                Latest Snapshot
                 {currentSnapshot.status === 'processing' && (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
@@ -208,9 +297,14 @@ export default function Snapshots() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Real-time Logs</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Real-time Activity Logs
+              {isStreamActive && <Radio className="h-4 w-4 animate-pulse text-green-500" />}
+            </CardTitle>
             <CardDescription>
-              Live progress updates from the snapshot process
+              {isStreamActive 
+                ? 'Live updates from the continuous Canton API stream' 
+                : 'Progress updates from snapshot processing'}
             </CardDescription>
           </CardHeader>
           <CardContent>

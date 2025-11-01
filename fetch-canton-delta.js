@@ -1,5 +1,5 @@
-const axios = require("axios");
-const fs = require("fs");
+import axios from 'axios';
+import fs from 'fs';
 
 // ==================== HELPERS ====================
 
@@ -74,12 +74,13 @@ async function detectLatestMigration(baseUrl) {
       } else {
         break;
       }
-    } catch {
+    } catch (error) {
+      console.log(`   Migration ${migrationId}: ❌ Failed (${error.response?.status || error.message})`);
       break;
     }
   }
   
-  const latest = migrationId - 1;
+  const latest = Math.max(0, migrationId - 1);
   console.log(`✅ Latest migration ID: ${latest}\n`);
   return latest;
 }
