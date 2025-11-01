@@ -91,7 +91,7 @@ export function useTriggerACSSnapshot() {
 
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("fetch-acs-snapshot");
+      const { data, error } = await supabase.functions.invoke("snapshot-scheduler");
 
       if (error) throw error;
       return data;
