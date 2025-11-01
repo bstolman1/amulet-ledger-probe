@@ -14,92 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      acs_contract_state: {
-        Row: {
-          archived_at: string | null
-          contract_id: string
-          create_arguments: Json | null
-          created_at: string
-          id: string
-          is_active: boolean | null
-          last_seen_in_snapshot_id: string | null
-          package_name: string | null
-          template_id: string
-          updated_at: string | null
-        }
-        Insert: {
-          archived_at?: string | null
-          contract_id: string
-          create_arguments?: Json | null
-          created_at: string
-          id?: string
-          is_active?: boolean | null
-          last_seen_in_snapshot_id?: string | null
-          package_name?: string | null
-          template_id: string
-          updated_at?: string | null
-        }
-        Update: {
-          archived_at?: string | null
-          contract_id?: string
-          create_arguments?: Json | null
-          created_at?: string
-          id?: string
-          is_active?: boolean | null
-          last_seen_in_snapshot_id?: string | null
-          package_name?: string | null
-          template_id?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "acs_contract_state_last_seen_in_snapshot_id_fkey"
-            columns: ["last_seen_in_snapshot_id"]
-            isOneToOne: false
-            referencedRelation: "acs_snapshots"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      acs_current_state: {
-        Row: {
-          active_contracts: number
-          amulet_total: number
-          circulating_supply: number
-          id: string
-          last_record_time: string | null
-          last_update_id: string | null
-          locked_total: number
-          migration_id: number
-          streamer_heartbeat: string
-          updated_at: string
-        }
-        Insert: {
-          active_contracts?: number
-          amulet_total?: number
-          circulating_supply?: number
-          id?: string
-          last_record_time?: string | null
-          last_update_id?: string | null
-          locked_total?: number
-          migration_id: number
-          streamer_heartbeat?: string
-          updated_at?: string
-        }
-        Update: {
-          active_contracts?: number
-          amulet_total?: number
-          circulating_supply?: number
-          id?: string
-          last_record_time?: string | null
-          last_update_id?: string | null
-          locked_total?: number
-          migration_id?: number
-          streamer_heartbeat?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       acs_snapshots: {
         Row: {
           amulet_total: number
@@ -109,18 +23,13 @@ export type Database = {
           entry_count: number
           error_message: string | null
           id: string
-          is_delta: boolean | null
-          last_update_id: string | null
           locked_total: number
           migration_id: number
-          previous_snapshot_id: string | null
-          processing_mode: string | null
           record_time: string
           status: string
           sv_url: string
           timestamp: string
           updated_at: string
-          updates_processed: number | null
         }
         Insert: {
           amulet_total: number
@@ -130,18 +39,13 @@ export type Database = {
           entry_count: number
           error_message?: string | null
           id?: string
-          is_delta?: boolean | null
-          last_update_id?: string | null
           locked_total: number
           migration_id: number
-          previous_snapshot_id?: string | null
-          processing_mode?: string | null
           record_time: string
           status?: string
           sv_url: string
           timestamp?: string
           updated_at?: string
-          updates_processed?: number | null
         }
         Update: {
           amulet_total?: number
@@ -151,28 +55,15 @@ export type Database = {
           entry_count?: number
           error_message?: string | null
           id?: string
-          is_delta?: boolean | null
-          last_update_id?: string | null
           locked_total?: number
           migration_id?: number
-          previous_snapshot_id?: string | null
-          processing_mode?: string | null
           record_time?: string
           status?: string
           sv_url?: string
           timestamp?: string
           updated_at?: string
-          updates_processed?: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "acs_snapshots_previous_snapshot_id_fkey"
-            columns: ["previous_snapshot_id"]
-            isOneToOne: false
-            referencedRelation: "acs_snapshots"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       acs_template_stats: {
         Row: {
@@ -395,41 +286,6 @@ export type Database = {
           vote_count?: number
         }
         Relationships: []
-      }
-      snapshot_logs: {
-        Row: {
-          created_at: string
-          id: string
-          log_level: string
-          message: string
-          metadata: Json | null
-          snapshot_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          log_level?: string
-          message: string
-          metadata?: Json | null
-          snapshot_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          log_level?: string
-          message?: string
-          metadata?: Json | null
-          snapshot_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "snapshot_logs_snapshot_id_fkey"
-            columns: ["snapshot_id"]
-            isOneToOne: false
-            referencedRelation: "acs_snapshots"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       sv_votes: {
         Row: {
