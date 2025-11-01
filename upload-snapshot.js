@@ -192,27 +192,7 @@ async function uploadSnapshot() {
     
     console.log(`✅ Templates uploaded: ${templatesUploaded}`);
     console.log(`✅ Files uploaded: ${filesUploaded}`);
-    
-    // Calculate totals from uploaded data
-    console.log('\n🧮 Calculating totals from uploaded data...');
-    try {
-      const calcResponse = await axios.post(
-        `${SUPABASE_URL}/functions/v1/calculate-snapshot-totals`,
-        { snapshot_id: snapshotId },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-          },
-        }
-      );
-      
-      console.log(`✅ Totals calculated: ${JSON.stringify(calcResponse.data, null, 2)}`);
-    } catch (calcError) {
-      console.error('⚠️ Failed to calculate totals:', calcError.message);
-      console.log('   (Totals can be calculated later via edge function)');
-    }
+    console.log('\n💡 Totals can be calculated later via edge function or manually');
     
     console.log('\n' + '='.repeat(60));
     console.log('  ✅ UPLOAD COMPLETE');
