@@ -105,8 +105,17 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
+  const maxPages = 10000; // Safety limit to prevent infinite loops
+  
   while (true) {
+    if (page > maxPages) {
+      console.log(`\n⚠️ Reached maximum page limit (${maxPages}). Stopping.`);
+      break;
+    }
+
     try {
+      console.log(`🔄 Fetching page ${page} (after: ${after})...`);
+      
       const res = await axios.post(
         `${baseUrl}/v0/state/acs`,
         {
@@ -121,6 +130,9 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       const events = res.data.created_events || [];
       const rangeTo = res.data.range?.to;
+      
+      console.log(`📥 Received ${events.length} events (rangeTo: ${rangeTo})`);
+      
       if (!events.length) {
         console.log("\n✅ No more events — finished.");
         break;
@@ -168,11 +180,18 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
       for (const t of pageTemplates) console.log(`      • ${t}`);
 
       if (events.length < pageSize) {
-        console.log("\n✅ Last page reached.");
+        console.log("\n✅ Last page reached (partial page).");
         break;
       }
 
+      const previousAfter = after;
       after = rangeTo ?? after + events.length;
+      
+      if (after === previousAfter) {
+        console.log("\n⚠️ Pagination not progressing (after value unchanged). Stopping.");
+        break;
+      }
+      
       page++;
       await sleep(100);
     } catch (err) {
