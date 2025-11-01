@@ -1,0 +1,38 @@
+name: ACS Snapshot Scheduler
+
+on:
+  schedule:
+    # Run every 3 hours at :00 (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC)
+    - cron: '0 */3 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  fetch-and-upload-snapshot:
+    runs-on: self-hosted # Uses your machine with whitelisted IP
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install axios bignumber.js
+      
+      - name: Run snapshot script
+        run: node fetch-canton-snapshot.js
+        continue-on-error: false
+      
+      - name: Upload to Supabase
+        run: node upload-snapshot.js
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          # Optional: Clean up generated files after upload (Windows PowerShell syntax)
+          if (Test-Path "circulating-supply-single-sv.json") { Remove-Item "circulating-supply-single-sv.json" -Force }
+          if (Test-Path "circulating-supply-single-sv.templates.json") { Remove-Item "circulating-supply-single-sv.templates.json" -Force }
+          if (Test-Path "acs_full") { Remove-Item "acs_full" -Recurse -Force }

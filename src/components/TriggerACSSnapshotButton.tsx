@@ -13,7 +13,7 @@ export const TriggerACSSnapshotButton = () => {
       size="sm"
     >
       <RefreshCw className={`h-4 w-4 mr-2 ${isPending ? 'animate-spin' : ''}`} />
-      {isPending ? 'Starting Snapshot...' : 'Trigger ACS Snapshot'}
+      {isPending ? 'Processing Snapshot...' : 'Trigger ACS Snapshot'}
     </Button>
   );
 };
