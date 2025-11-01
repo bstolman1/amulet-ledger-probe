@@ -10,11 +10,11 @@ import { createClient } from "@supabase/supabase-js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-const supabaseUrl = process.env.SUPA_URL;
-const supabaseKey = process.env.SUPA_KEY;
+const supabaseUrl = process.env.SUPA_URL || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPA_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ Missing SUPA_URL or SUPA_KEY");
+  console.error("❌ Missing Supabase credentials. Set SUPA_URL/SUPA_KEY or SUPABASE_URL/SUPABASE_KEY (or VITE_* fallbacks).");
   process.exit(1);
 }
 
