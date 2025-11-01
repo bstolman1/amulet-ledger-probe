@@ -3,7 +3,7 @@ name: Fetch ACS Snapshot
 on:
   workflow_dispatch: # Manual trigger
   schedule:
-    - cron: '0 */6 * * *' # Every 6 hours
+    - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00)
 
 jobs:
   fetch-and-upload:
