@@ -91,10 +91,33 @@ export function useTriggerACSSnapshot() {
 
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("snapshot-scheduler");
-
-      if (error) throw error;
-      return data;
+      // Primary: invoke via Supabase client
+      try {
+        const { data, error } = await supabase.functions.invoke("snapshot-scheduler", { body: {} });
+        if (error) throw error;
+        return data;
+      } catch (primaryError: any) {
+        // Fallback: direct HTTP call with full URL (in case of client routing issues)
+        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/snapshot-scheduler`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || primaryError?.message || 'Failed to start snapshot');
+        }
+        return await res.json();
+      }
+    },
+    onMutate: () => {
+      toast.info("Starting ACS snapshot...", {
+        description: "This may take a few minutes. You can watch logs below.",
+      });
     },
     onSuccess: (data) => {
       if (data?.status === 'completed') {
