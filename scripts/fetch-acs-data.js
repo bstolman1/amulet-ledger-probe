@@ -143,11 +143,16 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       allEvents.push(...events);
 
-      process.stdout.clearLine(0);
-      process.stdout.cursorTo(0);
-      process.stdout.write(
-        `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
-      );
+      // Safe console output (works in all environments)
+      if (process.stdout.clearLine && process.stdout.cursorTo) {
+        process.stdout.clearLine(0);
+        process.stdout.cursorTo(0);
+        process.stdout.write(
+          `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
+        );
+      } else {
+        console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`);
+      }
 
       console.log(`\n   Templates on this page:`);
       for (const t of pageTemplates) console.log(`      • ${t}`);
