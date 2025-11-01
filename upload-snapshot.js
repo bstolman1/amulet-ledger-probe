@@ -9,8 +9,8 @@
  *   2. Run: node upload-snapshot.js
  */
 
-import fs from 'fs';
-import axios from 'axios';
+const fs = require('fs');
+const axios = require('axios');
 
 const SUPABASE_URL = 'https://mbbjmxubfeaudnhxmwqf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1iYmpteHViZmVhdWRuaHhtd3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5NzMxOTMsImV4cCI6MjA3NTU0OTE5M30.yc9pYrMnctKubAetS97p01cT99d0w07GaLJ4k0iiHUc';
@@ -22,52 +22,34 @@ async function uploadSnapshot() {
     // Load the summary file
     const summary = JSON.parse(fs.readFileSync('circulating-supply-single-sv.json', 'utf8'));
     
-    // Load all template data files from acs_full directory
+    // Load the templates file
+    const templatesFile = JSON.parse(fs.readFileSync('circulating-supply-single-sv.templates.json', 'utf8'));
+    
+    // Load all template data files
     const templateFiles = fs.readdirSync('./acs_full').filter(f => f.endsWith('.json'));
     console.log(`Found ${templateFiles.length} template files`);
     
-    // Build a lookup map from canonical_templates for resolving template_id
-    const canonicalTemplates = summary.canonical_templates || [];
-    const fileNameToTemplateId = {};
-    for (const tid of canonicalTemplates) {
-      const safeName = tid.replace(/[:.]/g, '_');
-      fileNameToTemplateId[safeName] = tid;
-    }
-    
-    // Build templates object by reading each file
+    // Build templates object with data
     const templates = {};
-    for (const fileName of templateFiles) {
+    for (const [tid, stats] of Object.entries(templatesFile.templates)) {
+      const fileName = tid.replace(/[:.]/g, '_') + '.json';
       const filePath = `./acs_full/${fileName}`;
-      const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       
-      let templateId = null;
-      let dataArray = [];
-      
-      // Handle both formats: plain array or object with metadata
-      if (Array.isArray(fileData)) {
-        // Plain array format (from fetch-canton-snapshot.js)
-        dataArray = fileData;
-        // Derive template_id from filename
-        const baseName = fileName.replace('.json', '');
-        templateId = fileNameToTemplateId[baseName] || baseName.replace(/_/g, ':');
-      } else if (fileData.metadata?.template_id) {
-        // Object with metadata format
-        templateId = fileData.metadata.template_id;
-        dataArray = fileData.data || [];
+      if (fs.existsSync(filePath)) {
+        const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        templates[tid] = {
+          count: stats.count,
+          fields: stats.fields || null,
+          status: stats.status || null,
+          data: fileData.data, // Include raw create_arguments
+        };
       } else {
-        console.warn(`Skipping ${fileName} - unable to determine template_id`);
-        continue;
+        templates[tid] = {
+          count: stats.count,
+          fields: stats.fields || null,
+          status: stats.status || null,
+        };
       }
-      
-      console.log(`  ✓ ${templateId} (${dataArray.length} entries)`);
-      
-      // Calculate basic stats
-      templates[templateId] = {
-        count: dataArray.length,
-        fields: null, // Will be calculated on server if needed
-        status: null, // Will be calculated on server if needed
-        data: dataArray, // Include raw create_arguments
-      };
     }
     
     console.log(`📤 Uploading snapshot with ${Object.keys(templates).length} templates...`);
@@ -100,16 +82,11 @@ async function uploadSnapshot() {
     console.log('\n🎉 You can now view the snapshot in your Snapshots page!');
     
   } catch (error) {
-    console.error('❌ Upload failed:');
+    console.error('❌ Upload failed:', error.response?.data || error.message);
     if (error.response) {
       console.error('Response status:', error.response.status);
-      console.error('Response headers:', error.response.headers);
-      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-    } else {
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
+      console.error('Response data:', error.response.data);
     }
-    process.exit(1);
   }
 }
 

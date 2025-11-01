@@ -105,17 +105,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-  const maxPages = 10000; // Safety limit to prevent infinite loops
-  
   while (true) {
-    if (page > maxPages) {
-      console.log(`\n⚠️ Reached maximum page limit (${maxPages}). Stopping.`);
-      break;
-    }
-
     try {
-      console.log(`🔄 Fetching page ${page} (after: ${after})...`);
-      
       const res = await axios.post(
         `${baseUrl}/v0/state/acs`,
         {
@@ -130,9 +121,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       const events = res.data.created_events || [];
       const rangeTo = res.data.range?.to;
-      
-      console.log(`📥 Received ${events.length} events (rangeTo: ${rangeTo})`);
-      
       if (!events.length) {
         console.log("\n✅ No more events — finished.");
         break;
@@ -171,27 +159,21 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
       allEvents.push(...events);
 
-      // Progress update (safe for CI environments)
-      console.log(
+      process.stdout.clearLine(0);
+      process.stdout.cursorTo(0);
+      process.stdout.write(
         `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
       );
 
-      console.log(`   Templates on this page:`);
+      console.log(`\n   Templates on this page:`);
       for (const t of pageTemplates) console.log(`      • ${t}`);
 
       if (events.length < pageSize) {
-        console.log("\n✅ Last page reached (partial page).");
+        console.log("\n✅ Last page reached.");
         break;
       }
 
-      const previousAfter = after;
       after = rangeTo ?? after + events.length;
-      
-      if (after === previousAfter) {
-        console.log("\n⚠️ Pagination not progressing (after value unchanged). Stopping.");
-        break;
-      }
-      
       page++;
       await sleep(100);
     } catch (err) {
@@ -213,20 +195,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
 
-  // 🧾 Write per-template JSON files with metadata
+  // 🧾 Write per-template JSON files
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
-    const fileContent = {
-      metadata: {
-        template_id: templateId,
-        migration_id,
-        record_time,
-        timestamp: new Date().toISOString(),
-        entry_count: data.length,
-      },
-      data,
-    };
-    fs.writeFileSync(fileName, JSON.stringify(fileContent, null, 2));
+    fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
   }
   console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
