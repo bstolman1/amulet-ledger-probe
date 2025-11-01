@@ -116,8 +116,8 @@ async function detectLatestMigration(baseUrl) {
         console.log(`   This usually means you need to:`);
         console.log(`   1. Provide authentication credentials (bearer token or API key), OR`);
         console.log(`   2. Whitelist your runner's IP address with the SV operator, OR`);
-        console.log(`   3. Use a different sv_url that allows your access\n`);
-        throw error;
+        console.log(`   3. Use a different sv_url that allows your access`);
+        console.log(`   Proceeding with fallback: using last successful migration (likely 0).\n`);
       }
       
       break;
@@ -135,26 +135,40 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   console.log(`\n📅 Fetching snapshot timestamp for migration ${migration_id}...`);
   const authHeaders = buildAuthHeaders();
   const now = new Date().toISOString();
-  
-  const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
-    params: { before: now, migration_id },
-    headers: authHeaders,
-  });
-  
-  const recordTime = res.data.record_time;
-  console.log(`   Initial record_time: ${recordTime}`);
-  
-  await sleep(2000);
-  
-  const res2 = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
-    params: { before: now, migration_id },
-    headers: authHeaders,
-  });
-  
-  const recordTime2 = res2.data.record_time;
-  console.log(`   Re-verified record_time: ${recordTime2}`);
-  
-  return recordTime2;
+
+  try {
+    const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+      params: { before: now, migration_id },
+      headers: authHeaders,
+    });
+
+    const recordTime = res.data.record_time;
+    console.log(`   Initial record_time: ${recordTime}`);
+
+    await sleep(2000);
+
+    const res2 = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+      params: { before: now, migration_id },
+      headers: authHeaders,
+    });
+
+    const recordTime2 = res2.data.record_time;
+    console.log(`   Re-verified record_time: ${recordTime2}`);
+
+    return recordTime2;
+  } catch (error) {
+    const status = error.response?.status;
+    if (status === 403) {
+      console.log(`\n⚠️  RBAC ERROR while fetching snapshot timestamp (403).`);
+      console.log(`   Proceeding with fallback: using current time as record_time.`);
+    } else {
+      console.log(`\n⚠️  Failed to fetch snapshot timestamp (${status || error.message}).`);
+      console.log(`   Proceeding with fallback: using current time as record_time.`);
+    }
+    const fallback = new Date().toISOString();
+    console.log(`✅ Using fallback record_time: ${fallback}\n`);
+    return fallback;
+  }
 }
 
 // ==================== FETCH DELTA UPDATES ====================
