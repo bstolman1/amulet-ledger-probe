@@ -32,7 +32,7 @@ export interface ACSTemplateStats {
 
 export function useACSSnapshots() {
   return useQuery({
-    queryKey: ["acsSnapshots"],
+    queryKey: ["acs-snapshots"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("acs_snapshots")
@@ -43,7 +43,12 @@ export function useACSSnapshots() {
       if (error) throw error;
       return data as ACSSnapshot[];
     },
-    staleTime: 30_000,
+    refetchInterval: (query) => {
+      // Auto-refetch every 10 seconds if there's a processing snapshot
+      const hasProcessing = query.state.data?.some((s: ACSSnapshot) => s.status === 'processing');
+      return hasProcessing ? 10000 : false;
+    },
+    staleTime: 5_000,
   });
 }
 
@@ -97,24 +102,15 @@ export function useTriggerACSSnapshot() {
       return data;
     },
     onSuccess: (data) => {
-      if (data?.status === 'completed') {
-        const entryCount = data.entry_count?.toLocaleString() || '0';
-        const amuletTotal = parseFloat(data.amulet_total || 0).toFixed(2);
-        const circulating = parseFloat(data.circulating_supply || 0).toFixed(2);
-        
-        toast.success("ACS snapshot completed!", {
-          description: `Processed ${entryCount} entries. Amulet: ${amuletTotal}, Circulating: ${circulating}`,
-        });
-      } else {
-        toast.success("ACS snapshot started", {
-          description: `Snapshot ID: ${data.snapshot_id}`,
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
+      queryClient.invalidateQueries({ queryKey: ["acs-snapshots"] });
       queryClient.invalidateQueries({ queryKey: ["latestAcsSnapshot"] });
+      
+      toast.success("ACS snapshot started!", {
+        description: "Processing in background (~15 min). Check the logs for real-time progress.",
+      });
     },
     onError: (error: Error) => {
-      toast.error("ACS snapshot failed", {
+      toast.error("Failed to start ACS snapshot", {
         description: error.message,
       });
     },

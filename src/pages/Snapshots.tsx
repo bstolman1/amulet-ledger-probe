@@ -20,7 +20,7 @@ interface SnapshotLog {
 export default function Snapshots() {
   const [logs, setLogs] = useState<SnapshotLog[]>([]);
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(null);
-  const { data: snapshots } = useACSSnapshots();
+  const { data: snapshots, refetch: refetchSnapshots } = useACSSnapshots();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new logs arrive
@@ -43,6 +43,43 @@ export default function Snapshots() {
     }
   }, [snapshots]);
 
+  // Auto-refresh snapshots list every 10 seconds if there's a processing snapshot
+  useEffect(() => {
+    const hasProcessing = snapshots?.some(s => s.status === 'processing');
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      refetchSnapshots();
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [snapshots, refetchSnapshots]);
+
+  // Subscribe to real-time snapshot updates to detect completion
+  useEffect(() => {
+    if (!currentSnapshotId) return;
+
+    const channel = supabase
+      .channel(`snapshot-status-${currentSnapshotId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'acs_snapshots',
+          filter: `id=eq.${currentSnapshotId}`,
+        },
+        () => {
+          refetchSnapshots();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentSnapshotId, refetchSnapshots]);
+
   // Subscribe to real-time logs
   useEffect(() => {
     if (!currentSnapshotId) return;
@@ -64,7 +101,7 @@ export default function Snapshots() {
 
     // Subscribe to new logs
     const channel = supabase
-      .channel('snapshot-logs')
+      .channel(`snapshot-logs-${currentSnapshotId}`)
       .on(
         'postgres_changes',
         {
@@ -74,10 +111,13 @@ export default function Snapshots() {
           filter: `snapshot_id=eq.${currentSnapshotId}`,
         },
         (payload) => {
+          console.log('New log received:', payload.new);
           setLogs((prev) => [...prev, payload.new as SnapshotLog]);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
