@@ -110,10 +110,15 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
       const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
       const data = await res.json();
       if (data?.record_time) {
+        console.log(`✓ Migration ${id} is valid`);
         latest = id;
         id++;
-      } else break;
-    } catch {
+      } else {
+        console.log(`✗ Migration ${id} not found`);
+        break;
+      }
+    } catch (err) {
+      console.log(`✗ Migration ${id} failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
       break;
     }
   }
@@ -129,7 +134,7 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   let record_time = data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  // Re-verify
+  // Reverify snapshot (handles lag)
   const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
   const verifyData = await verify.json();
   if (verifyData?.record_time && verifyData.record_time !== record_time) {
@@ -189,6 +194,8 @@ async function fetchAllACS(
         break;
       }
 
+      const pageTemplates = new Set<string>();
+
       for (const e of events) {
         const id = e.contract_id || e.event_id;
         if (id && seen.has(id)) continue;
@@ -202,6 +209,7 @@ async function fetchAllACS(
         perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
         templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
         templatesByPackage[pkg].add(templateId);
+        pageTemplates.add(templateId);
 
         templatesData[templateId] = templatesData[templateId] || [];
         templateStats[templateId] = templateStats[templateId] || { count: 0 };
@@ -232,6 +240,7 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
+      console.log(`   Templates on this page: ${Array.from(pageTemplates).slice(0, 3).join(', ')}${pageTemplates.size > 3 ? ` (+${pageTemplates.size - 3} more)` : ''}`);
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
@@ -242,7 +251,19 @@ async function fetchAllACS(
       page++;
       await new Promise(r => setTimeout(r, 100));
     } catch (err: any) {
-      console.error(`⚠️ Page ${page} failed:`, err.message);
+      const msg = err.message || 'Unknown error';
+      console.error(`⚠️ Page ${page} failed: ${msg}`);
+
+      // Try to handle range errors by detecting snapshot range
+      const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
+      if (match) {
+        const minRange = parseInt(match[1]);
+        const maxRange = parseInt(match[2]);
+        console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
+        after = minRange;
+        console.log(`🔁 Restarting from offset ${after}…`);
+        continue;
+      }
       throw err;
     }
   }
