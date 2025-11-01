@@ -106,56 +106,42 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
   let latest: number | null = null;
   
   try {
-    while (id <= 10) {
+    while (id <= 10) { // Check up to migration 10
       try {
-        const url = `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`;
-        console.log(`Checking migration ${id} at: ${url}`);
+        console.log(`Checking migration ${id}...`);
         
-        const startTime = Date.now();
-        const res = await fetch(url);
-        const elapsed = Date.now() - startTime;
-        
-        console.log(`Migration ${id}: Response received in ${elapsed}ms, status: ${res.status}`);
+        const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
         
         if (!res.ok) {
-          const text = await res.text();
-          console.log(`Migration ${id}: HTTP ${res.status}, body: ${text.substring(0, 200)}`);
+          console.log(`Migration ${id}: HTTP ${res.status}`);
           break;
         }
         
-        const text = await res.text();
-        console.log(`Migration ${id}: Response body: ${text.substring(0, 500)}`);
-        
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.error(`Migration ${id}: Failed to parse JSON:`, e);
-          break;
-        }
+        const data = await res.json();
+        console.log(`Migration ${id} response:`, JSON.stringify(data));
         
         if (data?.record_time) {
           latest = id;
-          console.log(`✓ Migration ${id} is valid, record_time: ${data.record_time}`);
+          console.log(`✓ Migration ${id} is valid`);
           id++;
         } else {
-          console.log(`Migration ${id} has no record_time, keys:`, Object.keys(data || {}));
+          console.log(`Migration ${id} has no record_time`);
           break;
         }
       } catch (err: any) {
-        console.error(`Migration ${id} check failed:`, err.name, err.message, err.stack);
+        console.log(`Migration ${id} check failed:`, err.message);
         break;
       }
     }
     
     if (!latest) {
-      console.error('No valid migration found. Checked migrations 1-' + (id - 1));
+      console.error('No valid migration found. Is the Canton API accessible?');
       throw new Error('No valid migration found. The Canton API may be down or inaccessible.');
     }
     console.log(`📘 Using latest migration_id: ${latest}`);
     return latest;
-  } catch (error: any) {
-    console.error('detectLatestMigration error:', error.name, error.message);
+  } catch (error) {
+    console.error('detectLatestMigration error:', error);
     throw error;
   }
 }
@@ -425,13 +411,13 @@ Deno.serve(async (req) => {
 
     console.log('🚀 Starting ACS snapshot process...');
 
-    // For now, hardcode migration_id and use a recent timestamp
-    // TODO: Fix auto-detection when Canton API is accessible from edge functions
-    const migration_id = 1;
-    const record_time = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
-    
-    console.log(`📘 Using migration_id: ${migration_id}`);
-    console.log(`⏰ Using record_time: ${record_time}`);
+    // Detect migration ID
+    const migration_id = await detectLatestMigration(BASE_URL);
+    console.log(`✅ Using migration ID: ${migration_id}`);
+
+    // Get snapshot timestamp
+    const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    console.log(`⏰ Snapshot record time: ${record_time}`);
 
     // Create snapshot record
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
@@ -455,10 +441,9 @@ Deno.serve(async (req) => {
     }
 
     console.log(`📝 Created snapshot record: ${snapshot.id}`);
-    await logToDatabase(supabaseAdmin, snapshot.id, 'info', 'ACS snapshot process initiated (testing mode)', {
+    await logToDatabase(supabaseAdmin, snapshot.id, 'info', 'ACS snapshot process initiated', {
       migration_id,
       record_time,
-      note: 'Using hardcoded migration_id due to Canton API connectivity issues from edge function',
     });
 
     try {
