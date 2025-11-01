@@ -23,14 +23,10 @@ jobs:
           npm init -y
           npm install axios bignumber.js @supabase/supabase-js
       
-      - name: Fetch ACS Data
+      - name: Fetch and Upload ACS Data
         run: node scripts/fetch-acs-data.js
         env:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
-      
-      - name: Upload to Supabase
-        run: node scripts/upload-to-supabase.js
-        env:
           SUPA_URL: ${{ secrets.SUPA_URL }}
           SUPA_KEY: ${{ secrets.SUPA_KEY }}
       
