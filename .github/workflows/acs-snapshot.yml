@@ -8,7 +8,7 @@ on:
 
 jobs:
   fetch-and-upload-snapshot:
-    runs-on: [self-hosted, Windows, X64] # Uses your Windows machine with whitelisted IP
+    runs-on: self-hosted # Uses your machine with whitelisted IP
     
     steps:
       - name: Checkout repository
@@ -20,10 +20,16 @@ jobs:
           node-version: '18'
       
       - name: Install dependencies
-        run: npm install axios bignumber.js
+        run: npm install axios
       
       - name: Run snapshot script
-        run: node fetch-canton-snapshot.js
+        run: |
+          # Run your Canton API snapshot script here
+          # This should generate:
+          # - circulating-supply-single-sv.json
+          # - circulating-supply-single-sv.templates.json
+          # - acs_full/ directory with template JSON files
+          node your-snapshot-script.js
         continue-on-error: false
       
       - name: Upload to Supabase
@@ -31,9 +37,8 @@ jobs:
       
       - name: Cleanup
         if: always()
-        shell: pwsh
         run: |
-          # Clean up generated files after upload (Windows PowerShell)
-          if (Test-Path "circulating-supply-single-sv.json") { Remove-Item "circulating-supply-single-sv.json" -Force }
-          if (Test-Path "circulating-supply-single-sv.templates.json") { Remove-Item "circulating-supply-single-sv.templates.json" -Force }
-          if (Test-Path "acs_full") { Remove-Item "acs_full" -Recurse -Force }
+          # Optional: Clean up generated files after upload
+          rm -f circulating-supply-single-sv.json
+          rm -f circulating-supply-single-sv.templates.json
+          rm -rf acs_full
