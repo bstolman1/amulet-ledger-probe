@@ -14,11 +14,16 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-// Log the JWT role safely to verify privileges (no secrets printed)
+// Log the JWT role safely to verify privileges (no secrets printed) and enforce service role
+let __role = 'unknown';
 try {
-  const roleClaim = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role;
-  console.log(`🔐 Using auth role: ${roleClaim || 'unknown'}`);
+  __role = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role || 'unknown';
 } catch {}
+console.log(`🔐 Using auth role: ${__role}`);
+if (__role !== 'service_role') {
+  console.error("❌ This script requires SUPABASE_SERVICE_ROLE_KEY (service role). Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL) and try again.");
+  process.exit(1);
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
