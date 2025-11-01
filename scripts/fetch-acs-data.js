@@ -2,7 +2,7 @@
  * Fetch ACS data from Canton Network
  * Runs in GitHub Actions with no IP restrictions
  */
-
+import 'dotenv/config';
 import axios from "axios";
 import fs from "fs";
 import BigNumber from "bignumber.js";
