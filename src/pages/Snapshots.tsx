@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -116,11 +115,39 @@ export default function Snapshots() {
           <div>
             <h1 className="text-3xl font-bold">ACS Snapshots</h1>
             <p className="text-muted-foreground">
-              Automated ACS data snapshots run every 3 hours and store results in the database
+              View automated snapshots from GitHub Actions running every 3 hours
             </p>
           </div>
-          <TriggerACSSnapshotButton />
         </div>
+
+        <Card className="border-primary/50 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Info className="h-5 w-5 text-primary" />
+              GitHub Actions Integration
+            </CardTitle>
+            <CardDescription>
+              ACS snapshots are generated automatically using GitHub Actions with your whitelisted IP
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm space-y-2">
+              <p className="font-semibold">How it works:</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>GitHub Actions runs on your self-hosted runner (with whitelisted IP)</li>
+                <li>Snapshot script fetches data from Canton Network API every 3 hours</li>
+                <li>Results are automatically uploaded to Supabase</li>
+                <li>View snapshots and logs in real-time on this page</li>
+              </ol>
+              <div className="mt-4 p-3 bg-muted rounded-lg">
+                <p className="text-xs font-medium mb-2">Setup Instructions:</p>
+                <p className="text-xs text-muted-foreground">
+                  See <code className="px-1 py-0.5 bg-background rounded">GITHUB_ACTIONS_SETUP.md</code> in your project root for complete setup guide.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {currentSnapshot && (
           <Card>
