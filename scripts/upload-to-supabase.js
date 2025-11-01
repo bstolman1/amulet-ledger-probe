@@ -7,10 +7,10 @@ import fs from "fs";
 import path from "path";
 
 const supabaseUrl = process.env.SUPA_URL || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPA_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPA_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ Missing Supabase credentials. Set SUPA_URL/SUPA_KEY or SUPABASE_URL/SUPABASE_KEY");
+  console.error("❌ Missing Supabase credentials. Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL)");
   process.exit(1);
 }
 
