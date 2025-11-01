@@ -13,7 +13,7 @@ export interface ACSSnapshot {
   locked_total: number;
   circulating_supply: number;
   entry_count: number;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'processing' | 'completed' | 'failed' | 'timeout';
   error_message: string | null;
   created_at: string;
   updated_at: string;

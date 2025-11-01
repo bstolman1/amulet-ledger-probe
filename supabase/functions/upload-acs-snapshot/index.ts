@@ -23,6 +23,37 @@ Deno.serve(async (req) => {
     console.log('Entry count:', body.entry_count);
     console.log('Templates:', Object.keys(body.templates || {}).length);
 
+    // Check for stale 'processing' snapshots and auto-clean them
+    const { data: processingSnapshots } = await supabaseAdmin
+      .from('acs_snapshots')
+      .select('id, created_at')
+      .eq('status', 'processing')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (processingSnapshots && processingSnapshots.length > 0) {
+      const thirtyMinutes = 30 * 60 * 1000;
+      
+      for (const snapshot of processingSnapshots) {
+        const age = Date.now() - new Date(snapshot.created_at).getTime();
+        
+        if (age > thirtyMinutes) {
+          const ageMinutes = Math.floor(age / 60000);
+          
+          await supabaseAdmin
+            .from('acs_snapshots')
+            .update({
+              status: 'timeout',
+              error_message: `Auto-marked as timeout before new snapshot creation (stalled for ${ageMinutes} minutes)`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', snapshot.id);
+            
+          console.log(`🧹 Auto-cleaned stale snapshot: ${snapshot.id} (${ageMinutes} min old)`);
+        }
+      }
+    }
+
     // Create snapshot record
     const { data: snapshot, error: snapshotError } = await supabaseAdmin
       .from('acs_snapshots')

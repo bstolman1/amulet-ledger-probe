@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useACSSnapshots } from "@/hooks/use-acs-snapshots";
-import { AlertCircle, CheckCircle, Info, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle, Info, Loader2, Clock } from "lucide-react";
 
 interface SnapshotLog {
   id: string;
@@ -172,10 +172,23 @@ export default function Snapshots() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Status:</span>
-                  <Badge variant={currentSnapshot.status === 'completed' ? 'default' : 'secondary'}>
+                  <Badge 
+                    variant={
+                      currentSnapshot.status === 'completed' ? 'default' : 
+                      currentSnapshot.status === 'timeout' || currentSnapshot.status === 'failed' ? 'destructive' :
+                      'secondary'
+                    }
+                  >
+                    {currentSnapshot.status === 'timeout' && <Clock className="h-3 w-3 mr-1" />}
                     {currentSnapshot.status}
                   </Badge>
                 </div>
+                {currentSnapshot.error_message && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-muted-foreground">Error:</span>
+                    <span className="text-xs text-destructive">{currentSnapshot.error_message}</span>
+                  </div>
+                )}
                 {currentSnapshot.entry_count > 0 && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Entries:</span>
