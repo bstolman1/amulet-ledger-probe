@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.fetch-acs-snapshot]
 verify_jwt = false
+
+[functions.upload-acs-snapshot]
+verify_jwt = false
+
+[functions.snapshot-scheduler]
+verify_jwt = false
