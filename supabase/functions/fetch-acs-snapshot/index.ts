@@ -39,6 +39,26 @@ class Decimal {
   }
 }
 
+// DB logging helper
+async function logSnapshot(
+  supabaseAdmin: any,
+  snapshotId: string,
+  message: string,
+  level: 'info' | 'warn' | 'error' = 'info',
+  metadata?: Record<string, any>
+) {
+  try {
+    await supabaseAdmin.from('snapshot_logs').insert({
+      snapshot_id: snapshotId,
+      message,
+      log_level: level,
+      metadata: metadata ?? null,
+    });
+  } catch (e) {
+    console.error('⚠️ Failed to write snapshot log:', (e as any)?.message || e);
+  }
+}
+
 interface TemplateStats {
   count: number;
   fields?: Record<string, Decimal>;
@@ -158,6 +178,7 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
+  await logSnapshot(supabaseAdmin, snapshotId, 'Fetching ACS snapshot...');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -237,6 +258,7 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
+      await logSnapshot(supabaseAdmin, snapshotId, `Page ${page} fetched`, 'info', { events: events.length, after, rangeTo });
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
@@ -286,8 +308,10 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
+      await logSnapshot(supabaseAdmin, snapshotId, `Upload failed: ${filePath}`, 'error', { error: uploadError });
     } else {
       console.log(`✅ Uploaded ${filePath}`);
+      await logSnapshot(supabaseAdmin, snapshotId, `Uploaded: ${filePath}`);
     }
 
     // Store template stats in DB
@@ -354,16 +378,20 @@ Deno.serve(async (req) => {
     const backgroundTask = async () => {
       try {
         console.log(`📋 Snapshot ID: ${snapshot.id}`);
+        await logSnapshot(supabaseAdmin, snapshot.id, 'Snapshot started');
         
         console.log('🔍 Step 1: Detecting latest migration...');
         const migration_id = await detectLatestMigration(BASE_URL);
         console.log(`✅ Migration detected: ${migration_id}`);
+        await logSnapshot(supabaseAdmin, snapshot.id, `Migration detected: ${migration_id}`);
         
         console.log('🔍 Step 2: Fetching snapshot timestamp...');
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
         console.log(`✅ Timestamp fetched: ${record_time}`);
+        await logSnapshot(supabaseAdmin, snapshot.id, `Timestamp fetched: ${record_time}`);
 
         console.log('🔍 Step 3: Fetching all ACS data and uploading to storage...');
+        await logSnapshot(supabaseAdmin, snapshot.id, 'Fetching ACS data and uploading to storage');
         const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
           BASE_URL,
           migration_id,
@@ -372,6 +400,7 @@ Deno.serve(async (req) => {
           snapshot.id
         );
         console.log(`✅ ACS data fetched: ${entryCount} entries`);
+        await logSnapshot(supabaseAdmin, snapshot.id, `ACS data fetched: ${entryCount} entries`);
 
         const circulating = amuletTotal.minus(lockedTotal);
 
@@ -396,9 +425,11 @@ Deno.serve(async (req) => {
         }
 
         console.log('✅ ACS snapshot completed successfully');
+        await logSnapshot(supabaseAdmin, snapshot.id, 'Snapshot completed');
       } catch (error: any) {
         console.error('❌ ACS snapshot failed:', error.message);
         console.error('Stack trace:', error.stack);
+        await logSnapshot(supabaseAdmin, snapshot.id, `Snapshot failed: ${error.message}`, 'error');
         
         const { error: updateError } = await supabaseAdmin
           .from('acs_snapshots')
