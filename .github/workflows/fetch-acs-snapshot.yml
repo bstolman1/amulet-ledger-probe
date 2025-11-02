@@ -59,6 +59,7 @@ jobs:
           echo "Resolved host: $HOST"
 
       - name: Invoke backend snapshot function
+        id: trigger
         shell: bash
         run: |
           set -euo pipefail
@@ -68,3 +69,92 @@ jobs:
             -H "apikey: $SUPABASE_ANON_KEY" \
             "$SUPABASE_URL/functions/v1/fetch-acs-snapshot")
           echo "Response: $RESP"
+          SNAP_ID=$(python3 - <<'PY' <<< "$RESP"
+import sys, json
+try:
+  d = json.loads(sys.stdin.read())
+  print(d.get('snapshot_id',''))
+except Exception:
+  print('')
+PY
+)
+          if [[ -z "$SNAP_ID" ]]; then
+            echo "::error::Failed to parse snapshot_id from function response"
+            exit 1
+          fi
+          echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Monitor snapshot progress
+        if: ${{ steps.trigger.outputs.snapshot_id != '' }}
+        shell: bash
+        env:
+          SNAP_ID: ${{ steps.trigger.outputs.snapshot_id }}
+        run: |
+          set -euo pipefail
+          echo "Monitoring snapshot $SNAP_ID ..."
+          for i in {1..180}; do
+            SNAP=$(curl -sS \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              "$SUPABASE_URL/rest/v1/acs_snapshots?id=eq.$SNAP_ID&select=status,entry_count,error_message,updated_at")
+
+            STATUS=$(echo "$SNAP" | python3 - <<'PY'
+import sys, json
+try:
+  d = json.loads(sys.stdin.read())
+  print(d[0].get('status','') if d else '')
+except Exception:
+  print('')
+PY
+)
+            ENTRY=$(echo "$SNAP" | python3 - <<'PY'
+import sys, json
+try:
+  d = json.loads(sys.stdin.read())
+  print(d[0].get('entry_count','') if d else '')
+except Exception:
+  print('')
+PY
+)
+            ERR=$(echo "$SNAP" | python3 - <<'PY'
+import sys, json
+try:
+  d = json.loads(sys.stdin.read())
+  print(d[0].get('error_message','') if d else '')
+except Exception:
+  print('')
+PY
+)
+
+            LOG=$(curl -sS \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              "$SUPABASE_URL/rest/v1/snapshot_logs?select=created_at,log_level,message&snapshot_id=eq.$SNAP_ID&order=created_at.desc&limit=1")
+
+            LAST=$(echo "$LOG" | python3 - <<'PY'
+import sys, json
+try:
+  d = json.loads(sys.stdin.read())
+  if d:
+    print(f"{d[0]['created_at']} [{d[0]['log_level']}] {d[0]['message']}")
+  else:
+    print('No logs yet')
+except Exception:
+  print('No logs yet')
+PY
+)
+
+            echo "Status: $STATUS | Entries: $ENTRY"
+            echo "Last log: $LAST"
+
+            if [[ "$STATUS" == "completed" ]]; then
+              echo "Snapshot completed."
+              exit 0
+            fi
+            if [[ "$STATUS" == "failed" ]]; then
+              echo "::error::Snapshot failed: $ERR"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::warning::Monitor timed out after 30 minutes without completion."
