@@ -10,15 +10,61 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Invoke backend snapshot function
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Load config (secrets or .env fallback)
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
+          # Prefer GitHub Secrets if provided, otherwise fall back to .env in repo
+          if [[ -n "${SUPABASE_URL_SECRET:-}" ]]; then
+            echo "SUPABASE_URL=$SUPABASE_URL_SECRET" >> "$GITHUB_ENV"
+          else
+            if [[ -f ".env" ]]; then
+              URL=$(grep -E '^VITE_SUPABASE_URL=' .env | sed -E 's/^[^=]+="?([^"]*)"?$/\1/')
+              echo "SUPABASE_URL=${URL}" >> "$GITHUB_ENV"
+            fi
+          fi
+
+          if [[ -n "${SUPABASE_ANON_KEY_SECRET:-}" ]]; then
+            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY_SECRET" >> "$GITHUB_ENV"
+          else
+            if [[ -f ".env" ]]; then
+              KEY=$(grep -E '^VITE_SUPABASE_PUBLISHABLE_KEY=' .env | sed -E 's/^[^=]+="?([^"]*)"?$/\1/')
+              echo "SUPABASE_ANON_KEY=${KEY}" >> "$GITHUB_ENV"
+            fi
+          fi
+        env:
+          SUPABASE_URL_SECRET: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY_SECRET: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Validate config
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_URL:-}" ]]; then
+            echo "::error::SUPABASE_URL is missing. Add repo secret SUPABASE_URL or ensure VITE_SUPABASE_URL exists in .env."
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_ANON_KEY:-}" ]]; then
+            echo "::error::SUPABASE_ANON_KEY is missing. Add repo secret SUPABASE_ANON_KEY or ensure VITE_SUPABASE_PUBLISHABLE_KEY exists in .env."
+            exit 1
+          fi
+          HOST=$(echo "$SUPABASE_URL" | sed -E 's#^https?://([^/]+)/?.*$#\1#')
+          if [[ -z "$HOST" || "$HOST" == "$SUPABASE_URL" ]]; then
+            echo "::error::Invalid SUPABASE_URL: $SUPABASE_URL"
+            exit 1
+          fi
+          echo "Resolved host: $HOST"
+
+      - name: Invoke backend snapshot function
+        shell: bash
+        run: |
+          set -euo pipefail
           echo "Triggering ACS snapshot..."
           RESP=$(curl -sS -X POST \
             -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             -H "apikey: $SUPABASE_ANON_KEY" \
             "$SUPABASE_URL/functions/v1/fetch-acs-snapshot")
           echo "Response: $RESP"
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
