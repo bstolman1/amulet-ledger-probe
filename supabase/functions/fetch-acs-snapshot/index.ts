@@ -353,9 +353,17 @@ Deno.serve(async (req) => {
     // Start background task
     const backgroundTask = async () => {
       try {
+        console.log(`📋 Snapshot ID: ${snapshot.id}`);
+        
+        console.log('🔍 Step 1: Detecting latest migration...');
         const migration_id = await detectLatestMigration(BASE_URL);
+        console.log(`✅ Migration detected: ${migration_id}`);
+        
+        console.log('🔍 Step 2: Fetching snapshot timestamp...');
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+        console.log(`✅ Timestamp fetched: ${record_time}`);
 
+        console.log('🔍 Step 3: Fetching all ACS data and uploading to storage...');
         const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
           BASE_URL,
           migration_id,
@@ -363,11 +371,12 @@ Deno.serve(async (req) => {
           supabaseAdmin,
           snapshot.id
         );
+        console.log(`✅ ACS data fetched: ${entryCount} entries`);
 
         const circulating = amuletTotal.minus(lockedTotal);
 
-        // Update snapshot with results
-        await supabaseAdmin
+        console.log('🔍 Step 4: Updating snapshot record...');
+        const { error: updateError } = await supabaseAdmin
           .from('acs_snapshots')
           .update({
             migration_id,
@@ -381,34 +390,37 @@ Deno.serve(async (req) => {
           })
           .eq('id', snapshot.id);
 
+        if (updateError) {
+          console.error('⚠️ Failed to update snapshot record:', updateError);
+          throw updateError;
+        }
+
         console.log('✅ ACS snapshot completed successfully');
       } catch (error: any) {
-        console.error('❌ ACS snapshot failed:', error);
+        console.error('❌ ACS snapshot failed:', error.message);
+        console.error('Stack trace:', error.stack);
         
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from('acs_snapshots')
           .update({
             status: 'failed',
-            error_message: error.message,
+            error_message: error.message || 'Unknown error',
           })
           .eq('id', snapshot.id);
+
+        if (updateError) {
+          console.error('⚠️ Failed to update snapshot with error status:', updateError);
+        }
       }
     };
 
-    // Run background task synchronously (await it)
-    // This ensures the function stays alive until completion
+    // Start background task (fire-and-forget with proper lifecycle management)
     console.log('🚀 Starting ACS snapshot background task...');
-    
-    try {
-      await backgroundTask();
-      console.log('✅ Background task completed');
-    } catch (err: any) {
-      console.error('❌ Background task error:', err.message);
-    }
+    EdgeRuntime.waitUntil(backgroundTask());
 
     return new Response(
       JSON.stringify({
-        message: 'ACS snapshot completed',
+        message: 'ACS snapshot started',
         snapshot_id: snapshot.id,
       }),
       {
