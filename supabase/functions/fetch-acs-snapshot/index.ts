@@ -1,10 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Declare EdgeRuntime for background tasks
-declare const EdgeRuntime: {
-  waitUntil(promise: Promise<any>): void;
-};
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -36,26 +31,6 @@ class Decimal {
 
   toNumber(): number {
     return parseFloat(this.value);
-  }
-}
-
-// DB logging helper
-async function logSnapshot(
-  supabaseAdmin: any,
-  snapshotId: string,
-  message: string,
-  level: 'info' | 'warn' | 'error' = 'info',
-  metadata?: Record<string, any>
-) {
-  try {
-    await supabaseAdmin.from('snapshot_logs').insert({
-      snapshot_id: snapshotId,
-      message,
-      log_level: level,
-      metadata: metadata ?? null,
-    });
-  } catch (e) {
-    console.error('⚠️ Failed to write snapshot log:', (e as any)?.message || e);
   }
 }
 
@@ -178,7 +153,6 @@ async function fetchAllACS(
   entryCount: number;
 }> {
   console.log('📦 Fetching ACS snapshot...');
-  await logSnapshot(supabaseAdmin, snapshotId, 'Fetching ACS snapshot...');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -258,7 +232,6 @@ async function fetchAllACS(
       }
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
-      await logSnapshot(supabaseAdmin, snapshotId, `Page ${page} fetched`, 'info', { events: events.length, after, rangeTo });
 
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
@@ -308,10 +281,8 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
-      await logSnapshot(supabaseAdmin, snapshotId, `Upload failed: ${filePath}`, 'error', { error: uploadError });
     } else {
       console.log(`✅ Uploaded ${filePath}`);
-      await logSnapshot(supabaseAdmin, snapshotId, `Uploaded: ${filePath}`);
     }
 
     // Store template stats in DB
@@ -377,21 +348,9 @@ Deno.serve(async (req) => {
     // Start background task
     const backgroundTask = async () => {
       try {
-        console.log(`📋 Snapshot ID: ${snapshot.id}`);
-        await logSnapshot(supabaseAdmin, snapshot.id, 'Snapshot started');
-        
-        console.log('🔍 Step 1: Detecting latest migration...');
         const migration_id = await detectLatestMigration(BASE_URL);
-        console.log(`✅ Migration detected: ${migration_id}`);
-        await logSnapshot(supabaseAdmin, snapshot.id, `Migration detected: ${migration_id}`);
-        
-        console.log('🔍 Step 2: Fetching snapshot timestamp...');
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
-        console.log(`✅ Timestamp fetched: ${record_time}`);
-        await logSnapshot(supabaseAdmin, snapshot.id, `Timestamp fetched: ${record_time}`);
 
-        console.log('🔍 Step 3: Fetching all ACS data and uploading to storage...');
-        await logSnapshot(supabaseAdmin, snapshot.id, 'Fetching ACS data and uploading to storage');
         const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
           BASE_URL,
           migration_id,
@@ -399,13 +358,11 @@ Deno.serve(async (req) => {
           supabaseAdmin,
           snapshot.id
         );
-        console.log(`✅ ACS data fetched: ${entryCount} entries`);
-        await logSnapshot(supabaseAdmin, snapshot.id, `ACS data fetched: ${entryCount} entries`);
 
         const circulating = amuletTotal.minus(lockedTotal);
 
-        console.log('🔍 Step 4: Updating snapshot record...');
-        const { error: updateError } = await supabaseAdmin
+        // Update snapshot with results
+        await supabaseAdmin
           .from('acs_snapshots')
           .update({
             migration_id,
@@ -419,35 +376,22 @@ Deno.serve(async (req) => {
           })
           .eq('id', snapshot.id);
 
-        if (updateError) {
-          console.error('⚠️ Failed to update snapshot record:', updateError);
-          throw updateError;
-        }
-
         console.log('✅ ACS snapshot completed successfully');
-        await logSnapshot(supabaseAdmin, snapshot.id, 'Snapshot completed');
       } catch (error: any) {
-        console.error('❌ ACS snapshot failed:', error.message);
-        console.error('Stack trace:', error.stack);
-        await logSnapshot(supabaseAdmin, snapshot.id, `Snapshot failed: ${error.message}`, 'error');
+        console.error('❌ ACS snapshot failed:', error);
         
-        const { error: updateError } = await supabaseAdmin
+        await supabaseAdmin
           .from('acs_snapshots')
           .update({
             status: 'failed',
-            error_message: error.message || 'Unknown error',
+            error_message: error.message,
           })
           .eq('id', snapshot.id);
-
-        if (updateError) {
-          console.error('⚠️ Failed to update snapshot with error status:', updateError);
-        }
       }
     };
 
-    // Start background task (fire-and-forget with proper lifecycle management)
-    console.log('🚀 Starting ACS snapshot background task...');
-    EdgeRuntime.waitUntil(backgroundTask());
+    // Start background task (fire and forget)
+    backgroundTask();
 
     return new Response(
       JSON.stringify({

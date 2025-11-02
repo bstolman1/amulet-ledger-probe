@@ -6,155 +6,35 @@ on:
     - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00)
 
 jobs:
-  trigger-snapshot:
-    runs-on: ubuntu-latest
+  fetch-and-upload:
+    runs-on: self-hosted
     
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Load config (secrets or .env fallback)
-        shell: bash
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
         run: |
-          set -euo pipefail
-          # Prefer GitHub Secrets if provided, otherwise fall back to .env in repo
-          if [[ -n "${SUPABASE_URL_SECRET:-}" ]]; then
-            echo "SUPABASE_URL=$SUPABASE_URL_SECRET" >> "$GITHUB_ENV"
-          else
-            if [[ -f ".env" ]]; then
-              URL=$(grep -E '^VITE_SUPABASE_URL=' .env | sed -E 's/^[^=]+="?([^"]*)"?$/\1/')
-              echo "SUPABASE_URL=${URL}" >> "$GITHUB_ENV"
-            fi
-          fi
-
-          if [[ -n "${SUPABASE_ANON_KEY_SECRET:-}" ]]; then
-            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY_SECRET" >> "$GITHUB_ENV"
-          else
-            if [[ -f ".env" ]]; then
-              KEY=$(grep -E '^VITE_SUPABASE_PUBLISHABLE_KEY=' .env | sed -E 's/^[^=]+="?([^"]*)"?$/\1/')
-              echo "SUPABASE_ANON_KEY=${KEY}" >> "$GITHUB_ENV"
-            fi
-          fi
+          npm init -y
+          npm install axios bignumber.js @supabase/supabase-js
+      
+      - name: Fetch and Upload ACS Data
+        run: node scripts/fetch-acs-data.js
         env:
-          SUPABASE_URL_SECRET: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY_SECRET: ${{ secrets.SUPABASE_ANON_KEY }}
-
-      - name: Validate config
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${SUPABASE_URL:-}" ]]; then
-            echo "::error::SUPABASE_URL is missing. Add repo secret SUPABASE_URL or ensure VITE_SUPABASE_URL exists in .env."
-            exit 1
-          fi
-          if [[ -z "${SUPABASE_ANON_KEY:-}" ]]; then
-            echo "::error::SUPABASE_ANON_KEY is missing. Add repo secret SUPABASE_ANON_KEY or ensure VITE_SUPABASE_PUBLISHABLE_KEY exists in .env."
-            exit 1
-          fi
-          HOST=$(echo "$SUPABASE_URL" | sed -E 's#^https?://([^/]+)/?.*$#\1#')
-          if [[ -z "$HOST" || "$HOST" == "$SUPABASE_URL" ]]; then
-            echo "::error::Invalid SUPABASE_URL: $SUPABASE_URL"
-            exit 1
-          fi
-          echo "Resolved host: $HOST"
-
-      - name: Invoke backend snapshot function
-        id: trigger
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Triggering ACS snapshot..."
-          RESP=$(curl -sS -X POST \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            "$SUPABASE_URL/functions/v1/fetch-acs-snapshot")
-          echo "Response: $RESP"
-          SNAP_ID=$(python3 - <<'PY' <<< "$RESP"
-import sys, json
-try:
-  d = json.loads(sys.stdin.read())
-  print(d.get('snapshot_id',''))
-except Exception:
-  print('')
-PY
-)
-          if [[ -z "$SNAP_ID" ]]; then
-            echo "::error::Failed to parse snapshot_id from function response"
-            exit 1
-          fi
-          echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Monitor snapshot progress
-        if: ${{ steps.trigger.outputs.snapshot_id != '' }}
-        shell: bash
-        env:
-          SNAP_ID: ${{ steps.trigger.outputs.snapshot_id }}
-        run: |
-          set -euo pipefail
-          echo "Monitoring snapshot $SNAP_ID ..."
-          for i in {1..180}; do
-            SNAP=$(curl -sS \
-              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-              -H "apikey: $SUPABASE_ANON_KEY" \
-              "$SUPABASE_URL/rest/v1/acs_snapshots?id=eq.$SNAP_ID&select=status,entry_count,error_message,updated_at")
-
-            STATUS=$(echo "$SNAP" | python3 - <<'PY'
-import sys, json
-try:
-  d = json.loads(sys.stdin.read())
-  print(d[0].get('status','') if d else '')
-except Exception:
-  print('')
-PY
-)
-            ENTRY=$(echo "$SNAP" | python3 - <<'PY'
-import sys, json
-try:
-  d = json.loads(sys.stdin.read())
-  print(d[0].get('entry_count','') if d else '')
-except Exception:
-  print('')
-PY
-)
-            ERR=$(echo "$SNAP" | python3 - <<'PY'
-import sys, json
-try:
-  d = json.loads(sys.stdin.read())
-  print(d[0].get('error_message','') if d else '')
-except Exception:
-  print('')
-PY
-)
-
-            LOG=$(curl -sS \
-              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-              -H "apikey: $SUPABASE_ANON_KEY" \
-              "$SUPABASE_URL/rest/v1/snapshot_logs?select=created_at,log_level,message&snapshot_id=eq.$SNAP_ID&order=created_at.desc&limit=1")
-
-            LAST=$(echo "$LOG" | python3 - <<'PY'
-import sys, json
-try:
-  d = json.loads(sys.stdin.read())
-  if d:
-    print(f"{d[0]['created_at']} [{d[0]['log_level']}] {d[0]['message']}")
-  else:
-    print('No logs yet')
-except Exception:
-  print('No logs yet')
-PY
-)
-
-            echo "Status: $STATUS | Entries: $ENTRY"
-            echo "Last log: $LAST"
-
-            if [[ "$STATUS" == "completed" ]]; then
-              echo "Snapshot completed."
-              exit 0
-            fi
-            if [[ "$STATUS" == "failed" ]]; then
-              echo "::error::Snapshot failed: $ERR"
-              exit 1
-            fi
-            sleep 10
-          done
-          echo "::warning::Monitor timed out after 30 minutes without completion."
+          BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
+          SUPA_URL: ${{ secrets.SUPA_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      
+      - name: Upload artifacts (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: acs-snapshot-${{ github.run_number }}
+          path: |
+            acs_full/
+            circulating-supply-single-sv.json
+          retention-days: 30
