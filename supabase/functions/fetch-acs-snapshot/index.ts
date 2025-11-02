@@ -395,12 +395,20 @@ Deno.serve(async (req) => {
       }
     };
 
-    // Start background task and keep function alive until it completes
-    EdgeRuntime.waitUntil(backgroundTask());
+    // Run background task synchronously (await it)
+    // This ensures the function stays alive until completion
+    console.log('🚀 Starting ACS snapshot background task...');
+    
+    try {
+      await backgroundTask();
+      console.log('✅ Background task completed');
+    } catch (err: any) {
+      console.error('❌ Background task error:', err.message);
+    }
 
     return new Response(
       JSON.stringify({
-        message: 'ACS snapshot started',
+        message: 'ACS snapshot completed',
         snapshot_id: snapshot.id,
       }),
       {
