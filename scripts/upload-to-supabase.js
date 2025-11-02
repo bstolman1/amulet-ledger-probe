@@ -1,27 +1,16 @@
 /**
  * Upload fetched ACS data to Supabase Storage and Database
  */
-import 'dotenv/config';
+
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
 
-const supabaseUrl = process.env.SUPA_URL || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPA_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ Missing Supabase credentials. Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL)");
-  process.exit(1);
-}
-
-// Log the JWT role safely to verify privileges (no secrets printed) and enforce service role
-let __role = 'unknown';
-try {
-  __role = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role || 'unknown';
-} catch {}
-console.log(`🔐 Using auth role: ${__role}`);
-if (__role !== 'service_role') {
-  console.error("❌ This script requires SUPABASE_SERVICE_ROLE_KEY (service role). Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL) and try again.");
+  console.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_KEY");
   process.exit(1);
 }
 

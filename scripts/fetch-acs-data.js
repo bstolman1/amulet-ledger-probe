@@ -2,33 +2,12 @@
  * Fetch ACS data from Canton Network
  * Runs in GitHub Actions with no IP restrictions
  */
-import 'dotenv/config';
+
 import axios from "axios";
 import fs from "fs";
 import BigNumber from "bignumber.js";
-import { createClient } from "@supabase/supabase-js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-const supabaseUrl = process.env.SUPA_URL || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPA_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ Missing Supabase credentials. Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL)");
-  process.exit(1);
-}
-// Log the JWT role safely to verify privileges (no secrets printed) and enforce service role
-let __role = 'unknown';
-try {
-  __role = JSON.parse(Buffer.from((supabaseKey || '').split('.')[1] || '', 'base64').toString('utf8'))?.role || 'unknown';
-} catch {}
-console.log(`🔐 Using auth role: ${__role}`);
-if (__role !== 'service_role') {
-  console.error("❌ This script requires SUPABASE_SERVICE_ROLE_KEY (service role). Set SUPABASE_SERVICE_ROLE_KEY and SUPA_URL (or SUPABASE_URL) and try again.");
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
@@ -93,7 +72,7 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   return record_time;
 }
 
-async function fetchAllACS(baseUrl, migration_id, record_time, snapshotId) {
+async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log("📦 Fetching ACS snapshot and exporting per-template files…");
 
   const allEvents = [];
@@ -107,7 +86,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time, snapshotId) {
   const perPackage = {};
   const templatesByPackage = {};
   const templatesData = {};
-  const uploadedTemplates = new Set();
 
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
@@ -179,43 +157,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time, snapshotId) {
       console.log(`\n   Templates on this page:`);
       for (const t of pageTemplates) console.log(`      • ${t}`);
 
-      // Upload new templates to Supabase immediately
-      for (const templateId of pageTemplates) {
-        if (!uploadedTemplates.has(templateId)) {
-          const fileName = `${safeFileName(templateId)}.json`;
-          const filePath = `${outputDir}/${fileName}`;
-          const storagePath = `${snapshotId}/${fileName}`;
-          
-          // Write file locally
-          fs.writeFileSync(filePath, JSON.stringify(templatesData[templateId], null, 2));
-          
-          // Upload to Supabase Storage
-          const fileContent = fs.readFileSync(filePath);
-          const { error: uploadError } = await supabase.storage
-            .from("acs-data")
-            .upload(storagePath, fileContent, {
-              contentType: "application/json",
-              upsert: true,
-            });
-
-          if (uploadError) {
-            console.error(`\n⚠️ Failed to upload ${fileName}:`, uploadError.message);
-          } else {
-            console.log(`   ✅ Uploaded ${fileName} to Supabase`);
-          }
-
-          // Insert template stats
-          await supabase.from("acs_template_stats").insert({
-            snapshot_id: snapshotId,
-            template_id: templateId,
-            contract_count: templatesData[templateId].length,
-            storage_path: storagePath,
-          });
-
-          uploadedTemplates.add(templateId);
-        }
-      }
-
       if (events.length < pageSize) {
         console.log("\n✅ Last page reached.");
         break;
@@ -242,7 +183,13 @@ async function fetchAllACS(baseUrl, migration_id, record_time, snapshotId) {
   }
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
-  console.log(`📂 All template files have been uploaded to Supabase in real-time.`);
+
+  // 🧾 Write per-template JSON files
+  for (const [templateId, data] of Object.entries(templatesData)) {
+    const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
+    fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
+  }
+  console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
   // 📊 Package summaries
   console.log("\n📊 Per-package totals:");
@@ -272,25 +219,8 @@ async function run() {
   try {
     const migration_id = await detectLatestMigration(BASE_URL);
     const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
-
-    // Create snapshot record in Supabase first
-    console.log("📝 Creating snapshot record in Supabase...");
-    const { data: snapshot, error: snapshotError } = await supabase
-      .from("acs_snapshots")
-      .insert({
-        sv_url: BASE_URL,
-        migration_id,
-        record_time,
-        status: "processing",
-      })
-      .select()
-      .single();
-
-    if (snapshotError) throw snapshotError;
-    console.log(`✅ Created snapshot record: ${snapshot.id}`);
-
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
-      await fetchAllACS(BASE_URL, migration_id, record_time, snapshot.id);
+      await fetchAllACS(BASE_URL, migration_id, record_time);
 
     const circulating = amuletTotal.minus(lockedTotal);
 
@@ -322,25 +252,6 @@ async function run() {
 
     fs.writeFileSync("circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
     console.log("💾 Saved summary to circulating-supply-single-sv.json");
-
-    // Update snapshot record with final totals
-    const { error: updateError } = await supabase
-      .from("acs_snapshots")
-      .update({
-        canonical_package: canonicalPkg,
-        amulet_total: amuletTotal.toFixed(10),
-        locked_total: lockedTotal.toFixed(10),
-        circulating_supply: circulating.toFixed(10),
-        entry_count: allEvents.length,
-        status: "completed",
-      })
-      .eq("id", snapshot.id);
-
-    if (updateError) {
-      console.error("⚠️ Failed to update snapshot record:", updateError.message);
-    } else {
-      console.log("✅ Updated snapshot record with final totals");
-    }
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
     if (err.response) console.error("Response:", err.response.data);
