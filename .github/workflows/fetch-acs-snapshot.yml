@@ -14,7 +14,6 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Trigger backend snapshot (no secrets)
-        shell: bash
         run: |
           set -e
           echo "Calling backend function to fetch and upload ACS snapshot..."
