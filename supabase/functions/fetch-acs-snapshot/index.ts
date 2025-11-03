@@ -1,5 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// Declare EdgeRuntime for background tasks
+declare const EdgeRuntime: {
+  waitUntil(promise: Promise<any>): void;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -390,8 +395,8 @@ Deno.serve(async (req) => {
       }
     };
 
-    // Start background task (fire and forget)
-    backgroundTask();
+    // Start background task (kept alive with waitUntil)
+    EdgeRuntime.waitUntil(backgroundTask());
 
     return new Response(
       JSON.stringify({
