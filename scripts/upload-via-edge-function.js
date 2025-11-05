@@ -7,7 +7,8 @@ import path from "path";
 
 const edgeFunctionUrl = process.env.EDGE_FUNCTION_URL;
 const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-const CHUNK_SIZE = 10;
+let CHUNK_SIZE = 5; // Start with smaller chunks
+const MAX_RETRIES = 3;
 
 if (!edgeFunctionUrl || !webhookSecret) {
   console.error("❌ Missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET");
@@ -57,38 +58,76 @@ async function uploadViaEdgeFunction() {
     const snapshotId = startResult.snapshot_id;
     console.log(`✅ Snapshot created: ${snapshotId}`);
 
-    // PHASE 2: Append - Upload templates in chunks
-    console.log(`\n[2/3] Uploading templates in chunks of ${CHUNK_SIZE}...`);
-    const totalChunks = Math.ceil(templates.length / CHUNK_SIZE);
+    // PHASE 2: Append - Upload templates in chunks with adaptive sizing and retries
+    console.log(`\n[2/3] Uploading templates in chunks (starting with ${CHUNK_SIZE})...`);
+    let totalChunks = Math.ceil(templates.length / CHUNK_SIZE);
     let totalProcessed = 0;
 
     for (let i = 0; i < templates.length; i += CHUNK_SIZE) {
       const chunk = templates.slice(i, i + CHUNK_SIZE);
       const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
 
-      console.log(`   Uploading chunk ${chunkNum}/${totalChunks} (${chunk.length} templates)...`);
+      let retries = 0;
+      let success = false;
 
-      const appendResponse = await fetch(edgeFunctionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          mode: 'append',
-          snapshot_id: snapshotId,
-          templates: chunk,
-          webhookSecret: webhookSecret
-        }),
-      });
+      while (!success && retries < MAX_RETRIES) {
+        try {
+          console.log(`   Uploading chunk ${chunkNum}/${totalChunks} (${chunk.length} templates)...`);
 
-      if (!appendResponse.ok) {
-        const errorText = await appendResponse.text();
-        throw new Error(`Append phase failed on chunk ${chunkNum} (${appendResponse.status}): ${errorText}`);
+          const appendResponse = await fetch(edgeFunctionUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              mode: 'append',
+              snapshot_id: snapshotId,
+              templates: chunk,
+              webhookSecret: webhookSecret
+            }),
+          });
+
+          if (!appendResponse.ok) {
+            const errorText = await appendResponse.text();
+            const errorData = JSON.parse(errorText);
+
+            // If WORKER_LIMIT error, reduce chunk size and retry
+            if (errorData.code === 'WORKER_LIMIT' && CHUNK_SIZE > 1) {
+              CHUNK_SIZE = Math.max(1, Math.floor(CHUNK_SIZE / 2));
+              totalChunks = Math.ceil(templates.length / CHUNK_SIZE);
+              console.log(`   ⚠️ Reducing chunk size to ${CHUNK_SIZE} and recalculating...`);
+              break; // Break retry loop to restart with new chunk size
+            }
+
+            throw new Error(`Append phase failed on chunk ${chunkNum} (${appendResponse.status}): ${errorText}`);
+          }
+
+          const appendResult = await appendResponse.json();
+          totalProcessed += appendResult.processed;
+          console.log(`   ✓ Chunk ${chunkNum}/${totalChunks} complete (${totalProcessed}/${templates.length} total)`);
+          success = true;
+
+          // Gradually increase chunk size on success
+          if (CHUNK_SIZE < 10) {
+            CHUNK_SIZE = Math.min(10, CHUNK_SIZE + 1);
+          }
+
+        } catch (error) {
+          retries++;
+          if (retries < MAX_RETRIES) {
+            console.log(`   ⚠️ Retry ${retries}/${MAX_RETRIES} for chunk ${chunkNum}...`);
+            await new Promise(resolve => setTimeout(resolve, 2000 * retries)); // Exponential backoff
+          } else {
+            throw error;
+          }
+        }
       }
 
-      const appendResult = await appendResponse.json();
-      totalProcessed += appendResult.processed;
-      console.log(`   ✓ Chunk ${chunkNum}/${totalChunks} complete (${totalProcessed}/${templates.length} total)`);
+      if (!success) {
+        // Restart from this position with smaller chunk size
+        i -= CHUNK_SIZE;
+        continue;
+      }
     }
 
     // PHASE 3: Complete - Mark snapshot as complete

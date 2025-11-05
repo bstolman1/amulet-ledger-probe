@@ -132,11 +132,13 @@ Deno.serve(async (req) => {
 
         const { error: statsError } = await supabase
           .from('acs_template_stats')
-          .insert({
+          .upsert({
             snapshot_id: snapshot_id,
             template_id: templateId,
             contract_count: data.length,
             storage_path: storagePath,
+          }, {
+            onConflict: 'snapshot_id,template_id'
           });
 
         if (statsError) {
