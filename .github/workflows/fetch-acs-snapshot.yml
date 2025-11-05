@@ -28,11 +28,11 @@ jobs:
         env:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
       
-      - name: Upload to Supabase
-        run: node scripts/upload-to-supabase.js
+      - name: Upload to Lovable Cloud
+        run: node scripts/upload-via-edge-function.js
         env:
-          SUPABASE_URL: ${{ secrets.SUPA_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPA_KEY }}
+          EDGE_FUNCTION_URL: ${{ secrets.EDGE_FUNCTION_URL }}
+          ACS_UPLOAD_WEBHOOK_SECRET: ${{ secrets.ACS_UPLOAD_WEBHOOK_SECRET }}
       
       - name: Upload artifacts (backup)
         uses: actions/upload-artifact@v4

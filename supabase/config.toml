@@ -1,7 +1,10 @@
-project_id = "noadefeowyanfqtczrks"
+project_id = "mbbjmxubfeaudnhxmwqf"
 
 [functions.sv-rewards-summary]
 verify_jwt = false
 
 [functions.fetch-acs-snapshot]
+verify_jwt = false
+
+[functions.upload-acs-data]
 verify_jwt = false
