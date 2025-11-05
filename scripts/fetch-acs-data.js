@@ -255,6 +255,7 @@ async function run() {
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
     if (err.response) console.error("Response:", err.response.data);
+    process.exit(1);
   }
 }
 
