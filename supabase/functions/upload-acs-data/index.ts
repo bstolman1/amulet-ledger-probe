@@ -10,7 +10,8 @@ interface TemplateFile {
   content: string;
 }
 
-interface UploadRequest {
+interface StartRequest {
+  mode: 'start';
   summary: {
     sv_url: string;
     migration_id: number;
@@ -23,9 +24,23 @@ interface UploadRequest {
     };
     entry_count: number;
   };
+  webhookSecret: string;
+}
+
+interface AppendRequest {
+  mode: 'append';
+  snapshot_id: string;
   templates: TemplateFile[];
   webhookSecret: string;
 }
+
+interface CompleteRequest {
+  mode: 'complete';
+  snapshot_id: string;
+  webhookSecret: string;
+}
+
+type UploadRequest = StartRequest | AppendRequest | CompleteRequest;
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -34,11 +49,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { summary, templates, webhookSecret }: UploadRequest = await req.json();
+    const request: UploadRequest = await req.json();
     
     // Verify webhook secret
     const expectedSecret = Deno.env.get('ACS_UPLOAD_WEBHOOK_SECRET');
-    if (!expectedSecret || webhookSecret !== expectedSecret) {
+    if (!expectedSecret || request.webhookSecret !== expectedSecret) {
       console.error('Invalid webhook secret');
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
@@ -51,114 +66,132 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log('Creating snapshot record...');
-    
-    // Create snapshot record
-    const { data: snapshot, error: snapshotError } = await supabase
-      .from('acs_snapshots')
-      .insert({
-        sv_url: summary.sv_url,
-        migration_id: summary.migration_id,
-        record_time: summary.record_time,
-        canonical_package: summary.canonical_package,
-        amulet_total: summary.totals.amulet,
-        locked_total: summary.totals.locked,
-        circulating_supply: summary.totals.circulating,
-        entry_count: summary.entry_count,
-        status: 'processing',
-      })
-      .select()
-      .single();
+    // Handle different modes
+    if (request.mode === 'start') {
+      console.log('Creating snapshot record...');
+      
+      const { data: snapshot, error: snapshotError } = await supabase
+        .from('acs_snapshots')
+        .insert({
+          sv_url: request.summary.sv_url,
+          migration_id: request.summary.migration_id,
+          record_time: request.summary.record_time,
+          canonical_package: request.summary.canonical_package,
+          amulet_total: request.summary.totals.amulet,
+          locked_total: request.summary.totals.locked,
+          circulating_supply: request.summary.totals.circulating,
+          entry_count: request.summary.entry_count,
+          status: 'processing',
+        })
+        .select()
+        .single();
 
-    if (snapshotError) {
-      console.error('Snapshot creation error:', snapshotError);
-      throw snapshotError;
+      if (snapshotError) {
+        console.error('Snapshot creation error:', snapshotError);
+        throw snapshotError;
+      }
+
+      console.log(`Created snapshot: ${snapshot.id}`);
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          snapshot_id: snapshot.id
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
     }
 
-    console.log(`Created snapshot record: ${snapshot.id}, starting background upload of ${templates.length} templates`);
+    if (request.mode === 'append') {
+      const { snapshot_id, templates } = request;
+      console.log(`Processing batch of ${templates.length} templates for snapshot ${snapshot_id}`);
 
-    // Process uploads in background to avoid memory limits
-    const backgroundTask = async () => {
-      const BATCH_SIZE = 10;
       let processed = 0;
 
-      try {
-        for (let i = 0; i < templates.length; i += BATCH_SIZE) {
-          const batch = templates.slice(i, i + BATCH_SIZE);
-          
-          await Promise.all(batch.map(async (template) => {
-            const storagePath = `${snapshot.id}/${template.filename}`;
-            const fileContent = new TextEncoder().encode(template.content);
+      for (const template of templates) {
+        const storagePath = `${snapshot_id}/${template.filename}`;
+        const fileContent = new TextEncoder().encode(template.content);
 
-            const { error: uploadError } = await supabase.storage
-              .from('acs-data')
-              .upload(storagePath, fileContent, {
-                contentType: 'application/json',
-                upsert: true,
-              });
+        const { error: uploadError } = await supabase.storage
+          .from('acs-data')
+          .upload(storagePath, fileContent, {
+            contentType: 'application/json',
+            upsert: true,
+          });
 
-            if (uploadError) {
-              console.error(`Failed to upload ${template.filename}:`, uploadError);
-              throw uploadError;
-            }
-
-            const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
-            const data = JSON.parse(template.content);
-
-            const { error: statsError } = await supabase
-              .from('acs_template_stats')
-              .insert({
-                snapshot_id: snapshot.id,
-                template_id: templateId,
-                contract_count: data.length,
-                storage_path: storagePath,
-              });
-
-            if (statsError) {
-              console.error(`Failed to insert stats for ${template.filename}:`, statsError);
-              throw statsError;
-            }
-
-            processed++;
-          }));
-
-          console.log(`Processed batch ${i / BATCH_SIZE + 1}: ${processed}/${templates.length} templates`);
+        if (uploadError) {
+          console.error(`Failed to upload ${template.filename}:`, uploadError);
+          throw uploadError;
         }
 
-        // Mark snapshot as completed
-        await supabase
-          .from('acs_snapshots')
-          .update({ status: 'completed' })
-          .eq('id', snapshot.id);
+        const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+        const data = JSON.parse(template.content);
 
-        console.log('Upload complete!');
-      } catch (error) {
-        console.error('Background upload failed:', error);
-        
-        // Mark snapshot as failed
-        await supabase
-          .from('acs_snapshots')
-          .update({ 
-            status: 'failed',
-            error_message: error instanceof Error ? error.message : 'Unknown error'
-          })
-          .eq('id', snapshot.id);
+        const { error: statsError } = await supabase
+          .from('acs_template_stats')
+          .insert({
+            snapshot_id: snapshot_id,
+            template_id: templateId,
+            contract_count: data.length,
+            storage_path: storagePath,
+          });
+
+        if (statsError) {
+          console.error(`Failed to insert stats for ${template.filename}:`, statsError);
+          throw statsError;
+        }
+
+        processed++;
       }
-    };
 
-    // Start background task (don't await - let it run)
-    backgroundTask().catch(console.error);
+      console.log(`Processed ${processed} templates`);
 
-    // Return immediate response
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          processed: processed
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    if (request.mode === 'complete') {
+      const { snapshot_id } = request;
+      console.log(`Marking snapshot ${snapshot_id} as completed`);
+
+      const { error: updateError } = await supabase
+        .from('acs_snapshots')
+        .update({ status: 'completed' })
+        .eq('id', snapshot_id);
+
+      if (updateError) {
+        console.error('Failed to mark snapshot as completed:', updateError);
+        throw updateError;
+      }
+
+      console.log('Snapshot marked as completed');
+
+      return new Response(
+        JSON.stringify({ 
+          success: true
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        snapshot_id: snapshot.id,
-        templates_total: templates.length,
-        message: 'Upload started in background'
-      }),
+      JSON.stringify({ error: 'Invalid mode' }),
       { 
-        status: 200, 
+        status: 400, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
