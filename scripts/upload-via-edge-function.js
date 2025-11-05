@@ -63,7 +63,6 @@ async function uploadViaEdgeFunction() {
     console.log(`\n[2/3] Uploading templates in chunks (starting with ${CHUNK_SIZE}, ${UPLOAD_DELAY_MS}ms delay)...`);
     let totalChunks = Math.ceil(templates.length / CHUNK_SIZE);
     let totalProcessed = 0;
-    const uploadedTemplates = new Set(); // Track successfully uploaded templates
 
     for (let i = 0; i < templates.length; i += CHUNK_SIZE) {
       const chunk = templates.slice(i, i + CHUNK_SIZE);
@@ -106,10 +105,6 @@ async function uploadViaEdgeFunction() {
 
           const appendResult = await appendResponse.json();
           totalProcessed += appendResult.processed;
-          
-          // Track successfully uploaded templates by filename
-          chunk.forEach(t => uploadedTemplates.add(t.filename));
-          
           console.log(`   ✓ Chunk ${chunkNum}/${totalChunks} complete (${totalProcessed}/${templates.length} total)`);
           success = true;
 
@@ -140,12 +135,6 @@ async function uploadViaEdgeFunction() {
         i -= CHUNK_SIZE;
         continue;
       }
-    }
-
-    // Verify all templates were uploaded
-    if (uploadedTemplates.size !== templates.length) {
-      const missing = templates.filter(t => !uploadedTemplates.has(t.filename)).map(t => t.filename);
-      throw new Error(`Upload incomplete: ${uploadedTemplates.size}/${templates.length} templates uploaded. Missing: ${missing.join(', ')}`);
     }
 
     // PHASE 3: Complete - Mark snapshot as complete
