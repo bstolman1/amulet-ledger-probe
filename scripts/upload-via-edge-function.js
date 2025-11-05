@@ -7,7 +7,8 @@ import path from "path";
 
 const edgeFunctionUrl = process.env.EDGE_FUNCTION_URL;
 const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-let CHUNK_SIZE = 5; // Start with smaller chunks
+let CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || '1'); // Configurable, default to 1 for safety
+const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || '1000'); // Configurable delay between chunks
 const MAX_RETRIES = 3;
 
 if (!edgeFunctionUrl || !webhookSecret) {
@@ -59,7 +60,7 @@ async function uploadViaEdgeFunction() {
     console.log(`✅ Snapshot created: ${snapshotId}`);
 
     // PHASE 2: Append - Upload templates in chunks with adaptive sizing and retries
-    console.log(`\n[2/3] Uploading templates in chunks (starting with ${CHUNK_SIZE})...`);
+    console.log(`\n[2/3] Uploading templates in chunks (starting with ${CHUNK_SIZE}, ${UPLOAD_DELAY_MS}ms delay)...`);
     let totalChunks = Math.ceil(templates.length / CHUNK_SIZE);
     let totalProcessed = 0;
 
@@ -107,9 +108,15 @@ async function uploadViaEdgeFunction() {
           console.log(`   ✓ Chunk ${chunkNum}/${totalChunks} complete (${totalProcessed}/${templates.length} total)`);
           success = true;
 
-          // Gradually increase chunk size on success
-          if (CHUNK_SIZE < 10) {
-            CHUNK_SIZE = Math.min(10, CHUNK_SIZE + 1);
+          // Gradually increase chunk size on success (but cap at initial config)
+          const maxChunkSize = parseInt(process.env.UPLOAD_CHUNK_SIZE || '1') * 2;
+          if (CHUNK_SIZE < maxChunkSize) {
+            CHUNK_SIZE = Math.min(maxChunkSize, CHUNK_SIZE + 1);
+          }
+
+          // Add delay between chunks to avoid overwhelming the worker
+          if (i + CHUNK_SIZE < templates.length) {
+            await new Promise(resolve => setTimeout(resolve, UPLOAD_DELAY_MS));
           }
 
         } catch (error) {
