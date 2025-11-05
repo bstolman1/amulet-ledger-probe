@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
         locked_total: summary.totals.locked,
         circulating_supply: summary.totals.circulating,
         entry_count: summary.entry_count,
-        status: 'completed',
+        status: 'processing',
       })
       .select()
       .single();
@@ -75,57 +75,87 @@ Deno.serve(async (req) => {
       throw snapshotError;
     }
 
-    console.log(`Created snapshot record: ${snapshot.id}`);
+    console.log(`Created snapshot record: ${snapshot.id}, starting background upload of ${templates.length} templates`);
 
-    // Upload template files to storage
-    const uploadPromises = templates.map(async (template) => {
-      const storagePath = `${snapshot.id}/${template.filename}`;
-      const fileContent = new TextEncoder().encode(template.content);
+    // Process uploads in background to avoid memory limits
+    const backgroundTask = async () => {
+      const BATCH_SIZE = 10;
+      let processed = 0;
 
-      console.log(`Uploading ${template.filename}...`);
-      
-      const { error: uploadError } = await supabase.storage
-        .from('acs-data')
-        .upload(storagePath, fileContent, {
-          contentType: 'application/json',
-          upsert: true,
-        });
+      try {
+        for (let i = 0; i < templates.length; i += BATCH_SIZE) {
+          const batch = templates.slice(i, i + BATCH_SIZE);
+          
+          await Promise.all(batch.map(async (template) => {
+            const storagePath = `${snapshot.id}/${template.filename}`;
+            const fileContent = new TextEncoder().encode(template.content);
 
-      if (uploadError) {
-        console.error(`Failed to upload ${template.filename}:`, uploadError);
-        throw uploadError;
+            const { error: uploadError } = await supabase.storage
+              .from('acs-data')
+              .upload(storagePath, fileContent, {
+                contentType: 'application/json',
+                upsert: true,
+              });
+
+            if (uploadError) {
+              console.error(`Failed to upload ${template.filename}:`, uploadError);
+              throw uploadError;
+            }
+
+            const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+            const data = JSON.parse(template.content);
+
+            const { error: statsError } = await supabase
+              .from('acs_template_stats')
+              .insert({
+                snapshot_id: snapshot.id,
+                template_id: templateId,
+                contract_count: data.length,
+                storage_path: storagePath,
+              });
+
+            if (statsError) {
+              console.error(`Failed to insert stats for ${template.filename}:`, statsError);
+              throw statsError;
+            }
+
+            processed++;
+          }));
+
+          console.log(`Processed batch ${i / BATCH_SIZE + 1}: ${processed}/${templates.length} templates`);
+        }
+
+        // Mark snapshot as completed
+        await supabase
+          .from('acs_snapshots')
+          .update({ status: 'completed' })
+          .eq('id', snapshot.id);
+
+        console.log('Upload complete!');
+      } catch (error) {
+        console.error('Background upload failed:', error);
+        
+        // Mark snapshot as failed
+        await supabase
+          .from('acs_snapshots')
+          .update({ 
+            status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error'
+          })
+          .eq('id', snapshot.id);
       }
+    };
 
-      // Insert template stats
-      const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
-      const data = JSON.parse(template.content);
+    // Start background task (don't await - let it run)
+    backgroundTask().catch(console.error);
 
-      const { error: statsError } = await supabase
-        .from('acs_template_stats')
-        .insert({
-          snapshot_id: snapshot.id,
-          template_id: templateId,
-          contract_count: data.length,
-          storage_path: storagePath,
-        });
-
-      if (statsError) {
-        console.error(`Failed to insert stats for ${template.filename}:`, statsError);
-        throw statsError;
-      }
-
-      console.log(`Processed ${template.filename} successfully`);
-    });
-
-    await Promise.all(uploadPromises);
-
-    console.log('Upload complete!');
-
+    // Return immediate response
     return new Response(
       JSON.stringify({ 
         success: true, 
         snapshot_id: snapshot.id,
-        templates_processed: templates.length 
+        templates_total: templates.length,
+        message: 'Upload started in background'
       }),
       { 
         status: 200, 
