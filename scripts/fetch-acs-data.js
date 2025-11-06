@@ -11,6 +11,11 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
+// Retry configuration for transient API errors
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 2000; // Start with 2 seconds
+const RETRY_STATUS_CODES = [429, 502, 503, 504]; // Rate limit, bad gateway, service unavailable, timeout
+
 function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
   if (!t) return false;
@@ -91,94 +96,123 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
   while (true) {
-    try {
-      const res = await axios.post(
-        `${baseUrl}/v0/state/acs`,
-        {
-          migration_id,
-          record_time,
-          page_size: pageSize,
-          after,
-          daml_value_encoding: "compact_json",
-        },
-        { headers: { "Content-Type": "application/json" } }
-      );
+    let retries = 0;
+    let success = false;
 
-      const events = res.data.created_events || [];
-      const rangeTo = res.data.range?.to;
-      if (!events.length) {
-        console.log("\n✅ No more events — finished.");
-        break;
-      }
-
-      const pageTemplates = new Set();
-
-      for (const e of events) {
-        const id = e.contract_id || e.event_id;
-        if (id && seen.has(id)) continue;
-        seen.add(id);
-
-        const templateId = e.template_id || "unknown";
-        const pkg = templateId.split(":")[0] || "unknown";
-        perPackage[pkg] ||= { amulet: new BigNumber(0), locked: new BigNumber(0) };
-        templatesByPackage[pkg] ||= new Set();
-        templatesData[templateId] ||= [];
-
-        templatesByPackage[pkg].add(templateId);
-        pageTemplates.add(templateId);
-
-        const { create_arguments } = e;
-        templatesData[templateId].push(create_arguments || {});
-
-        if (isTemplate(e, "Splice.Amulet", "Amulet")) {
-          const amount = new BigNumber(create_arguments?.amount?.initialAmount ?? "0");
-          amuletTotal = amuletTotal.plus(amount);
-          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(amount);
-        } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
-          const amount = new BigNumber(create_arguments?.amulet?.amount?.initialAmount ?? "0");
-          lockedTotal = lockedTotal.plus(amount);
-          perPackage[pkg].locked = perPackage[pkg].locked.plus(amount);
-        }
-      }
-
-      allEvents.push(...events);
-
-      // Safe console output (works in all environments)
-      if (process.stdout.clearLine && process.stdout.cursorTo) {
-        process.stdout.clearLine(0);
-        process.stdout.cursorTo(0);
-        process.stdout.write(
-          `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
+    while (!success && retries <= MAX_RETRIES) {
+      try {
+        const res = await axios.post(
+          `${baseUrl}/v0/state/acs`,
+          {
+            migration_id,
+            record_time,
+            page_size: pageSize,
+            after,
+            daml_value_encoding: "compact_json",
+          },
+          { headers: { "Content-Type": "application/json" } }
         );
-      } else {
-        console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`);
+
+        const events = res.data.created_events || [];
+        const rangeTo = res.data.range?.to;
+        if (!events.length) {
+          console.log("\n✅ No more events — finished.");
+          success = true;
+          break;
+        }
+
+        const pageTemplates = new Set();
+
+        for (const e of events) {
+          const id = e.contract_id || e.event_id;
+          if (id && seen.has(id)) continue;
+          seen.add(id);
+
+          const templateId = e.template_id || "unknown";
+          const pkg = templateId.split(":")[0] || "unknown";
+          perPackage[pkg] ||= { amulet: new BigNumber(0), locked: new BigNumber(0) };
+          templatesByPackage[pkg] ||= new Set();
+          templatesData[templateId] ||= [];
+
+          templatesByPackage[pkg].add(templateId);
+          pageTemplates.add(templateId);
+
+          const { create_arguments } = e;
+          templatesData[templateId].push(create_arguments || {});
+
+          if (isTemplate(e, "Splice.Amulet", "Amulet")) {
+            const amount = new BigNumber(create_arguments?.amount?.initialAmount ?? "0");
+            amuletTotal = amuletTotal.plus(amount);
+            perPackage[pkg].amulet = perPackage[pkg].amulet.plus(amount);
+          } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
+            const amount = new BigNumber(create_arguments?.amulet?.amount?.initialAmount ?? "0");
+            lockedTotal = lockedTotal.plus(amount);
+            perPackage[pkg].locked = perPackage[pkg].locked.plus(amount);
+          }
+        }
+
+        allEvents.push(...events);
+
+        // Safe console output (works in all environments)
+        if (process.stdout.clearLine && process.stdout.cursorTo) {
+          process.stdout.clearLine(0);
+          process.stdout.cursorTo(0);
+          process.stdout.write(
+            `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
+          );
+        } else {
+          console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`);
+        }
+
+        console.log(`\n   Templates on this page:`);
+        for (const t of pageTemplates) console.log(`      • ${t}`);
+
+        if (events.length < pageSize) {
+          console.log("\n✅ Last page reached.");
+          success = true;
+          break;
+        }
+
+        after = rangeTo ?? after + events.length;
+        page++;
+        await sleep(100);
+        success = true;
+      } catch (err) {
+        const msg = err.response?.data?.error || err.message;
+        const statusCode = err.response?.status;
+
+        console.error(`\n⚠️ Page ${page} failed: ${msg}`);
+
+        // Check if it's a transient error that should be retried
+        if (RETRY_STATUS_CODES.includes(statusCode) && retries < MAX_RETRIES) {
+          retries++;
+          const delay = RETRY_DELAY_MS * Math.pow(2, retries - 1); // Exponential backoff
+          console.log(`🔄 Transient error (${statusCode}), retry ${retries}/${MAX_RETRIES} after ${delay}ms...`);
+          await sleep(delay);
+          continue;
+        }
+
+        // Handle range errors (existing logic)
+        const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
+        if (match) {
+          const minRange = parseInt(match[1]);
+          const maxRange = parseInt(match[2]);
+          console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
+          after = minRange;
+          console.log(`🔁 Restarting from offset ${after}…`);
+          success = true; // Exit retry loop to continue outer loop
+          break;
+        }
+
+        // If not retryable or max retries exceeded, throw
+        throw err;
       }
+    }
 
-      console.log(`\n   Templates on this page:`);
-      for (const t of pageTemplates) console.log(`      • ${t}`);
-
-      if (events.length < pageSize) {
-        console.log("\n✅ Last page reached.");
-        break;
-      }
-
-      after = rangeTo ?? after + events.length;
-      page++;
-      await sleep(100);
-    } catch (err) {
-      const msg = err.response?.data?.error || err.message;
-      console.error(`\n⚠️ Page ${page} failed: ${msg}`);
-
-      const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
-      if (match) {
-        const minRange = parseInt(match[1]);
-        const maxRange = parseInt(match[2]);
-        console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
-        after = minRange;
-        console.log(`🔁 Restarting from offset ${after}…`);
-        continue;
-      }
-      throw err;
+    // If we've broken out of the success loop due to completion, break outer loop
+    if (success && (allEvents.length === 0 || allEvents[allEvents.length - 1])) {
+      const lastBatch = allEvents.slice(-pageSize);
+      if (lastBatch.length < pageSize) break;
     }
   }
 
