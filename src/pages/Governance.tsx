@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useGovernanceData } from "@/hooks/use-governance-data";
 
 const Governance = () => {
   const { data: dsoInfo } = useQuery({
@@ -14,12 +15,8 @@ const Governance = () => {
     retry: 1,
   });
 
-  // Fetch governance proposals from transactions
-  const { data: proposals, isLoading, isError } = useQuery({
-    queryKey: ["governance-proposals"],
-    queryFn: () => scanApi.fetchGovernanceProposals(),
-    retry: 1,
-  });
+  // Fetch governance proposals from storage
+  const { data: proposals, isLoading, isError } = useGovernanceData();
 
   const totalProposals = proposals?.length || 0;
   const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
@@ -153,7 +150,7 @@ const Governance = () => {
               <div className="text-center py-12">
                 <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">
-                  Unable to load proposals. The governance API endpoint may be unavailable.
+                  Unable to load governance data from storage.
                 </p>
               </div>
             ) : isLoading ? (
@@ -166,10 +163,10 @@ const Governance = () => {
               <div className="text-center py-12">
                 <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground mb-2">
-                  No proposals available at the moment
+                  No governance proposals found in the latest snapshot
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Governance proposals will appear here when submitted by DSO members
+                  Governance data is loaded from ACS snapshots. Vote requests, elections, and proposals will appear here.
                 </p>
               </div>
             ) : (
