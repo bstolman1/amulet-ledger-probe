@@ -9,17 +9,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useGovernanceData } from "@/hooks/use-governance-data";
 
 const Governance = () => {
-  const { data: dsoInfo } = useQuery({
-    queryKey: ["dsoInfo"],
-    queryFn: () => scanApi.fetchDsoInfo(),
-    retry: 1,
-  });
+  // Fetch governance data from storage
+  const { data: governanceData, isLoading, isError } = useGovernanceData();
 
-  // Fetch governance proposals from storage
-  const { data: proposals, isLoading, isError } = useGovernanceData();
-
-  const totalProposals = proposals?.length || 0;
-  const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
+  const proposals = governanceData?.proposals || [];
+  const totalProposals = governanceData?.totalProposals || 0;
+  const activeProposals = governanceData?.activeProposals || 0;
+  const votingThreshold = governanceData?.votingThreshold || 5;
+  const dsoPartyId = governanceData?.dsoPartyId || "";
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -66,12 +63,12 @@ const Governance = () => {
               <h3 className="text-sm font-medium text-muted-foreground">Voting Threshold</h3>
               <Users className="h-5 w-5 text-primary" />
             </div>
-            {!dsoInfo ? (
+            {isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <>
                 <p className="text-3xl font-bold text-primary mb-1">
-                  {dsoInfo.voting_threshold}
+                  {votingThreshold}
                 </p>
                 <p className="text-xs text-muted-foreground">Votes required</p>
               </>
@@ -117,12 +114,12 @@ const Governance = () => {
               <h3 className="text-sm font-medium text-muted-foreground">DSO Party</h3>
               <Vote className="h-5 w-5 text-chart-3" />
             </div>
-            {!dsoInfo ? (
+            {isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <>
                 <p className="text-xs font-mono text-chart-3 mb-1 truncate">
-                  {dsoInfo.dso_party_id.split("::")[0]}
+                  {dsoPartyId ? dsoPartyId.split("::")[0] : "N/A"}
                 </p>
                 <p className="text-xs text-muted-foreground">Governance entity</p>
               </>
@@ -135,7 +132,7 @@ const Governance = () => {
           <Vote className="h-4 w-4" />
           <AlertDescription>
             Governance proposals are voted on by Super Validators. A proposal requires{" "}
-            <strong>{dsoInfo?.voting_threshold || "N"}</strong> votes to pass.
+            <strong>{votingThreshold}</strong> votes to pass.
             Proposals can include network parameter changes, featured app approvals, and other
             critical network decisions.
           </AlertDescription>
@@ -159,7 +156,7 @@ const Governance = () => {
                   <Skeleton key={i} className="h-32 w-full" />
                 ))}
               </div>
-            ) : !proposals?.length ? (
+            ) : !proposals.length ? (
               <div className="text-center py-12">
                 <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground mb-2">
@@ -171,7 +168,7 @@ const Governance = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {proposals?.map((proposal: any, index: number) => (
+                {proposals.map((proposal, index: number) => (
                   <div
                     key={index}
                     className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
@@ -231,7 +228,7 @@ const Governance = () => {
                   <h4 className="font-semibold text-foreground mb-2">Voting Process</h4>
                   <p className="text-sm">
                     Proposals require a minimum threshold of votes from Super Validators to be
-                    approved. The current threshold is {dsoInfo?.voting_threshold || "N"} votes.
+                    approved. The current threshold is {votingThreshold} votes.
                   </p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/30">
