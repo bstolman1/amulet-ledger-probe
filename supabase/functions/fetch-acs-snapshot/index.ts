@@ -163,114 +163,76 @@ async function fetchAllACS(
   let lockedTotal = new Decimal('0');
   const pageSize = 2000; // Increased from 1000
   const seen = new Set<string>();
-  const CONCURRENCY = 4; // Fetch 4 pages in parallel
-
-  // Helper to fetch a single page
-  const fetchPage = async (after: number): Promise<{ events: any[]; rangeTo: number | null; after: number }> => {
-    const res = await fetch(`${baseUrl}/v0/state/acs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        migration_id,
-        record_time,
-        page_size: pageSize,
-        after,
-        daml_value_encoding: 'compact_json',
-      }),
-    });
-
-    const data = await res.json();
-    return {
-      events: data.created_events || [],
-      rangeTo: data.range?.to ?? null,
-      after,
-    };
-  };
-
-  // Process events from a page
-  const processEvents = (events: any[]) => {
-    for (const e of events) {
-      const id = e.contract_id || e.event_id;
-      if (id && seen.has(id)) continue;
-      seen.add(id);
-
-      const templateId = e.template_id || 'unknown';
-      const pkg = templateId.split(':')[0] || 'unknown';
-      const args = e.create_arguments || {};
-
-      // Initialize tracking
-      perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
-      templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
-      templatesByPackage[pkg].add(templateId);
-
-      templatesData[templateId] = templatesData[templateId] || [];
-      templateStats[templateId] = templateStats[templateId] || { count: 0 };
-
-      // Save raw args
-      templatesData[templateId].push(args);
-      templateStats[templateId].count += 1;
-
-      // Analyze args
-      analyzeArgs(args, templateStats[templateId]);
-
-      // Token totals
-      if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
-        const val = args?.amount?.initialAmount ?? '0';
-        if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-          const bn = new Decimal(val);
-          amuletTotal = amuletTotal.plus(bn);
-          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
-        }
-      } else if (isTemplate(e, 'Splice.Amulet', 'LockedAmulet')) {
-        const val = args?.amulet?.amount?.initialAmount ?? '0';
-        if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-          const bn = new Decimal(val);
-          lockedTotal = lockedTotal.plus(bn);
-          perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
-        }
-      }
-    }
-  };
-
-  // Parallel fetch with sliding window
-  let currentAfter = 0;
+  let after = 0;
   let pageNum = 1;
-  let hasMore = true;
-  
-  while (hasMore) {
+
+  while (true) {
     try {
-      // Fetch multiple pages in parallel
-      const offsets = Array.from({ length: CONCURRENCY }, (_, i) => currentAfter + i * pageSize);
-      const pagePromises = offsets.map(offset => fetchPage(offset));
-      const results = await Promise.all(pagePromises);
+      const res = await fetch(`${baseUrl}/v0/state/acs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          migration_id,
+          record_time,
+          page_size: pageSize,
+          after,
+          daml_value_encoding: 'compact_json',
+        }),
+      });
 
-      let processedAny = false;
-      
-      for (const result of results) {
-        if (result.events.length === 0) continue;
-        
-        processedAny = true;
-        processEvents(result.events);
-        
-        console.log(`📄 Page ${pageNum++} | Events: ${seen.size} | Amulet: ${amuletTotal.toString().slice(0, 12)}...`);
+      const data = await res.json();
+      const events = data.created_events || [];
 
-        // If we got less than pageSize, this is the last page
-        if (result.events.length < pageSize) {
-          hasMore = false;
-          break;
+      if (events.length === 0) break;
+
+      for (const e of events) {
+        const id = e.contract_id || e.event_id;
+        if (id && seen.has(id)) continue;
+        seen.add(id);
+
+        const templateId = e.template_id || 'unknown';
+        const pkg = templateId.split(':')[0] || 'unknown';
+        const args = e.create_arguments || {};
+
+        // Initialize tracking
+        perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
+        templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
+        templatesByPackage[pkg].add(templateId);
+
+        templatesData[templateId] = templatesData[templateId] || [];
+        templateStats[templateId] = templateStats[templateId] || { count: 0 };
+
+        // Save raw args
+        templatesData[templateId].push(args);
+        templateStats[templateId].count += 1;
+
+        // Analyze args
+        analyzeArgs(args, templateStats[templateId]);
+
+        // Token totals
+        if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
+          const val = args?.amount?.initialAmount ?? '0';
+          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+            const bn = new Decimal(val);
+            amuletTotal = amuletTotal.plus(bn);
+            perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
+          }
+        } else if (isTemplate(e, 'Splice.Amulet', 'LockedAmulet')) {
+          const val = args?.amulet?.amount?.initialAmount ?? '0';
+          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+            const bn = new Decimal(val);
+            lockedTotal = lockedTotal.plus(bn);
+            perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
+          }
         }
       }
 
-      if (!processedAny) {
-        hasMore = false;
-        break;
-      }
+      console.log(`📄 Page ${pageNum++} | Events: ${seen.size} | Amulet: ${amuletTotal.toString().slice(0, 12)}...`);
 
-      // Move to next batch
-      currentAfter += CONCURRENCY * pageSize;
-      
+      if (events.length < pageSize) break;
+      after += pageSize;
     } catch (err: any) {
-      console.error(`⚠️ Batch failed:`, err.message);
+      console.error(`⚠️ Page fetch failed:`, err.message);
       throw err;
     }
   }
