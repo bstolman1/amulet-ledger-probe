@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 export interface GovernanceProposal {
   id: string;
   type: string;
+  category: string;
   title: string;
   description: string;
   status: string;

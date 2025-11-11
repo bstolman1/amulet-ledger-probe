@@ -46,12 +46,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Get governance templates - only VoteRequest for now
+    // Get all governance templates
     const { data: templates } = await supabase
       .from("acs_template_stats")
       .select("template_id, storage_path, contract_count")
       .eq("snapshot_id", snapshotId)
-      .like("template_id", "%VoteRequest");
+      .or(
+        "template_id.like.%VoteRequest," +
+        "template_id.like.%AmuletPriceVote," +
+        "template_id.like.%ExternalPartySetupProposal," +
+        "template_id.like.%ElectionRequest," +
+        "template_id.like.%Confirmation"
+      );
 
     if (!templates || templates.length === 0) {
       return new Response(
@@ -86,11 +92,13 @@ Deno.serve(async (req) => {
           // The contract data is at the top level - no need for createArguments/payload
           const args = contract;
 
-          const voters = parseVoters(args);
+          const voters = parseVoters(args, templateName);
+          const category = parseCategory(templateName, args);
           
           proposals.push({
             id: contract.contractId || Math.random().toString(36).substr(2, 9),
             type: templateName,
+            category: category,
             title: parseTitle(templateName, args),
             description: parseDescription(templateName, args),
             status: parseStatus(args, votingThreshold),
@@ -227,11 +235,12 @@ function parseStatus(args: any, votingThreshold: number): string {
   return "pending";
 }
 
-function parseVoters(args: any): { for: any[], against: any[], abstained: any[] } {
+function parseVoters(args: any, templateName: string): { for: any[], against: any[], abstained: any[] } {
   const votes = args.votes || [];
   const result = { for: [] as any[], against: [] as any[], abstained: [] as any[] };
   
-  if (Array.isArray(votes)) {
+  // VoteRequest has explicit votes array
+  if (Array.isArray(votes) && votes.length > 0) {
     for (const vote of votes) {
       if (Array.isArray(vote) && vote.length === 2) {
         const [svName, voteDetails] = vote;
@@ -255,7 +264,53 @@ function parseVoters(args: any): { for: any[], against: any[], abstained: any[] 
     }
   }
   
+  // For other templates (AmuletPriceVote, Confirmation, etc), votes might be tracked differently
+  // They may not have voter details, so we'll just count them in the status parsing
+  
   return result;
+}
+
+function parseCategory(templateName: string, args: any): string {
+  // Featured app proposals
+  if (args.reason?.body && args.reason.body.toLowerCase().includes("featured app")) {
+    return "Featured App";
+  }
+  
+  // CIP proposals
+  const cipNumber = parseCipNumber(args);
+  if (cipNumber) {
+    return "CIP";
+  }
+  
+  // Check action type for VoteRequest
+  if (templateName === "VoteRequest") {
+    const actionTag = args.action?.value?.dsoAction?.tag || args.action?.tag || "";
+    
+    if (actionTag.includes("FeaturedApp")) {
+      return "Featured App";
+    }
+    
+    // Network operational updates
+    if (actionTag.includes("UpdateSvRewardWeight") || 
+        actionTag.includes("SetConfig") || 
+        actionTag.includes("UpdateDecentralized")) {
+      return "Network Update";
+    }
+  }
+  
+  // Template-based categories
+  switch (templateName) {
+    case "AmuletPriceVote":
+      return "Price Vote";
+    case "ElectionRequest":
+      return "Election";
+    case "ExternalPartySetupProposal":
+      return "Party Setup";
+    case "Confirmation":
+      return "Confirmation";
+    default:
+      return "Network Update";
+  }
 }
 
 function parseCipNumber(args: any): string {

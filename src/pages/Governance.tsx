@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Vote, CheckCircle, XCircle, Clock, Users } from "lucide-react";
+import { Vote, CheckCircle, XCircle, Clock, Users, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +26,8 @@ const Governance = () => {
         return "bg-destructive/10 text-destructive border-destructive/20";
       case "pending":
         return "bg-warning/10 text-warning border-warning/20";
+      case "expired":
+        return "bg-muted text-muted-foreground border-muted";
       default:
         return "bg-muted text-muted-foreground";
     }
@@ -39,10 +41,32 @@ const Governance = () => {
         return <XCircle className="h-4 w-4" />;
       case "pending":
         return <Clock className="h-4 w-4" />;
+      case "expired":
+        return <AlertCircle className="h-4 w-4" />;
       default:
         return <Vote className="h-4 w-4" />;
     }
   };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case "CIP":
+        return "bg-purple-500/10 text-purple-500 border-purple-500/20";
+      case "Featured App":
+        return "bg-blue-500/10 text-blue-500 border-blue-500/20";
+      case "Network Update":
+        return "bg-orange-500/10 text-orange-500 border-orange-500/20";
+      case "Price Vote":
+        return "bg-green-500/10 text-green-500 border-green-500/20";
+      case "Election":
+        return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
+      default:
+        return "bg-muted text-muted-foreground border-muted";
+    }
+  };
+
+  const openProposals = proposals.filter(p => p.status === 'pending');
+  const closedProposals = proposals.filter(p => p.status !== 'pending');
 
   return (
     <DashboardLayout>
@@ -141,7 +165,7 @@ const Governance = () => {
         {/* Proposals List */}
         <Card className="glass-card">
           <div className="p-6">
-            <h3 className="text-xl font-bold mb-6">Recent Proposals</h3>
+            <h3 className="text-xl font-bold mb-6">Governance Proposals</h3>
             
             {isError ? (
               <div className="text-center py-12">
@@ -167,40 +191,49 @@ const Governance = () => {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {proposals.map((proposal, index: number) => (
-                  <div
-                    key={index}
-                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="gradient-accent p-2 rounded-lg">
-                          {getStatusIcon(proposal.status)}
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-lg">{proposal.title}</h4>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                            <span>Proposal #{proposal.id.substring(0, 8)}</span>
-                            {proposal.cipNumber && (
-                              <>
-                                <span>•</span>
-                                <span className="font-mono">{proposal.cipNumber}</span>
-                              </>
-                            )}
-                            {proposal.requester && (
-                              <>
-                                <span>•</span>
-                                <span>by {proposal.requester}</span>
-                              </>
-                            )}
+              <>
+                {/* Open Proposals */}
+                {openProposals.length > 0 && (
+                  <div className="mb-8">
+                    <h4 className="text-lg font-semibold mb-4 text-primary">Open Proposals</h4>
+                    <div className="space-y-4">
+                      {openProposals.map((proposal, index: number) => (
+                        <div
+                          key={index}
+                          className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <div className="gradient-accent p-2 rounded-lg">
+                                {getStatusIcon(proposal.status)}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <Badge className={getCategoryColor(proposal.category)}>
+                                    {proposal.category}
+                                  </Badge>
+                                  {proposal.cipNumber && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {proposal.cipNumber}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <h4 className="font-semibold text-lg">{proposal.title}</h4>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 flex-wrap">
+                                  <span>#{proposal.id.substring(0, 8)}</span>
+                                  {proposal.requester && (
+                                    <>
+                                      <span>•</span>
+                                      <span>by {proposal.requester}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Badge className={getStatusColor(proposal.status)}>
+                              {proposal.status}
+                            </Badge>
                           </div>
-                        </div>
-                      </div>
-                      <Badge className={getStatusColor(proposal.status)}>
-                        {proposal.status}
-                      </Badge>
-                    </div>
 
                     <p className="text-muted-foreground mb-4">{proposal.description}</p>
 
@@ -215,20 +248,20 @@ const Governance = () => {
                       </a>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Yes</p>
-                        <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">No</p>
-                        <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Abstain</p>
-                        <p className="text-lg font-bold text-muted-foreground">{proposal.voters?.abstained?.length || 0}</p>
-                      </div>
-                    </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div className="p-3 rounded-lg bg-background/50">
+          <p className="text-xs text-muted-foreground mb-1">Yes</p>
+          <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
+        </div>
+        <div className="p-3 rounded-lg bg-background/50">
+          <p className="text-xs text-muted-foreground mb-1">No</p>
+          <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
+        </div>
+        <div className="p-3 rounded-lg bg-background/50">
+          <p className="text-xs text-muted-foreground mb-1">Abstain</p>
+          <p className="text-lg font-bold text-muted-foreground">{proposal.voters?.abstained?.length || 0}</p>
+        </div>
+      </div>
 
                     {proposal.voters && (proposal.voters.for.length > 0 || proposal.voters.against.length > 0) && (
                       <div className="mt-4 pt-4 border-t border-border/50">
@@ -296,19 +329,175 @@ const Governance = () => {
                       </div>
                     )}
 
-                    {(proposal.voteBefore || proposal.targetEffectiveAt) && (
-                      <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground space-y-1">
-                        {proposal.voteBefore && (
-                          <p>Vote before: {new Date(proposal.voteBefore).toLocaleString()}</p>
-                        )}
-                        {proposal.targetEffectiveAt && (
-                          <p>Target effective: {new Date(proposal.targetEffectiveAt).toLocaleString()}</p>
-                        )}
-                      </div>
-                    )}
+                          {(proposal.voteBefore || proposal.targetEffectiveAt) && (
+                            <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground space-y-1">
+                              {proposal.voteBefore && (
+                                <p>Vote before: {new Date(proposal.voteBefore).toLocaleString()}</p>
+                              )}
+                              {proposal.targetEffectiveAt && (
+                                <p>Target effective: {new Date(proposal.targetEffectiveAt).toLocaleString()}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* Closed Proposals */}
+                {closedProposals.length > 0 && (
+                  <div>
+                    <h4 className="text-lg font-semibold mb-4 text-muted-foreground">Closed Proposals</h4>
+                    <div className="space-y-4">
+                      {closedProposals.map((proposal, index: number) => (
+                        <div
+                          key={index}
+                          className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <div className="gradient-accent p-2 rounded-lg">
+                                {getStatusIcon(proposal.status)}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <Badge className={getCategoryColor(proposal.category)}>
+                                    {proposal.category}
+                                  </Badge>
+                                  {proposal.cipNumber && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {proposal.cipNumber}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <h4 className="font-semibold text-lg">{proposal.title}</h4>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 flex-wrap">
+                                  <span>#{proposal.id.substring(0, 8)}</span>
+                                  {proposal.requester && (
+                                    <>
+                                      <span>•</span>
+                                      <span>by {proposal.requester}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Badge className={getStatusColor(proposal.status)}>
+                              {proposal.status}
+                            </Badge>
+                          </div>
+
+                          <p className="text-muted-foreground mb-4">{proposal.description}</p>
+
+                          {proposal.cipUrl && (
+                            <a 
+                              href={proposal.cipUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-sm text-primary hover:underline mb-4 inline-block"
+                            >
+                              View CIP Discussion →
+                            </a>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div className="p-3 rounded-lg bg-background/50">
+                              <p className="text-xs text-muted-foreground mb-1">Yes</p>
+                              <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-background/50">
+                              <p className="text-xs text-muted-foreground mb-1">No</p>
+                              <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-background/50">
+                              <p className="text-xs text-muted-foreground mb-1">Abstain</p>
+                              <p className="text-lg font-bold text-muted-foreground">{proposal.voters?.abstained?.length || 0}</p>
+                            </div>
+                          </div>
+
+                          {proposal.voters && (proposal.voters.for.length > 0 || proposal.voters.against.length > 0) && (
+                            <div className="mt-4 pt-4 border-t border-border/50">
+                              <details className="cursor-pointer">
+                                <summary className="text-sm font-semibold mb-2">
+                                  Voters ({proposal.voters.for.length + proposal.voters.against.length + proposal.voters.abstained.length})
+                                </summary>
+                                <div className="mt-3 space-y-3">
+                                  {proposal.voters.for.length > 0 && (
+                                    <div>
+                                      <p className="text-xs font-semibold text-success mb-2">✓ Yes ({proposal.voters.for.length})</p>
+                                      <div className="space-y-1">
+                                        {proposal.voters.for.map((voter, idx) => (
+                                          <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                            <span className="font-mono">{voter.name}</span>
+                                            {voter.castAt && (
+                                              <span className="ml-2 opacity-60">
+                                                • {new Date(voter.castAt).toLocaleDateString()}
+                                              </span>
+                                            )}
+                                            {voter.reason && (
+                                              <p className="text-xs italic mt-1 opacity-80">"{voter.reason}"</p>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {proposal.voters.against.length > 0 && (
+                                    <div>
+                                      <p className="text-xs font-semibold text-destructive mb-2">✗ No ({proposal.voters.against.length})</p>
+                                      <div className="space-y-1">
+                                        {proposal.voters.against.map((voter, idx) => (
+                                          <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                            <span className="font-mono">{voter.name}</span>
+                                            {voter.castAt && (
+                                              <span className="ml-2 opacity-60">
+                                                • {new Date(voter.castAt).toLocaleDateString()}
+                                              </span>
+                                            )}
+                                            {voter.reason && (
+                                              <p className="text-xs italic mt-1 opacity-80">"{voter.reason}"</p>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {proposal.voters.abstained.length > 0 && (
+                                    <div>
+                                      <p className="text-xs font-semibold text-warning mb-2">− Abstain ({proposal.voters.abstained.length})</p>
+                                      <div className="space-y-1">
+                                        {proposal.voters.abstained.map((voter, idx) => (
+                                          <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                            <span className="font-mono">{voter.name}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            </div>
+                          )}
+
+                          {(proposal.voteBefore || proposal.targetEffectiveAt) && (
+                            <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground space-y-1">
+                              {proposal.voteBefore && (
+                                <p>Vote before: {new Date(proposal.voteBefore).toLocaleString()}</p>
+                              )}
+                              {proposal.targetEffectiveAt && (
+                                <p>Target effective: {new Date(proposal.targetEffectiveAt).toLocaleString()}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </Card>
