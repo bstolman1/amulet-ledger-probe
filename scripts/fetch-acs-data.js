@@ -90,11 +90,14 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-  const MAX_RETRIES = 5;
-  const BASE_DELAY = 2000; // Start with 2 seconds
-  
+  const MAX_RETRIES = 8;
+  const BASE_DELAY = 3000; // Start with 3 seconds
+  const MAX_PAGE_COOLDOWNS = 2; // Allow a couple of cooldown cycles per page
+  const COOLDOWN_AFTER_FAIL_MS = 60000; // 60s cooldown when a page keeps failing
+  const JITTER_MS = 500; // add small random jitter to avoid thundering herd
   while (true) {
     let retryCount = 0;
+    let cooldowns = 0;
     let success = false;
     
     while (retryCount < MAX_RETRIES && !success) {
@@ -110,7 +113,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           },
           { 
             headers: { "Content-Type": "application/json" },
-            timeout: 60000 // 60 second timeout
+            timeout: 120000 // 120 second timeout
           }
         );
 
@@ -177,27 +180,43 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         success = true;
         
         // Throttle requests to avoid overwhelming server
-        await sleep(500);
+        await sleep(1000);
         
       } catch (err) {
         const statusCode = err.response?.status;
         const msg = err.response?.data?.error || err.message;
         
-        // Check if it's a retryable error (502, 503, 504, timeout, network error)
+        // Check if it's a retryable error (502, 503, 504, 429, timeout, network error)
         const isRetryable = 
           statusCode === 502 || 
           statusCode === 503 || 
           statusCode === 504 ||
+          statusCode === 429 ||
           err.code === 'ECONNRESET' ||
           err.code === 'ETIMEDOUT' ||
-          err.code === 'ENOTFOUND';
+          err.code === 'ENOTFOUND' ||
+          err.code === 'ECONNABORTED' ||
+          err.code === 'EAI_AGAIN' ||
+          err.code === 'EHOSTUNREACH' ||
+          err.code === 'EPIPE';
         
         if (isRetryable && retryCount < MAX_RETRIES - 1) {
           retryCount++;
-          const delay = BASE_DELAY * Math.pow(2, retryCount - 1); // Exponential backoff
+          const delay = BASE_DELAY * Math.pow(2, retryCount - 1);
+          const jitter = Math.floor(Math.random() * JITTER_MS);
           console.error(`\n⚠️ Page ${page} failed (${statusCode || err.code}): ${msg}`);
-          console.log(`🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay}ms...`);
-          await sleep(delay);
+          console.log(`🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay + jitter}ms (with jitter)...`);
+          await sleep(delay + jitter);
+          continue;
+        }
+        
+        // After exhausting quick retries, do a longer cooldown and try again a few times
+        if (isRetryable && cooldowns < MAX_PAGE_COOLDOWNS) {
+          cooldowns++;
+          const cooldownDelay = COOLDOWN_AFTER_FAIL_MS * cooldowns; // linear backoff in minutes
+          console.warn(`\n⏳ Page ${page} still failing. Cooling down for ${cooldownDelay}ms (cooldown ${cooldowns}/${MAX_PAGE_COOLDOWNS})...`);
+          await sleep(cooldownDelay);
+          retryCount = 0; // reset quick retries after cooldown
           continue;
         }
         
