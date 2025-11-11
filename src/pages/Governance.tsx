@@ -225,8 +225,8 @@ const Governance = () => {
                         <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
                       </div>
                       <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Created</p>
-                        <p className="text-sm font-mono">{new Date(proposal.createdAt).toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground mb-1">Abstentions</p>
+                        <p className="text-lg font-bold text-muted-foreground">{proposal.voters?.abstained?.length || 0}</p>
                       </div>
                     </div>
 
