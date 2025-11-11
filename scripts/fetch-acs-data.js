@@ -354,6 +354,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     
     await sleep(REQUEST_DELAY_MS);
   }
+  }
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
   
