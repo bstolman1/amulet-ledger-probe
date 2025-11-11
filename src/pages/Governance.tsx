@@ -180,9 +180,21 @@ const Governance = () => {
                         </div>
                         <div>
                           <h4 className="font-semibold text-lg">{proposal.title}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Proposal #{proposal.id}
-                          </p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                            <span>Proposal #{proposal.id.substring(0, 8)}</span>
+                            {proposal.cipNumber && (
+                              <>
+                                <span>•</span>
+                                <span className="font-mono">{proposal.cipNumber}</span>
+                              </>
+                            )}
+                            {proposal.requester && (
+                              <>
+                                <span>•</span>
+                                <span>by {proposal.requester}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <Badge className={getStatusColor(proposal.status)}>
@@ -192,7 +204,18 @@ const Governance = () => {
 
                     <p className="text-muted-foreground mb-4">{proposal.description}</p>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {proposal.cipUrl && (
+                      <a 
+                        href={proposal.cipUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline mb-4 inline-block"
+                      >
+                        View CIP Discussion →
+                      </a>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div className="p-3 rounded-lg bg-background/50">
                         <p className="text-xs text-muted-foreground mb-1">For</p>
                         <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
@@ -206,6 +229,83 @@ const Governance = () => {
                         <p className="text-sm font-mono">{new Date(proposal.createdAt).toLocaleDateString()}</p>
                       </div>
                     </div>
+
+                    {proposal.voters && (proposal.voters.for.length > 0 || proposal.voters.against.length > 0) && (
+                      <div className="mt-4 pt-4 border-t border-border/50">
+                        <details className="cursor-pointer">
+                          <summary className="text-sm font-semibold mb-2">
+                            Voters ({proposal.voters.for.length + proposal.voters.against.length + proposal.voters.abstained.length})
+                          </summary>
+                          <div className="mt-3 space-y-3">
+                            {proposal.voters.for.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-success mb-2">✓ Voted For ({proposal.voters.for.length})</p>
+                                <div className="space-y-1">
+                                  {proposal.voters.for.map((voter, idx) => (
+                                    <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                      <span className="font-mono">{voter.name}</span>
+                                      {voter.castAt && (
+                                        <span className="ml-2 opacity-60">
+                                          • {new Date(voter.castAt).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                      {voter.reason && (
+                                        <p className="text-xs italic mt-1 opacity-80">"{voter.reason}"</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {proposal.voters.against.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-destructive mb-2">✗ Voted Against ({proposal.voters.against.length})</p>
+                                <div className="space-y-1">
+                                  {proposal.voters.against.map((voter, idx) => (
+                                    <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                      <span className="font-mono">{voter.name}</span>
+                                      {voter.castAt && (
+                                        <span className="ml-2 opacity-60">
+                                          • {new Date(voter.castAt).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                      {voter.reason && (
+                                        <p className="text-xs italic mt-1 opacity-80">"{voter.reason}"</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {proposal.voters.abstained.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-warning mb-2">− Abstained ({proposal.voters.abstained.length})</p>
+                                <div className="space-y-1">
+                                  {proposal.voters.abstained.map((voter, idx) => (
+                                    <div key={idx} className="text-xs text-muted-foreground pl-4">
+                                      <span className="font-mono">{voter.name}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      </div>
+                    )}
+
+                    {(proposal.voteBefore || proposal.targetEffectiveAt) && (
+                      <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground space-y-1">
+                        {proposal.voteBefore && (
+                          <p>Vote before: {new Date(proposal.voteBefore).toLocaleString()}</p>
+                        )}
+                        {proposal.targetEffectiveAt && (
+                          <p>Target effective: {new Date(proposal.targetEffectiveAt).toLocaleString()}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -12,6 +12,37 @@ export interface GovernanceProposal {
   createdAt: string;
   contractId: string;
   templateId: string;
+  voters?: {
+    for: Array<{
+      name: string;
+      sv: string;
+      accept: boolean;
+      castAt: string;
+      reason: string;
+      reasonUrl: string;
+    }>;
+    against: Array<{
+      name: string;
+      sv: string;
+      accept: boolean;
+      castAt: string;
+      reason: string;
+      reasonUrl: string;
+    }>;
+    abstained: Array<{
+      name: string;
+      sv: string;
+      accept: boolean | null;
+      castAt: string;
+      reason: string;
+      reasonUrl: string;
+    }>;
+  };
+  cipNumber?: string;
+  cipUrl?: string;
+  requester?: string;
+  voteBefore?: string;
+  targetEffectiveAt?: string;
 }
 
 export interface GovernanceData {

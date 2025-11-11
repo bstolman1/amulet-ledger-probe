@@ -15,20 +15,8 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get the latest snapshot with template data
-    const { data: snapshots } = await supabase
-      .from("acs_template_stats")
-      .select("snapshot_id")
-      .limit(1);
-
-    if (!snapshots || snapshots.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No snapshot data found" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404 }
-      );
-    }
-
-    const snapshotId = snapshots[0].snapshot_id;
+    // Use specific snapshot with governance data
+    const snapshotId = "8ec0a99e-79cd-428e-9b4b-cef14e424e60";
 
     // Get DsoRules to extract voting threshold
     const { data: dsoRulesTemplates } = await supabase
@@ -100,19 +88,34 @@ Deno.serve(async (req) => {
 
         for (const contract of contracts) {
           const templateName = template.template_id.split(":").pop() || "Unknown";
-          const args = contract.createArguments || contract.payload || {};
+          
+          // Try to get args from different possible locations
+          let args = contract.createArguments || contract.payload || contract;
+          
+          // If createArguments or payload exists but is empty, use contract itself
+          if (Object.keys(args).length === 0 || (!args.votes && !args.action && !args.amuletPrice && !args.candidate)) {
+            args = contract;
+          }
 
+          const voters = parseVoters(args);
+          
           proposals.push({
             id: contract.contractId || Math.random().toString(36).substr(2, 9),
             type: templateName,
             title: parseTitle(templateName, args),
             description: parseDescription(templateName, args),
             status: parseStatus(args),
-            votesFor: parseVotesFor(args),
-            votesAgainst: parseVotesAgainst(args),
+            votesFor: voters.for.length,
+            votesAgainst: voters.against.length,
             createdAt: contract.createdEventBlob?.recordTime || new Date().toISOString(),
             contractId: contract.contractId || "",
             templateId: template.template_id,
+            voters: voters,
+            cipNumber: parseCipNumber(args),
+            cipUrl: args.reason?.url || "",
+            requester: args.requester || "",
+            voteBefore: args.voteBefore || "",
+            targetEffectiveAt: args.targetEffectiveAt || "",
           });
         }
       } catch (err) {
@@ -137,8 +140,9 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error("Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: errorMessage }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
     );
   }
@@ -164,10 +168,21 @@ function parseTitle(templateName: string, args: any): string {
 function parseDescription(templateName: string, args: any): string {
   switch (templateName) {
     case "VoteRequest":
-      const actionValue = args.action?.value || args.action?.fields || {};
-      return `Vote on: ${JSON.stringify(actionValue).substring(0, 150)}...`;
+      const reasonBody = args.reason?.body || "";
+      const actionTag = args.action?.tag || "";
+      const actionValue = args.action?.value?.dsoAction?.tag || args.action?.value?.tag || "";
+      
+      if (reasonBody) {
+        return reasonBody.substring(0, 200);
+      }
+      
+      if (actionTag && actionValue) {
+        return `${actionTag}: ${actionValue}`;
+      }
+      
+      return `Vote on network governance action`;
     case "AmuletPriceVote":
-      return `Vote on amulet price adjustment for round ${args.round || "N/A"}`;
+      return `Vote on amulet price: ${args.amuletPrice || "N/A"} CC`;
     case "ElectionRequest":
       return `SV election request for epoch ${args.epoch || "N/A"}`;
     case "ExternalPartySetupProposal":
@@ -184,11 +199,33 @@ function parseStatus(args: any): string {
   if (args.completed === true) return "approved";
   if (args.rejected === true) return "rejected";
   
-  // Check vote tracking
-  const trackingCids = args.trackingCids || [];
+  // Check votes array for VoteRequest
   const votes = args.votes || [];
+  if (Array.isArray(votes) && votes.length > 0) {
+    const acceptCount = votes.filter((v: any) => 
+      Array.isArray(v) && v[1]?.accept === true
+    ).length;
+    const rejectCount = votes.filter((v: any) => 
+      Array.isArray(v) && v[1]?.accept === false
+    ).length;
+    
+    // If majority accepted (or threshold met)
+    if (acceptCount >= 5) return "approved";
+    if (rejectCount > votes.length / 2) return "rejected";
+    
+    // Check if voting period is over
+    const voteBefore = args.voteBefore ? new Date(args.voteBefore) : null;
+    if (voteBefore && voteBefore < new Date()) {
+      return acceptCount > 0 ? "approved" : "expired";
+    }
+    
+    return "pending";
+  }
   
-  if (trackingCids.length === 0 && votes.length === 0) {
+  // Check vote tracking for other types
+  const trackingCids = args.trackingCids || [];
+  
+  if (trackingCids.length === 0) {
     return "pending";
   }
   
@@ -199,6 +236,56 @@ function parseStatus(args: any): string {
   if (accepts === 0 && trackingCids.length > 0) return "rejected";
   
   return "pending";
+}
+
+function parseVoters(args: any): { for: any[], against: any[], abstained: any[] } {
+  const votes = args.votes || [];
+  const result = { for: [] as any[], against: [] as any[], abstained: [] as any[] };
+  
+  if (Array.isArray(votes)) {
+    for (const vote of votes) {
+      if (Array.isArray(vote) && vote.length === 2) {
+        const [svName, voteDetails] = vote;
+        const voter = {
+          name: svName,
+          sv: voteDetails.sv || svName,
+          accept: voteDetails.accept,
+          castAt: voteDetails.optCastAt || "",
+          reason: voteDetails.reason?.body || "",
+          reasonUrl: voteDetails.reason?.url || "",
+        };
+        
+        if (voteDetails.accept === true) {
+          result.for.push(voter);
+        } else if (voteDetails.accept === false) {
+          result.against.push(voter);
+        } else {
+          result.abstained.push(voter);
+        }
+      }
+    }
+  }
+  
+  return result;
+}
+
+function parseCipNumber(args: any): string {
+  const url = args.reason?.url || "";
+  const body = args.reason?.body || "";
+  
+  // Try to extract CIP number from URL or body
+  const cipMatch = url.match(/CIP[- ]?(\d+)/i) || body.match(/CIP[- ]?(\d+)/i);
+  if (cipMatch) {
+    return `CIP-${cipMatch[1]}`;
+  }
+  
+  // Try to extract from topic or other patterns
+  const topicMatch = url.match(/topic\/([^/]+)/i);
+  if (topicMatch) {
+    return topicMatch[1].replace(/_/g, ' ');
+  }
+  
+  return "";
 }
 
 function parseVotesFor(args: any): number {
