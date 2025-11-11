@@ -191,11 +191,12 @@ async function fetchACSBatch(
   // Restore template stats
   if (progress.templateStats) {
     for (const [tid, stats] of Object.entries(progress.templateStats)) {
-      templateStats[tid] = stats as TemplateStats;
-      if (stats.fields) {
+      const typedStats = stats as TemplateStats;
+      templateStats[tid] = typedStats;
+      if (typedStats.fields) {
         templateStats[tid].fields = {};
-        for (const [fname, fval] of Object.entries(stats.fields)) {
-          templateStats[tid].fields![fname] = new Decimal(fval as string);
+        for (const [fname, fval] of Object.entries(typedStats.fields)) {
+          templateStats[tid].fields![fname] = new Decimal(String(fval));
         }
       }
     }
@@ -249,8 +250,6 @@ async function fetchACSBatch(
 
         // Initialize tracking
         perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
-        templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
-        templatesByPackage[pkg].add(templateId);
 
         templatesData[templateId] = templatesData[templateId] || [];
         templateStats[templateId] = templateStats[templateId] || { count: 0 };
@@ -282,9 +281,30 @@ async function fetchACSBatch(
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
 
+      pagesProcessed++;
+
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
-        break;
+        
+        // Find canonical package
+        const canonicalPkgEntry = Object.entries(perPackage).sort(
+          (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber()
+        )[0];
+        const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
+        
+        // Upload all template data
+        await uploadTemplateData(templatesData, templateStats, snapshotId, canonicalPkg, migration_id, record_time, supabaseAdmin);
+        
+        return {
+          completed: true,
+          progress: {
+            after,
+            page,
+            amuletTotal: amuletTotal.toString(),
+            lockedTotal: lockedTotal.toString(),
+            entryCount: seen.size,
+          },
+        };
       }
 
       after = rangeTo ?? after + events.length;
@@ -296,15 +316,81 @@ async function fetchACSBatch(
     }
   }
 
-  // Find canonical package
+  // Save progress
+  await supabaseAdmin
+    .from('acs_snapshots')
+    .update({
+      progress: {
+        after,
+        page,
+        amuletTotal: amuletTotal.toString(),
+        lockedTotal: lockedTotal.toString(),
+        entryCount: seen.size,
+        templatesData,
+        templateStats: Object.fromEntries(
+          Object.entries(templateStats).map(([tid, stats]) => [
+            tid,
+            {
+              ...stats,
+              fields: stats.fields
+                ? Object.fromEntries(
+                    Object.entries(stats.fields).map(([k, v]) => [k, v.toString()])
+                  )
+                : undefined,
+            },
+          ])
+        ),
+        perPackage: Object.fromEntries(
+          Object.entries(perPackage).map(([pkg, vals]) => [
+            pkg,
+            { amulet: vals.amulet.toString(), locked: vals.locked.toString() },
+          ])
+        ),
+        seen: Array.from(seen),
+      },
+    })
+    .eq('id', snapshotId);
+
+  return {
+    completed: false,
+    progress: {
+      after,
+      page,
+      amuletTotal: amuletTotal.toString(),
+      lockedTotal: lockedTotal.toString(),
+      entryCount: seen.size,
+    },
+  };
+}
+
+async function getCanonicalPackage(supabaseAdmin: any, snapshotId: string): Promise<string> {
+  const { data: snapshot } = await supabaseAdmin
+    .from('acs_snapshots')
+    .select('progress')
+    .eq('id', snapshotId)
+    .single();
+
+  if (!snapshot?.progress?.perPackage) return 'unknown';
+
+  const perPackage = snapshot.progress.perPackage;
   const canonicalPkgEntry = Object.entries(perPackage).sort(
-    (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber()
+    (a: any, b: any) => parseFloat(b[1].amulet) - parseFloat(a[1].amulet)
   )[0];
-  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
+  
+  return canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
+}
 
-  console.log(`📦 Canonical package: ${canonicalPkg}`);
+async function uploadTemplateData(
+  templatesData: Record<string, any[]>,
+  templateStats: Record<string, TemplateStats>,
+  snapshotId: string,
+  canonicalPkg: string,
+  migration_id: number,
+  record_time: string,
+  supabaseAdmin: any
+) {
+  console.log(`📦 Uploading template data for canonical package: ${canonicalPkg}`);
 
-  // Upload per-template JSON files to storage
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
@@ -334,7 +420,6 @@ async function fetchACSBatch(
       console.log(`✅ Uploaded ${filePath}`);
     }
 
-    // Store template stats in DB
     const fieldSums: Record<string, string> = {};
     if (templateStats[templateId].fields) {
       for (const [fname, fBN] of Object.entries(templateStats[templateId].fields)) {
@@ -351,14 +436,6 @@ async function fetchACSBatch(
       storage_path: filePath,
     });
   }
-
-  return {
-    amuletTotal,
-    lockedTotal,
-    canonicalPkg,
-    templateStats,
-    entryCount: seen.size,
-  };
 }
 
 Deno.serve(async (req) => {
@@ -400,32 +477,50 @@ Deno.serve(async (req) => {
         const migration_id = await detectLatestMigration(BASE_URL);
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
-        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
-          BASE_URL,
-          migration_id,
-          record_time,
-          supabaseAdmin,
-          snapshot.id
-        );
-
-        const circulating = amuletTotal.minus(lockedTotal);
-
-        // Update snapshot with results
         await supabaseAdmin
           .from('acs_snapshots')
-          .update({
-            migration_id,
-            record_time,
-            canonical_package: canonicalPkg,
-            amulet_total: amuletTotal.toString(),
-            locked_total: lockedTotal.toString(),
-            circulating_supply: circulating.toString(),
-            entry_count: entryCount,
-            status: 'completed',
-          })
+          .update({ migration_id, record_time })
           .eq('id', snapshot.id);
 
-        console.log('✅ ACS snapshot completed successfully');
+        let completed = false;
+        const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
+
+        while (!completed) {
+          const result = await fetchACSBatch(
+            BASE_URL,
+            migration_id,
+            record_time,
+            supabaseAdmin,
+            snapshot.id,
+            10
+          );
+
+          completed = result.completed;
+
+          if (completed) {
+            const canonicalPkg = await getCanonicalPackage(supabaseAdmin, snapshot.id);
+            const amuletTotal = new Decimal(result.progress.amuletTotal);
+            const lockedTotal = new Decimal(result.progress.lockedTotal);
+            const circulating = amuletTotal.minus(lockedTotal);
+
+            await supabaseAdmin
+              .from('acs_snapshots')
+              .update({
+                canonical_package: canonicalPkg,
+                amulet_total: amuletTotal.toString(),
+                locked_total: lockedTotal.toString(),
+                circulating_supply: circulating.toString(),
+                entry_count: result.progress.entryCount,
+                status: 'completed',
+                progress: null,
+              })
+              .eq('id', snapshot.id);
+
+            console.log('✅ ACS snapshot completed successfully');
+          } else {
+            console.log(`📊 Progress: Page ${result.progress.page}, Entries: ${result.progress.entryCount}`);
+          }
+        }
       } catch (error: any) {
         console.error('❌ ACS snapshot failed:', error);
         
