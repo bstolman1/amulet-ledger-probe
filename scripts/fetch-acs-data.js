@@ -175,15 +175,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         const statusCode = err.response?.status;
         const msg = err.response?.data?.error || err.message;
         
-        // Log detailed error info for 400 errors
-        if (statusCode === 400) {
-          console.error(`\n❌ 400 Bad Request for page ${page}:`);
-          console.error(`   After offset: ${after}`);
-          console.error(`   Error details:`, err.response?.data);
-        }
-        
         // Check if it's a retryable error (502, 503, 504, 429, timeout, network error)
-        const isRetryable =
+        const isRetryable = 
           statusCode === 502 || 
           statusCode === 503 || 
           statusCode === 504 ||
@@ -266,21 +259,6 @@ async function run() {
     const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
       await fetchAllACS(BASE_URL, migration_id, record_time);
-
-    // Write summary JSON file for upload script
-    const summary = {
-      migration_id,
-      record_time,
-      total_events: allEvents.length,
-      amulet_total: amuletTotal.toString(),
-      locked_total: lockedTotal.toString(),
-      canonical_package: canonicalPkg,
-      canonical_templates: canonicalTemplates,
-      timestamp: new Date().toISOString()
-    };
-    
-    fs.writeFileSync("circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
-    console.log(`📝 Written summary to circulating-supply-single-sv.json`);
 
     console.log(`\n✅ Completed! Fetched ${allEvents.length.toLocaleString()} events from ${canonicalPkg}`);
   } catch (err) {

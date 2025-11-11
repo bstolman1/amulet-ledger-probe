@@ -7,7 +7,6 @@ const corsHeaders = {
 
 interface PurgeRequest {
   snapshot_id?: string; // Optional - if provided, only purge this snapshot's data
-  purge_all?: boolean; // Optional - if true, purge ALL storage data
   webhookSecret: string;
 }
 
@@ -38,74 +37,7 @@ Deno.serve(async (req) => {
     let deletedFiles = 0;
     let deletedStats = 0;
 
-    if (request.purge_all) {
-      // Purge ALL storage data and database records
-      console.log('Purging ALL ACS data from storage and database...');
-      
-      // Delete all template stats
-      const { count: statsCount, error: statsError } = await supabase
-        .from('acs_template_stats')
-        .delete({ count: 'exact' })
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all rows
-
-      if (statsError) {
-        console.error('Error deleting all template stats:', statsError);
-        throw statsError;
-      }
-      
-      deletedStats = statsCount || 0;
-
-      // List all folders in storage bucket
-      const { data: folders, error: listError } = await supabase.storage
-        .from('acs-data')
-        .list('', { limit: 1000 });
-
-      if (listError) {
-        console.error('Error listing storage folders:', listError);
-        throw listError;
-      }
-
-      if (folders && folders.length > 0) {
-        // Delete all files in each folder
-        for (const folder of folders) {
-          const { data: files, error: fileListError } = await supabase.storage
-            .from('acs-data')
-            .list(folder.name);
-
-          if (fileListError) {
-            console.error(`Error listing files in ${folder.name}:`, fileListError);
-            continue;
-          }
-
-          if (files && files.length > 0) {
-            const filePaths = files.map(file => `${folder.name}/${file.name}`);
-            
-            const { error: deleteError } = await supabase.storage
-              .from('acs-data')
-              .remove(filePaths);
-
-            if (deleteError) {
-              console.error(`Error deleting files in ${folder.name}:`, deleteError);
-              continue;
-            }
-
-            deletedFiles += files.length;
-          }
-        }
-      }
-
-      // Delete all snapshot records
-      const { error: deleteSnapshotsError } = await supabase
-        .from('acs_snapshots')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all rows
-
-      if (deleteSnapshotsError) {
-        console.error('Error deleting all snapshots:', deleteSnapshotsError);
-        throw deleteSnapshotsError;
-      }
-
-    } else if (request.snapshot_id) {
+    if (request.snapshot_id) {
       // Purge specific snapshot
       console.log(`Purging data for snapshot: ${request.snapshot_id}`);
       
@@ -236,7 +168,7 @@ Deno.serve(async (req) => {
         success: true,
         deleted_files: deletedFiles,
         deleted_stats: deletedStats,
-        snapshot_id: request.purge_all ? 'all' : (request.snapshot_id || 'all_incomplete')
+        snapshot_id: request.snapshot_id || 'all_incomplete'
       }),
       { 
         status: 200, 
