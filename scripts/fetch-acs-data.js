@@ -1,6 +1,7 @@
 /**
  * Fetch ACS data from Canton Network
  * Runs in GitHub Actions with no IP restrictions
+ * Features: Checkpoint/Resume + Parallel Fetching + Progress Tracking
  */
 
 import axios from "axios";
@@ -10,6 +11,9 @@ import BigNumber from "bignumber.js";
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
+const CHECKPOINT_FILE = "./acs_checkpoint.json";
+const CONCURRENT_REQUESTS = 5; // Parallel requests
+const REQUEST_DELAY_MS = 500; // Delay between batches
 
 function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
@@ -26,6 +30,33 @@ function sleep(ms) {
 
 function safeFileName(templateId) {
   return templateId.replace(/[:.]/g, "_");
+}
+
+function formatDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
+function saveCheckpoint(data) {
+  fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify(data, null, 2));
+}
+
+function loadCheckpoint() {
+  if (fs.existsSync(CHECKPOINT_FILE)) {
+    return JSON.parse(fs.readFileSync(CHECKPOINT_FILE, "utf8"));
+  }
+  return null;
+}
+
+function deleteCheckpoint() {
+  if (fs.existsSync(CHECKPOINT_FILE)) {
+    fs.unlinkSync(CHECKPOINT_FILE);
+    console.log("🗑️  Checkpoint deleted");
+  }
 }
 
 async function detectLatestMigration(baseUrl) {
@@ -75,11 +106,16 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
 async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log("📦 Fetching ACS snapshot and exporting per-template files…");
 
+  // Check for checkpoint
+  const checkpoint = loadCheckpoint();
+  
   const allEvents = [];
-  let after = 0;
+  let after = checkpoint?.after || 0;
   const pageSize = 500;
-  let page = 1;
-  const seen = new Set();
+  let page = checkpoint?.page || 1;
+  const seen = new Set(checkpoint?.seenIds || []);
+  const startTime = Date.now();
+  let lastSummaryPage = page;
 
   let amuletTotal = new BigNumber(0);
   let lockedTotal = new BigNumber(0);
@@ -90,42 +126,81 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-  const MAX_RETRIES = 8;
-  const BASE_DELAY = 3000; // Start with 3 seconds
-  const MAX_PAGE_COOLDOWNS = 2; // Allow a couple of cooldown cycles per page
-  const COOLDOWN_AFTER_FAIL_MS = 60000; // 60s cooldown when a page keeps failing
-  const JITTER_MS = 500; // add small random jitter to avoid thundering herd
-  while (true) {
-    let retryCount = 0;
-    let cooldowns = 0;
-    let success = false;
-    
-    while (retryCount < MAX_RETRIES && !success) {
-      try {
-        const res = await axios.post(
-          `${baseUrl}/v0/state/acs`,
-          {
-            migration_id,
-            record_time,
-            page_size: pageSize,
-            after,
-            daml_value_encoding: "compact_json",
-          },
-          { 
-            headers: { "Content-Type": "application/json" },
-            timeout: 120000 // 120 second timeout
+  if (checkpoint) {
+    console.log(`🔄 Resuming from checkpoint: Page ${page}, After ${after}`);
+  }
+
+  const MAX_RETRIES = 5;
+  const BASE_DELAY = 2000;
+  
+  // Parallel fetching with batches
+  const fetchBatch = async (batchAfters) => {
+    const results = await Promise.allSettled(
+      batchAfters.map(async ({ after: batchAfter, pageNum }) => {
+        let retryCount = 0;
+        while (retryCount < MAX_RETRIES) {
+          try {
+            const res = await axios.post(
+              `${baseUrl}/v0/state/acs`,
+              {
+                migration_id,
+                record_time,
+                page_size: pageSize,
+                after: batchAfter,
+                daml_value_encoding: "compact_json",
+              },
+              { 
+                headers: { "Content-Type": "application/json" },
+                timeout: 120000
+              }
+            );
+            return { success: true, data: res.data, pageNum, after: batchAfter };
+          } catch (err) {
+            const statusCode = err.response?.status;
+            const isRetryable = 
+              statusCode === 502 || 
+              statusCode === 503 || 
+              statusCode === 504 ||
+              statusCode === 429 ||
+              err.code === 'ECONNRESET' ||
+              err.code === 'ETIMEDOUT';
+            
+            if (isRetryable && retryCount < MAX_RETRIES - 1) {
+              retryCount++;
+              const delay = BASE_DELAY * Math.pow(2, retryCount - 1);
+              await sleep(delay);
+              continue;
+            }
+            return { success: false, error: err, pageNum, after: batchAfter };
           }
-        );
-
-        const events = res.data.created_events || [];
-        const rangeTo = res.data.range?.to;
-        if (!events.length) {
-          console.log("\n✅ No more events — finished.");
-          break;
         }
+      })
+    );
+    return results;
+  };
 
-        const pageTemplates = new Set();
+    // Prepare batch of concurrent requests
+    const batchAfters = [];
+    for (let i = 0; i < CONCURRENT_REQUESTS; i++) {
+      batchAfters.push({ after: after + i * pageSize, pageNum: page + i });
+    }
 
+    const results = await fetchBatch(batchAfters);
+    
+    let hasMoreData = false;
+    let successCount = 0;
+    
+    // Process results in order
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.success) {
+        const { data, pageNum, after: reqAfter } = result.value;
+        const events = data.created_events || [];
+        
+        if (!events.length) continue;
+        
+        hasMoreData = true;
+        successCount++;
+        
         for (const e of events) {
           const id = e.contract_id || e.event_id;
           if (id && seen.has(id)) continue;
@@ -138,101 +213,71 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           templatesData[templateId] ||= [];
 
           templatesByPackage[pkg].add(templateId);
-          pageTemplates.add(templateId);
-
-          const { create_arguments } = e;
-          templatesData[templateId].push(create_arguments || {});
+          templatesData[templateId].push(e.create_arguments || {});
 
           if (isTemplate(e, "Splice.Amulet", "Amulet")) {
-            const amount = new BigNumber(create_arguments?.amount?.initialAmount ?? "0");
+            const amount = new BigNumber(e.create_arguments?.amount?.initialAmount ?? "0");
             amuletTotal = amuletTotal.plus(amount);
             perPackage[pkg].amulet = perPackage[pkg].amulet.plus(amount);
           } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
-            const amount = new BigNumber(create_arguments?.amulet?.amount?.initialAmount ?? "0");
+            const amount = new BigNumber(e.create_arguments?.amulet?.amount?.initialAmount ?? "0");
             lockedTotal = lockedTotal.plus(amount);
             perPackage[pkg].locked = perPackage[pkg].locked.plus(amount);
           }
         }
 
         allEvents.push(...events);
-
-        // Simple page progress
-        console.log(`📄 Page ${page} fetched (${events.length} events)`);
-
-        if (events.length < pageSize) {
-          console.log("\n✅ Last page reached.");
-          break;
-        }
-
-        after = rangeTo ?? after + events.length;
-        page++;
-        success = true;
-        
-        // Throttle requests to avoid overwhelming server
-        await sleep(3000);
-        
-      } catch (err) {
-        const statusCode = err.response?.status;
-        const msg = err.response?.data?.error || err.message;
-        
-        // Check if it's a retryable error (502, 503, 504, 429, timeout, network error)
-        const isRetryable = 
-          statusCode === 502 || 
-          statusCode === 503 || 
-          statusCode === 504 ||
-          statusCode === 429 ||
-          err.code === 'ECONNRESET' ||
-          err.code === 'ETIMEDOUT' ||
-          err.code === 'ENOTFOUND' ||
-          err.code === 'ECONNABORTED' ||
-          err.code === 'EAI_AGAIN' ||
-          err.code === 'EHOSTUNREACH' ||
-          err.code === 'EPIPE';
-        
-        if (isRetryable && retryCount < MAX_RETRIES - 1) {
-          retryCount++;
-          const delay = BASE_DELAY * Math.pow(2, retryCount - 1);
-          const jitter = Math.floor(Math.random() * JITTER_MS);
-          console.error(`\n⚠️ Page ${page} failed (${statusCode || err.code}): ${msg}`);
-          console.log(`🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay + jitter}ms (with jitter)...`);
-          await sleep(delay + jitter);
-          continue;
-        }
-        
-        // After exhausting quick retries, do a longer cooldown and try again a few times
-        if (isRetryable && cooldowns < MAX_PAGE_COOLDOWNS) {
-          cooldowns++;
-          const cooldownDelay = COOLDOWN_AFTER_FAIL_MS * cooldowns; // linear backoff in minutes
-          console.warn(`\n⏳ Page ${page} still failing. Cooling down for ${cooldownDelay}ms (cooldown ${cooldowns}/${MAX_PAGE_COOLDOWNS})...`);
-          await sleep(cooldownDelay);
-          retryCount = 0; // reset quick retries after cooldown
-          continue;
-        }
-        
-        // Check for range error that requires offset adjustment
-        const match = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
-        if (match) {
-          const minRange = parseInt(match[1]);
-          const maxRange = parseInt(match[2]);
-          console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
-          after = minRange;
-          console.log(`🔁 Restarting from offset ${after}…`);
-          success = true; // Mark as success to continue to next page
-          break;
-        }
-        
-        // If we've exhausted retries or it's a non-retryable error, throw
-        console.error(`\n❌ Page ${page} failed after ${retryCount + 1} attempts: ${msg}`);
-        throw err;
+        after = data.range?.to ?? reqAfter + events.length;
+      } else if (result.status === 'rejected' || !result.value.success) {
+        console.error(`⚠️ Batch request failed:`, result.reason || result.value?.error?.message);
       }
     }
-    
-    if (!success) {
+
+    if (!hasMoreData) {
+      console.log("\n✅ No more events — finished.");
       break;
     }
+
+    page += successCount;
+    
+    // Progress tracking
+    const elapsed = Date.now() - startTime;
+    const pagesPerMin = (page / (elapsed / 60000)).toFixed(1);
+    const eventsCount = allEvents.length.toLocaleString();
+    
+    console.log(`📄 Page ${page} | Events: ${eventsCount} | Elapsed: ${formatDuration(elapsed)} | Rate: ${pagesPerMin} pages/min`);
+    
+    // Summary every 100 pages
+    if (page - lastSummaryPage >= 100) {
+      console.log(`\n📊 SUMMARY (Page ${page}):`);
+      console.log(`   Total Events: ${eventsCount}`);
+      console.log(`   Amulet: ${amuletTotal.toFixed(2)}`);
+      console.log(`   Locked: ${lockedTotal.toFixed(2)}`);
+      console.log(`   Elapsed: ${formatDuration(elapsed)}`);
+      console.log(`   Rate: ${pagesPerMin} pages/min\n`);
+      lastSummaryPage = page;
+    }
+    
+    // Save checkpoint every 100 pages
+    if (page % 100 === 0) {
+      saveCheckpoint({
+        page,
+        after,
+        migration_id,
+        record_time,
+        seenIds: Array.from(seen).slice(-10000), // Keep last 10k IDs
+        timestamp: new Date().toISOString()
+      });
+      console.log(`💾 Checkpoint saved (Page ${page})`);
+    }
+    
+    await sleep(REQUEST_DELAY_MS);
   }
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
+  
+  // Delete checkpoint on completion
+  deleteCheckpoint();
 
   // 🧾 Write per-template JSON files
   for (const [templateId, data] of Object.entries(templatesData)) {
