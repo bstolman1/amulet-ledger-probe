@@ -161,7 +161,7 @@ async function fetchAllACS(
 
   let amuletTotal = new Decimal('0');
   let lockedTotal = new Decimal('0');
-  const pageSize = 2000; // Increased from 1000
+  const pageSize = 5000; // Increased from 2000
   const seen = new Set<string>();
   let after = 0;
   let pageNum = 1;
@@ -179,6 +179,10 @@ async function fetchAllACS(
           daml_value_encoding: 'compact_json',
         }),
       });
+
+      if (!res.ok) {
+        throw new Error(`API returned ${res.status}: ${await res.text()}`);
+      }
 
       const data = await res.json();
       const events = data.created_events || [];
@@ -229,8 +233,14 @@ async function fetchAllACS(
 
       console.log(`📄 Page ${pageNum++} | Events: ${seen.size} | Amulet: ${amuletTotal.toString().slice(0, 12)}...`);
 
+      // Use range.to for next pagination if available, otherwise increment
+      if (data.range?.to !== undefined && data.range.to !== null) {
+        after = data.range.to;
+      } else {
+        after += pageSize;
+      }
+      
       if (events.length < pageSize) break;
-      after += pageSize;
     } catch (err: any) {
       console.error(`⚠️ Page fetch failed:`, err.message);
       throw err;
@@ -296,8 +306,8 @@ async function fetchAllACS(
     return templateId;
   });
 
-  // Upload all templates in parallel (batches of 10)
-  const UPLOAD_BATCH_SIZE = 10;
+  // Upload all templates in parallel (batches of 50)
+  const UPLOAD_BATCH_SIZE = 50;
   for (let i = 0; i < uploadPromises.length; i += UPLOAD_BATCH_SIZE) {
     const batch = uploadPromises.slice(i, i + UPLOAD_BATCH_SIZE);
     await Promise.all(batch);
@@ -346,8 +356,8 @@ Deno.serve(async (req) => {
       throw new Error('Failed to create snapshot record');
     }
 
-    // Start background task
-    const backgroundTask = async () => {
+    // Start background task with waitUntil to keep function alive
+    const backgroundTask = (async () => {
       try {
         const migration_id = await detectLatestMigration(BASE_URL);
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
@@ -389,10 +399,17 @@ Deno.serve(async (req) => {
           })
           .eq('id', snapshot.id);
       }
-    };
+    })();
 
-    // Start background task (fire and forget)
-    backgroundTask();
+    // Use waitUntil to keep function alive during background task
+    // @ts-ignore - EdgeRuntime global
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(backgroundTask);
+    } else {
+      // Fallback for local dev - just start it
+      backgroundTask.catch(console.error);
+    }
 
     return new Response(
       JSON.stringify({
