@@ -10,11 +10,6 @@ import BigNumber from "bignumber.js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-// Supabase configuration
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-let currentSnapshotId = null;
-
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 const CHECKPOINT_FILE = "./acs_checkpoint.json";
 const CONCURRENT_REQUESTS = 5; // Parallel requests
@@ -44,34 +39,6 @@ function formatDuration(ms) {
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
-}
-
-async function updateSupabaseProgress(page, totalEvents, elapsedMs, pagesPerMin) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !currentSnapshotId) return;
-  
-  try {
-    await axios.patch(
-      `${SUPABASE_URL}/rest/v1/acs_snapshots?id=eq.${currentSnapshotId}`,
-      {
-        current_page: page,
-        total_events: totalEvents,
-        elapsed_time_ms: elapsedMs,
-        pages_per_minute: pagesPerMin,
-        last_progress_update: new Date().toISOString(),
-        status: 'processing'
-      },
-      {
-        headers: {
-          'apikey': SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        }
-      }
-    );
-  } catch (err) {
-    console.error("⚠️ Failed to update progress in Supabase:", err.message);
-  }
 }
 
 function saveCheckpoint(data) {
@@ -136,50 +103,8 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   return record_time;
 }
 
-async function createSnapshotRecord(migration_id, record_time) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return null;
-  
-  try {
-    const res = await axios.post(
-      `${SUPABASE_URL}/rest/v1/acs_snapshots`,
-      {
-        migration_id,
-        record_time,
-        sv_url: BASE_URL,
-        amulet_total: 0,
-        locked_total: 0,
-        circulating_supply: 0,
-        entry_count: 0,
-        status: 'processing',
-        current_page: 0,
-        total_events: 0,
-        elapsed_time_ms: 0,
-        pages_per_minute: 0
-      },
-      {
-        headers: {
-          'apikey': SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        }
-      }
-    );
-    return res.data[0]?.id;
-  } catch (err) {
-    console.error("⚠️ Failed to create snapshot record:", err.message);
-    return null;
-  }
-}
-
 async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log("📦 Fetching ACS snapshot and exporting per-template files…");
-
-  // Create snapshot record in Supabase
-  currentSnapshotId = await createSnapshotRecord(migration_id, record_time);
-  if (currentSnapshotId) {
-    console.log(`📝 Created snapshot record: ${currentSnapshotId}`);
-  }
 
   // Check for checkpoint
   const checkpoint = loadCheckpoint();
@@ -254,7 +179,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     return results;
   };
 
-  while (true) {
     // Prepare batch of concurrent requests
     const batchAfters = [];
     for (let i = 0; i < CONCURRENT_REQUESTS; i++) {
@@ -323,11 +247,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     
     console.log(`📄 Page ${page} | Events: ${eventsCount} | Elapsed: ${formatDuration(elapsed)} | Rate: ${pagesPerMin} pages/min`);
     
-    // Update Supabase progress every 10 pages
-    if (page % 10 === 0) {
-      await updateSupabaseProgress(page, allEvents.length, elapsed, parseFloat(pagesPerMin));
-    }
-    
     // Summary every 100 pages
     if (page - lastSummaryPage >= 100) {
       console.log(`\n📊 SUMMARY (Page ${page}):`);
@@ -353,7 +272,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     }
     
     await sleep(REQUEST_DELAY_MS);
-  }
   }
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
