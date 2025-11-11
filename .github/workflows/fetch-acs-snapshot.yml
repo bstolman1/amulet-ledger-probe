@@ -8,7 +8,6 @@ on:
 jobs:
   fetch-and-upload:
     runs-on: self-hosted
-    timeout-minutes: 300  # 5 hour timeout
     
     steps:
       - name: Checkout code
