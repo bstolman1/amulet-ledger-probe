@@ -139,34 +139,83 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
-async function fetchAllACS(
+async function fetchACSBatch(
   baseUrl: string,
   migration_id: number,
   record_time: string,
   supabaseAdmin: any,
-  snapshotId: string
+  snapshotId: string,
+  batchSize: number = 10 // Process 10 pages per batch
 ): Promise<{
-  amuletTotal: Decimal;
-  lockedTotal: Decimal;
-  canonicalPkg: string;
-  templateStats: Record<string, TemplateStats>;
-  entryCount: number;
+  completed: boolean;
+  progress: {
+    after: number;
+    page: number;
+    amuletTotal: string;
+    lockedTotal: string;
+    entryCount: number;
+  };
 }> {
-  console.log('📦 Fetching ACS snapshot...');
+  console.log('📦 Fetching ACS snapshot batch...');
 
-  const templatesData: Record<string, any[]> = {};
+  // Load existing progress
+  const { data: snapshot } = await supabaseAdmin
+    .from('acs_snapshots')
+    .select('*')
+    .eq('id', snapshotId)
+    .single();
+
+  if (!snapshot) throw new Error('Snapshot not found');
+
+  const progress = snapshot.progress || {
+    after: 0,
+    page: 1,
+    amuletTotal: '0',
+    lockedTotal: '0',
+    entryCount: 0,
+    templatesData: {},
+    templateStats: {},
+    perPackage: {},
+    seen: [],
+  };
+
+  let amuletTotal = new Decimal(progress.amuletTotal);
+  let lockedTotal = new Decimal(progress.lockedTotal);
+  let after = progress.after;
+  let page = progress.page;
+  const seen = new Set<string>(progress.seen);
+  const templatesData: Record<string, any[]> = progress.templatesData || {};
   const templateStats: Record<string, TemplateStats> = {};
   const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
-  const templatesByPackage: Record<string, Set<string>> = {};
+  
+  // Restore template stats
+  if (progress.templateStats) {
+    for (const [tid, stats] of Object.entries(progress.templateStats)) {
+      templateStats[tid] = stats as TemplateStats;
+      if (stats.fields) {
+        templateStats[tid].fields = {};
+        for (const [fname, fval] of Object.entries(stats.fields)) {
+          templateStats[tid].fields![fname] = new Decimal(fval as string);
+        }
+      }
+    }
+  }
 
-  let amuletTotal = new Decimal('0');
-  let lockedTotal = new Decimal('0');
-  let after = 0;
+  // Restore per-package stats
+  if (progress.perPackage) {
+    for (const [pkg, vals] of Object.entries(progress.perPackage)) {
+      const v = vals as { amulet: string; locked: string };
+      perPackage[pkg] = {
+        amulet: new Decimal(v.amulet),
+        locked: new Decimal(v.locked),
+      };
+    }
+  }
+
   const pageSize = 1000;
-  let page = 1;
-  const seen = new Set<string>();
+  let pagesProcessed = 0;
 
-  while (true) {
+  while (pagesProcessed < batchSize) {
     try {
       const res = await fetch(`${baseUrl}/v0/state/acs`, {
         method: 'POST',
