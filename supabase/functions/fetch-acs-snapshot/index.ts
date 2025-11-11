@@ -152,7 +152,7 @@ async function fetchAllACS(
   templateStats: Record<string, TemplateStats>;
   entryCount: number;
 }> {
-  console.log('📦 Fetching ACS snapshot with parallel processing...');
+  console.log('📦 Fetching ACS snapshot...');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -161,10 +161,10 @@ async function fetchAllACS(
 
   let amuletTotal = new Decimal('0');
   let lockedTotal = new Decimal('0');
-  const pageSize = 5000; // Increased from 2000
-  const seen = new Set<string>();
   let after = 0;
-  let pageNum = 1;
+  const pageSize = 1000;
+  let page = 1;
+  const seen = new Set<string>();
 
   while (true) {
     try {
@@ -180,14 +180,14 @@ async function fetchAllACS(
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`API returned ${res.status}: ${await res.text()}`);
-      }
-
       const data = await res.json();
       const events = data.created_events || [];
+      const rangeTo = data.range?.to;
 
-      if (events.length === 0) break;
+      if (events.length === 0) {
+        console.log('✅ No more events — finished.');
+        break;
+      }
 
       for (const e of events) {
         const id = e.contract_id || e.event_id;
@@ -231,23 +231,21 @@ async function fetchAllACS(
         }
       }
 
-      console.log(`📄 Page ${pageNum++} | Events: ${seen.size} | Amulet: ${amuletTotal.toString().slice(0, 12)}...`);
+      console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
 
-      // Use range.to for next pagination if available, otherwise increment
-      if (data.range?.to !== undefined && data.range.to !== null) {
-        after = data.range.to;
-      } else {
-        after += pageSize;
+      if (events.length < pageSize) {
+        console.log('✅ Last page reached.');
+        break;
       }
-      
-      if (events.length < pageSize) break;
+
+      after = rangeTo ?? after + events.length;
+      page++;
+      await new Promise(r => setTimeout(r, 100));
     } catch (err: any) {
-      console.error(`⚠️ Page fetch failed:`, err.message);
+      console.error(`⚠️ Page ${page} failed:`, err.message);
       throw err;
     }
   }
-
-  console.log('✅ Fetching complete. Uploading to storage...');
 
   // Find canonical package
   const canonicalPkgEntry = Object.entries(perPackage).sort(
@@ -257,8 +255,8 @@ async function fetchAllACS(
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
 
-  // Upload per-template JSON files to storage in parallel
-  const uploadPromises = Object.entries(templatesData).map(async ([templateId, data]) => {
+  // Upload per-template JSON files to storage
+  for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
     
@@ -283,7 +281,8 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
-      throw uploadError;
+    } else {
+      console.log(`✅ Uploaded ${filePath}`);
     }
 
     // Store template stats in DB
@@ -302,16 +301,6 @@ async function fetchAllACS(
       status_tallies: templateStats[templateId].status || null,
       storage_path: filePath,
     });
-
-    return templateId;
-  });
-
-  // Upload all templates in parallel (batches of 50)
-  const UPLOAD_BATCH_SIZE = 50;
-  for (let i = 0; i < uploadPromises.length; i += UPLOAD_BATCH_SIZE) {
-    const batch = uploadPromises.slice(i, i + UPLOAD_BATCH_SIZE);
-    await Promise.all(batch);
-    console.log(`✅ Uploaded batch ${Math.floor(i / UPLOAD_BATCH_SIZE) + 1}/${Math.ceil(uploadPromises.length / UPLOAD_BATCH_SIZE)}`);
   }
 
   return {
@@ -356,8 +345,8 @@ Deno.serve(async (req) => {
       throw new Error('Failed to create snapshot record');
     }
 
-    // Start background task with waitUntil to keep function alive
-    const backgroundTask = (async () => {
+    // Start background task
+    const backgroundTask = async () => {
       try {
         const migration_id = await detectLatestMigration(BASE_URL);
         const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
@@ -399,17 +388,10 @@ Deno.serve(async (req) => {
           })
           .eq('id', snapshot.id);
       }
-    })();
+    };
 
-    // Use waitUntil to keep function alive during background task
-    // @ts-ignore - EdgeRuntime global
-    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(backgroundTask);
-    } else {
-      // Fallback for local dev - just start it
-      backgroundTask.catch(console.error);
-    }
+    // Start background task (fire and forget)
+    backgroundTask();
 
     return new Response(
       JSON.stringify({
