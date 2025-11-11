@@ -106,19 +106,25 @@ export type Database = {
           canonical_package: string | null
           circulating_supply: number
           created_at: string
+          current_page: number | null
+          elapsed_time_ms: number | null
           entry_count: number
           error_message: string | null
           id: string
           is_delta: boolean | null
+          last_progress_update: string | null
           last_update_id: string | null
           locked_total: number
           migration_id: number
+          pages_per_minute: number | null
           previous_snapshot_id: string | null
           processing_mode: string | null
+          progress_percentage: number | null
           record_time: string
           status: string
           sv_url: string
           timestamp: string
+          total_events: number | null
           updated_at: string
           updates_processed: number | null
         }
@@ -127,19 +133,25 @@ export type Database = {
           canonical_package?: string | null
           circulating_supply: number
           created_at?: string
+          current_page?: number | null
+          elapsed_time_ms?: number | null
           entry_count: number
           error_message?: string | null
           id?: string
           is_delta?: boolean | null
+          last_progress_update?: string | null
           last_update_id?: string | null
           locked_total: number
           migration_id: number
+          pages_per_minute?: number | null
           previous_snapshot_id?: string | null
           processing_mode?: string | null
+          progress_percentage?: number | null
           record_time: string
           status?: string
           sv_url: string
           timestamp?: string
+          total_events?: number | null
           updated_at?: string
           updates_processed?: number | null
         }
@@ -148,19 +160,25 @@ export type Database = {
           canonical_package?: string | null
           circulating_supply?: number
           created_at?: string
+          current_page?: number | null
+          elapsed_time_ms?: number | null
           entry_count?: number
           error_message?: string | null
           id?: string
           is_delta?: boolean | null
+          last_progress_update?: string | null
           last_update_id?: string | null
           locked_total?: number
           migration_id?: number
+          pages_per_minute?: number | null
           previous_snapshot_id?: string | null
           processing_mode?: string | null
+          progress_percentage?: number | null
           record_time?: string
           status?: string
           sv_url?: string
           timestamp?: string
+          total_events?: number | null
           updated_at?: string
           updates_processed?: number | null
         }

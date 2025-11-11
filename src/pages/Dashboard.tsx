@@ -4,6 +4,7 @@ import { Activity, Coins, TrendingUp, Users, Zap, Package } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { Card } from "@/components/ui/card";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
+import { ACSFetchProgressCard } from "@/components/ACSFetchProgressCard";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -82,6 +83,9 @@ const Dashboard = () => {
   };
   return <DashboardLayout>
       <div className="space-y-8">
+        {/* ACS Progress Card */}
+        <ACSFetchProgressCard />
+
         {/* Hero Section */}
         <div className="relative">
           <div className="absolute inset-0 gradient-primary rounded-2xl blur-3xl opacity-20" />
