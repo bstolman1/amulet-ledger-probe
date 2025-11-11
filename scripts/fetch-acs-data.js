@@ -156,19 +156,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
         allEvents.push(...events);
 
-        // Safe console output (works in all environments)
-        if (process.stdout.clearLine && process.stdout.cursorTo) {
-          process.stdout.clearLine(0);
-          process.stdout.cursorTo(0);
-          process.stdout.write(
-            `📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`
-          );
-        } else {
-          console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toFixed(4)} | Locked: ${lockedTotal.toFixed(4)}`);
-        }
-
-        console.log(`\n   Templates on this page:`);
-        for (const t of pageTemplates) console.log(`      • ${t}`);
+        // Simple page progress
+        console.log(`📄 Page ${page} fetched (${events.length} events)`);
 
         if (events.length < pageSize) {
           console.log("\n✅ Last page reached.");
@@ -252,14 +241,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   }
   console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
-  // 📊 Package summaries
-  console.log("\n📊 Per-package totals:");
-  for (const [pkg, vals] of Object.entries(perPackage)) {
-    console.log(
-      `  ${pkg.slice(0, 12)}…  Amulet: ${vals.amulet.toFixed(10)} | Locked: ${vals.locked.toFixed(10)}`
-    );
-  }
-
   const canonicalPkgEntry = Object.entries(perPackage).sort(
     (a, b) => b[1].amulet.minus(a[1].amulet)
   )[0];
@@ -268,10 +249,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const canonicalTemplates = templatesByPackage[canonicalPkg]
     ? Array.from(templatesByPackage[canonicalPkg])
     : [];
-
-  console.log(`\n📦 Canonical package detected: ${canonicalPkg}`);
-  console.log(`📜 Templates found in canonical package (${canonicalPkg}):`);
-  for (const t of canonicalTemplates) console.log(`   • ${t}`);
 
   return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
 }
@@ -283,36 +260,7 @@ async function run() {
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
       await fetchAllACS(BASE_URL, migration_id, record_time);
 
-    const circulating = amuletTotal.minus(lockedTotal);
-
-    console.log("\n\n🌍 Circulating Supply Summary:");
-    console.log("-------------------------------------------");
-    console.log(`💎 Total Amulet:        ${amuletTotal.toFixed(10)}`);
-    console.log(`🔒 Total LockedAmulet:  ${lockedTotal.toFixed(10)}`);
-    console.log("-------------------------------------------");
-    console.log(`🌐 Circulating Supply:  ${circulating.toFixed(10)}`);
-    console.log(`📦 Canonical Package:   ${canonicalPkg}`);
-    console.log(`📘 Migration ID:        ${migration_id}`);
-    console.log(`⏰ Record Time (UTC):   ${record_time}`);
-    console.log("-------------------------------------------");
-
-    const summary = {
-      timestamp: new Date().toISOString(),
-      migration_id,
-      record_time,
-      sv_url: BASE_URL,
-      canonical_package: canonicalPkg,
-      canonical_templates: canonicalTemplates,
-      totals: {
-        amulet: amuletTotal.toFixed(10),
-        locked: lockedTotal.toFixed(10),
-        circulating: circulating.toFixed(10),
-      },
-      entry_count: allEvents.length,
-    };
-
-    fs.writeFileSync("circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
-    console.log("💾 Saved summary to circulating-supply-single-sv.json");
+    console.log(`\n✅ Completed! Fetched ${allEvents.length.toLocaleString()} events from ${canonicalPkg}`);
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
     if (err.response) console.error("Response:", err.response.data);
