@@ -11,9 +11,3 @@ verify_jwt = false
 
 [functions.purge-acs-storage]
 verify_jwt = false
-
-[functions.get-governance-data]
-verify_jwt = false
-
-[functions.debug-governance]
-verify_jwt = false
