@@ -4,19 +4,22 @@
 
 const edgeFunctionUrl = process.env.PURGE_FUNCTION_URL || process.env.EDGE_FUNCTION_URL?.replace('upload-acs-data', 'purge-acs-storage');
 const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-const snapshotId = process.argv[2]; // Optional snapshot ID to purge specific snapshot
+const snapshotId = process.argv[2]; // Optional snapshot ID or 'all' to purge everything
 
 if (!edgeFunctionUrl || !webhookSecret) {
   console.error("❌ Missing PURGE_FUNCTION_URL/EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET");
-  console.log("Usage: node scripts/purge-acs-storage.js [snapshot_id]");
-  console.log("  - No snapshot_id: purges all incomplete uploads");
-  console.log("  - With snapshot_id: purges only that snapshot's data");
+  console.log("Usage: node scripts/purge-acs-storage.js [snapshot_id|all]");
+  console.log("  - No argument: purges all incomplete uploads");
+  console.log("  - 'all': purges ALL data (complete wipe)");
+  console.log("  - <snapshot_id>: purges only that snapshot's data");
   process.exit(1);
 }
 
 async function purgeStorage() {
   try {
-    console.log(`🗑️ Purging ACS storage data${snapshotId ? ` for snapshot: ${snapshotId}` : ' (all incomplete)'}...`);
+    const purgeAll = snapshotId === 'all';
+    const targetMsg = purgeAll ? 'ALL data' : (snapshotId ? `snapshot: ${snapshotId}` : 'all incomplete');
+    console.log(`🗑️ Purging ACS storage data (${targetMsg})...`);
     
     const response = await fetch(edgeFunctionUrl, {
       method: "POST",
@@ -24,7 +27,8 @@ async function purgeStorage() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        snapshot_id: snapshotId,
+        purge_all: purgeAll,
+        snapshot_id: purgeAll ? undefined : snapshotId,
         webhookSecret: webhookSecret
       }),
     });
