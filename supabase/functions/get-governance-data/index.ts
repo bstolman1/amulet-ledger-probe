@@ -89,13 +89,8 @@ Deno.serve(async (req) => {
         for (const contract of contracts) {
           const templateName = template.template_id.split(":").pop() || "Unknown";
           
-          // Try to get args from different possible locations
-          let args = contract.createArguments || contract.payload || contract;
-          
-          // If createArguments or payload exists but is empty, use contract itself
-          if (Object.keys(args).length === 0 || (!args.votes && !args.action && !args.amuletPrice && !args.candidate)) {
-            args = contract;
-          }
+          // The contract data is at the top level - no need for createArguments/payload
+          const args = contract;
 
           const voters = parseVoters(args);
           
@@ -104,10 +99,10 @@ Deno.serve(async (req) => {
             type: templateName,
             title: parseTitle(templateName, args),
             description: parseDescription(templateName, args),
-            status: parseStatus(args),
+            status: parseStatus(args, votingThreshold),
             votesFor: voters.for.length,
             votesAgainst: voters.against.length,
-            createdAt: contract.createdEventBlob?.recordTime || new Date().toISOString(),
+            createdAt: contract.createdEventBlob?.recordTime || contract.lastUpdatedAt || new Date().toISOString(),
             contractId: contract.contractId || "",
             templateId: template.template_id,
             voters: voters,
@@ -194,7 +189,7 @@ function parseDescription(templateName: string, args: any): string {
   }
 }
 
-function parseStatus(args: any): string {
+function parseStatus(args: any, votingThreshold: number): string {
   // Check explicit status fields
   if (args.completed === true) return "approved";
   if (args.rejected === true) return "rejected";
@@ -209,14 +204,14 @@ function parseStatus(args: any): string {
       Array.isArray(v) && v[1]?.accept === false
     ).length;
     
-    // If majority accepted (or threshold met)
-    if (acceptCount >= 5) return "approved";
-    if (rejectCount > votes.length / 2) return "rejected";
+    // If threshold met
+    if (acceptCount >= votingThreshold) return "approved";
+    if (rejectCount >= votingThreshold) return "rejected";
     
     // Check if voting period is over
     const voteBefore = args.voteBefore ? new Date(args.voteBefore) : null;
     if (voteBefore && voteBefore < new Date()) {
-      return acceptCount > 0 ? "approved" : "expired";
+      return acceptCount >= votingThreshold ? "approved" : "expired";
     }
     
     return "pending";
@@ -232,7 +227,7 @@ function parseStatus(args: any): string {
   // Count accepts
   const accepts = trackingCids.filter((cid: any) => cid).length;
   
-  if (accepts >= 3) return "approved";
+  if (accepts >= votingThreshold) return "approved";
   if (accepts === 0 && trackingCids.length > 0) return "rejected";
   
   return "pending";
