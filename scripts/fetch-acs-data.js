@@ -77,7 +77,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   const allEvents = [];
   let after = 0;
-  const pageSize = 1000;
+  const pageSize = 500;
   let page = 1;
   const seen = new Set();
 
@@ -180,7 +180,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         success = true;
         
         // Throttle requests to avoid overwhelming server
-        await sleep(1000);
+        await sleep(3000);
         
       } catch (err) {
         const statusCode = err.response?.status;
