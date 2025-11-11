@@ -254,6 +254,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     return results;
   };
 
+  while (true) {
     // Prepare batch of concurrent requests
     const batchAfters = [];
     for (let i = 0; i < CONCURRENT_REQUESTS; i++) {
