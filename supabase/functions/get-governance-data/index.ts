@@ -46,18 +46,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Get governance templates
+    // Get governance templates - only VoteRequest for now
     const { data: templates } = await supabase
       .from("acs_template_stats")
       .select("template_id, storage_path, contract_count")
       .eq("snapshot_id", snapshotId)
-      .or(
-        "template_id.like.%VoteRequest," +
-        "template_id.like.%AmuletPriceVote," +
-        "template_id.like.%ExternalPartySetupProposal," +
-        "template_id.like.%ElectionRequest," +
-        "template_id.like.%Confirmation"
-      );
+      .like("template_id", "%VoteRequest");
 
     if (!templates || templates.length === 0) {
       return new Response(

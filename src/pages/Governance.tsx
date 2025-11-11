@@ -217,15 +217,15 @@ const Governance = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">For</p>
+                        <p className="text-xs text-muted-foreground mb-1">Yes</p>
                         <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
                       </div>
                       <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Against</p>
+                        <p className="text-xs text-muted-foreground mb-1">No</p>
                         <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
                       </div>
                       <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Abstentions</p>
+                        <p className="text-xs text-muted-foreground mb-1">Abstain</p>
                         <p className="text-lg font-bold text-muted-foreground">{proposal.voters?.abstained?.length || 0}</p>
                       </div>
                     </div>
@@ -239,7 +239,7 @@ const Governance = () => {
                           <div className="mt-3 space-y-3">
                             {proposal.voters.for.length > 0 && (
                               <div>
-                                <p className="text-xs font-semibold text-success mb-2">✓ Voted For ({proposal.voters.for.length})</p>
+                                <p className="text-xs font-semibold text-success mb-2">✓ Yes ({proposal.voters.for.length})</p>
                                 <div className="space-y-1">
                                   {proposal.voters.for.map((voter, idx) => (
                                     <div key={idx} className="text-xs text-muted-foreground pl-4">
@@ -260,7 +260,7 @@ const Governance = () => {
                             
                             {proposal.voters.against.length > 0 && (
                               <div>
-                                <p className="text-xs font-semibold text-destructive mb-2">✗ Voted Against ({proposal.voters.against.length})</p>
+                                <p className="text-xs font-semibold text-destructive mb-2">✗ No ({proposal.voters.against.length})</p>
                                 <div className="space-y-1">
                                   {proposal.voters.against.map((voter, idx) => (
                                     <div key={idx} className="text-xs text-muted-foreground pl-4">
@@ -281,7 +281,7 @@ const Governance = () => {
                             
                             {proposal.voters.abstained.length > 0 && (
                               <div>
-                                <p className="text-xs font-semibold text-warning mb-2">− Abstained ({proposal.voters.abstained.length})</p>
+                                <p className="text-xs font-semibold text-warning mb-2">− Abstain ({proposal.voters.abstained.length})</p>
                                 <div className="space-y-1">
                                   {proposal.voters.abstained.map((voter, idx) => (
                                     <div key={idx} className="text-xs text-muted-foreground pl-4">
