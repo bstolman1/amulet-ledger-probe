@@ -152,7 +152,7 @@ async function fetchAllACS(
   templateStats: Record<string, TemplateStats>;
   entryCount: number;
 }> {
-  console.log('📦 Fetching ACS snapshot...');
+  console.log('📦 Fetching ACS snapshot with parallel processing...');
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
@@ -161,91 +161,121 @@ async function fetchAllACS(
 
   let amuletTotal = new Decimal('0');
   let lockedTotal = new Decimal('0');
-  let after = 0;
-  const pageSize = 1000;
-  let page = 1;
+  const pageSize = 2000; // Increased from 1000
   const seen = new Set<string>();
+  const CONCURRENCY = 4; // Fetch 4 pages in parallel
 
-  while (true) {
-    try {
-      const res = await fetch(`${baseUrl}/v0/state/acs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          migration_id,
-          record_time,
-          page_size: pageSize,
-          after,
-          daml_value_encoding: 'compact_json',
-        }),
-      });
+  // Helper to fetch a single page
+  const fetchPage = async (after: number): Promise<{ events: any[]; rangeTo: number | null; after: number }> => {
+    const res = await fetch(`${baseUrl}/v0/state/acs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        migration_id,
+        record_time,
+        page_size: pageSize,
+        after,
+        daml_value_encoding: 'compact_json',
+      }),
+    });
 
-      const data = await res.json();
-      const events = data.created_events || [];
-      const rangeTo = data.range?.to;
+    const data = await res.json();
+    return {
+      events: data.created_events || [],
+      rangeTo: data.range?.to ?? null,
+      after,
+    };
+  };
 
-      if (events.length === 0) {
-        console.log('✅ No more events — finished.');
-        break;
+  // Process events from a page
+  const processEvents = (events: any[]) => {
+    for (const e of events) {
+      const id = e.contract_id || e.event_id;
+      if (id && seen.has(id)) continue;
+      seen.add(id);
+
+      const templateId = e.template_id || 'unknown';
+      const pkg = templateId.split(':')[0] || 'unknown';
+      const args = e.create_arguments || {};
+
+      // Initialize tracking
+      perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
+      templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
+      templatesByPackage[pkg].add(templateId);
+
+      templatesData[templateId] = templatesData[templateId] || [];
+      templateStats[templateId] = templateStats[templateId] || { count: 0 };
+
+      // Save raw args
+      templatesData[templateId].push(args);
+      templateStats[templateId].count += 1;
+
+      // Analyze args
+      analyzeArgs(args, templateStats[templateId]);
+
+      // Token totals
+      if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
+        const val = args?.amount?.initialAmount ?? '0';
+        if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+          const bn = new Decimal(val);
+          amuletTotal = amuletTotal.plus(bn);
+          perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
+        }
+      } else if (isTemplate(e, 'Splice.Amulet', 'LockedAmulet')) {
+        const val = args?.amulet?.amount?.initialAmount ?? '0';
+        if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
+          const bn = new Decimal(val);
+          lockedTotal = lockedTotal.plus(bn);
+          perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
+        }
       }
+    }
+  };
 
-      for (const e of events) {
-        const id = e.contract_id || e.event_id;
-        if (id && seen.has(id)) continue;
-        seen.add(id);
+  // Parallel fetch with sliding window
+  let currentAfter = 0;
+  let pageNum = 1;
+  let hasMore = true;
+  
+  while (hasMore) {
+    try {
+      // Fetch multiple pages in parallel
+      const offsets = Array.from({ length: CONCURRENCY }, (_, i) => currentAfter + i * pageSize);
+      const pagePromises = offsets.map(offset => fetchPage(offset));
+      const results = await Promise.all(pagePromises);
 
-        const templateId = e.template_id || 'unknown';
-        const pkg = templateId.split(':')[0] || 'unknown';
-        const args = e.create_arguments || {};
+      let processedAny = false;
+      
+      for (const result of results) {
+        if (result.events.length === 0) continue;
+        
+        processedAny = true;
+        processEvents(result.events);
+        
+        console.log(`📄 Page ${pageNum++} | Events: ${seen.size} | Amulet: ${amuletTotal.toString().slice(0, 12)}...`);
 
-        // Initialize tracking
-        perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
-        templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
-        templatesByPackage[pkg].add(templateId);
-
-        templatesData[templateId] = templatesData[templateId] || [];
-        templateStats[templateId] = templateStats[templateId] || { count: 0 };
-
-        // Save raw args
-        templatesData[templateId].push(args);
-        templateStats[templateId].count += 1;
-
-        // Analyze args
-        analyzeArgs(args, templateStats[templateId]);
-
-        // Token totals
-        if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
-          const val = args?.amount?.initialAmount ?? '0';
-          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-            const bn = new Decimal(val);
-            amuletTotal = amuletTotal.plus(bn);
-            perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
-          }
-        } else if (isTemplate(e, 'Splice.Amulet', 'LockedAmulet')) {
-          const val = args?.amulet?.amount?.initialAmount ?? '0';
-          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-            const bn = new Decimal(val);
-            lockedTotal = lockedTotal.plus(bn);
-            perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
-          }
+        // If we got less than pageSize, this is the last page
+        if (result.events.length < pageSize) {
+          hasMore = false;
+          break;
         }
       }
 
-      console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
-
-      if (events.length < pageSize) {
-        console.log('✅ Last page reached.');
+      if (!processedAny) {
+        hasMore = false;
         break;
       }
 
-      after = rangeTo ?? after + events.length;
-      page++;
-      await new Promise(r => setTimeout(r, 100));
+      // Move to next batch
+      currentAfter += CONCURRENCY * pageSize;
+      
     } catch (err: any) {
-      console.error(`⚠️ Page ${page} failed:`, err.message);
+      console.error(`⚠️ Batch failed:`, err.message);
       throw err;
     }
   }
+
+  console.log('✅ Fetching complete. Uploading to storage...');
 
   // Find canonical package
   const canonicalPkgEntry = Object.entries(perPackage).sort(
@@ -255,8 +285,8 @@ async function fetchAllACS(
 
   console.log(`📦 Canonical package: ${canonicalPkg}`);
 
-  // Upload per-template JSON files to storage
-  for (const [templateId, data] of Object.entries(templatesData)) {
+  // Upload per-template JSON files to storage in parallel
+  const uploadPromises = Object.entries(templatesData).map(async ([templateId, data]) => {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
     
@@ -281,8 +311,7 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
-    } else {
-      console.log(`✅ Uploaded ${filePath}`);
+      throw uploadError;
     }
 
     // Store template stats in DB
@@ -301,6 +330,16 @@ async function fetchAllACS(
       status_tallies: templateStats[templateId].status || null,
       storage_path: filePath,
     });
+
+    return templateId;
+  });
+
+  // Upload all templates in parallel (batches of 10)
+  const UPLOAD_BATCH_SIZE = 10;
+  for (let i = 0; i < uploadPromises.length; i += UPLOAD_BATCH_SIZE) {
+    const batch = uploadPromises.slice(i, i + UPLOAD_BATCH_SIZE);
+    await Promise.all(batch);
+    console.log(`✅ Uploaded batch ${Math.floor(i / UPLOAD_BATCH_SIZE) + 1}/${Math.ceil(uploadPromises.length / UPLOAD_BATCH_SIZE)}`);
   }
 
   return {
