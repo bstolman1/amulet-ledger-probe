@@ -29,7 +29,7 @@ jobs:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
           EDGE_FUNCTION_URL: ${{ secrets.EDGE_FUNCTION_URL }}
           ACS_UPLOAD_WEBHOOK_SECRET: ${{ secrets.ACS_UPLOAD_WEBHOOK_SECRET }}
-          PAGE_SIZE: '1000'
+          PAGE_SIZE: '500'
           UPLOAD_CHUNK_SIZE: '50'
           UPLOAD_DELAY_MS: '0'
           RETRY_COOLDOWN_MS: '15000'

@@ -111,7 +111,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   const allEvents = [];
   let after = 0;
-  const pageSize = parseInt(process.env.PAGE_SIZE || "1000", 10);
+  const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = 1;
   const seen = new Set();
 
