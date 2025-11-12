@@ -16,48 +16,40 @@ if (!edgeFunctionUrl || !webhookSecret) {
   process.exit(1);
 }
 
-async function uploadViaEdgeFunction() {
+export async function uploadBatch({ templatesData, snapshotId, summary, isComplete }) {
   try {
-    // Read summary
-    const summaryData = JSON.parse(fs.readFileSync("circulating-supply-single-sv.json", "utf-8"));
-    
-    // Read all template files
-    const acsDir = "./acs_full";
-    const files = fs.readdirSync(acsDir);
-    
-    const templates = files.map(file => {
-      const filePath = path.join(acsDir, file);
-      const content = fs.readFileSync(filePath, "utf-8");
-      return {
-        filename: file,
-        content: content
-      };
-    });
+    // Convert templatesData object to array format expected by edge function
+    const templates = Object.entries(templatesData).map(([templateId, data]) => ({
+      filename: templateId.replace(/[:.]/g, "_") + ".json",
+      content: JSON.stringify(data, null, 2)
+    }));
 
-    console.log(`📦 Starting chunked upload of ${templates.length} templates...`);
+    console.log(`📦 Uploading ${templates.length} templates...`);
 
-    // PHASE 1: Start - Create snapshot
-    console.log(`\n[1/3] Creating snapshot...`);
-    const startResponse = await fetch(edgeFunctionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        mode: 'start',
-        summary: summaryData,
-        webhookSecret: webhookSecret
-      }),
-    });
+    // PHASE 1: Start - Create snapshot (only if no snapshotId provided)
+    if (!snapshotId) {
+      console.log(`[1/3] Creating snapshot...`);
+      const startResponse = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: 'start',
+          summary: summary,
+          webhookSecret: webhookSecret
+        }),
+      });
 
-    if (!startResponse.ok) {
-      const errorText = await startResponse.text();
-      throw new Error(`Start phase failed (${startResponse.status}): ${errorText}`);
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text();
+        throw new Error(`Start phase failed (${startResponse.status}): ${errorText}`);
+      }
+
+      const startResult = await startResponse.json();
+      snapshotId = startResult.snapshot_id;
+      console.log(`✅ Snapshot created: ${snapshotId}`);
     }
-
-    const startResult = await startResponse.json();
-    const snapshotId = startResult.snapshot_id;
-    console.log(`✅ Snapshot created: ${snapshotId}`);
 
     // PHASE 2: Append - Upload templates in chunks with adaptive sizing and retries
     console.log(`\n[2/3] Uploading templates in chunks (starting with ${CHUNK_SIZE}, ${UPLOAD_DELAY_MS}ms delay)...`);
@@ -137,33 +129,69 @@ async function uploadViaEdgeFunction() {
       }
     }
 
-    // PHASE 3: Complete - Mark snapshot as complete
-    console.log(`\n[3/3] Finalizing snapshot...`);
-    const completeResponse = await fetch(edgeFunctionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        mode: 'complete',
-        snapshot_id: snapshotId,
-        webhookSecret: webhookSecret
-      }),
-    });
+    // PHASE 3: Complete - Mark snapshot as complete (only if isComplete flag is set)
+    if (isComplete) {
+      console.log(`\n[3/3] Finalizing snapshot...`);
+      const completeResponse = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: 'complete',
+          snapshot_id: snapshotId,
+          webhookSecret: webhookSecret
+        }),
+      });
 
-    if (!completeResponse.ok) {
-      const errorText = await completeResponse.text();
-      throw new Error(`Complete phase failed (${completeResponse.status}): ${errorText}`);
+      if (!completeResponse.ok) {
+        const errorText = await completeResponse.text();
+        throw new Error(`Complete phase failed (${completeResponse.status}): ${errorText}`);
+      }
+
+      console.log(`✅ Snapshot marked complete: ${snapshotId}`);
+      console.log(`   Templates processed: ${totalProcessed}`);
     }
 
-    console.log(`\n✅ Upload complete!`);
-    console.log(`   Snapshot ID: ${snapshotId}`);
-    console.log(`   Templates processed: ${totalProcessed}`);
+    return snapshotId; // Return snapshot ID for reuse in next batch
 
   } catch (err) {
     console.error("\n❌ Upload failed:", err.message);
-    process.exit(1);
+    throw err; // Re-throw to allow caller to handle
   }
 }
 
-uploadViaEdgeFunction();
+// Allow running standalone for backward compatibility
+if (import.meta.url === `file://${process.argv[1]}`) {
+  (async () => {
+    try {
+      // Read summary
+      const summaryData = JSON.parse(fs.readFileSync("circulating-supply-single-sv.json", "utf-8"));
+      
+      // Read all template files
+      const acsDir = "./acs_full";
+      const files = fs.readdirSync(acsDir);
+      
+      const templatesData = {};
+      files.forEach(file => {
+        const filePath = path.join(acsDir, file);
+        const content = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        const templateId = file.replace(".json", "").replace(/_/g, ":");
+        templatesData[templateId] = content;
+      });
+
+      await uploadBatch({
+        templatesData,
+        snapshotId: null,
+        summary: summaryData,
+        isComplete: true
+      });
+
+      console.log("\n✅ Upload complete!");
+      process.exit(0);
+    } catch (err) {
+      console.error("\n❌ Standalone upload failed:", err.message);
+      process.exit(1);
+    }
+  })();
+}
