@@ -183,31 +183,38 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
 
-        // Upload batch every 50 pages
+        // Upload batch every 50 pages (if upload credentials are available)
         if (page % BATCH_SIZE === 0) {
-          console.log(`\n🔄 Uploading batch at page ${page}...`);
-          
           // Write current template files
           writeTemplateFiles(templatesData, outputDir);
           
-          // Determine canonical package for summary
-          const canonicalPkgEntry = Object.entries(perPackage).sort(
-            (a, b) => b[1].amulet.minus(a[1].amulet)
-          )[0];
-          const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
-          const canonicalTemplates = templatesByPackage[canonicalPkg]
-            ? Array.from(templatesByPackage[canonicalPkg])
-            : [];
+          // Only upload if environment variables are set
+          const hasUploadCredentials = process.env.EDGE_FUNCTION_URL && process.env.ACS_UPLOAD_WEBHOOK_SECRET;
           
-          // Upload this batch
-          snapshotId = await uploadBatch({
-            templatesData,
-            snapshotId: snapshotId,
-            summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
-            isComplete: false
-          });
-          
-          console.log(`✅ Uploaded batch at page ${page} (snapshot: ${snapshotId})\n`);
+          if (hasUploadCredentials) {
+            console.log(`\n🔄 Uploading batch at page ${page}...`);
+            
+            // Determine canonical package for summary
+            const canonicalPkgEntry = Object.entries(perPackage).sort(
+              (a, b) => b[1].amulet.minus(a[1].amulet)
+            )[0];
+            const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
+            const canonicalTemplates = templatesByPackage[canonicalPkg]
+              ? Array.from(templatesByPackage[canonicalPkg])
+              : [];
+            
+            // Upload this batch
+            snapshotId = await uploadBatch({
+              templatesData,
+              snapshotId: snapshotId,
+              summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
+              isComplete: false
+            });
+            
+            console.log(`✅ Uploaded batch at page ${page} (snapshot: ${snapshotId})\n`);
+          } else {
+            console.log(`\n💾 Saved batch at page ${page} (upload skipped - no credentials)\n`);
+          }
         }
 
         if (events.length < pageSize) {
@@ -298,15 +305,21 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     ? Array.from(templatesByPackage[canonicalPkg])
     : [];
 
-  // Final upload and mark complete
-  console.log(`\n🔄 Uploading final batch and marking complete...`);
-  await uploadBatch({
-    templatesData,
-    snapshotId: snapshotId,
-    summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
-    isComplete: true
-  });
-  console.log(`✅ Final upload complete!\n`);
+  // Final upload and mark complete (if upload credentials are available)
+  const hasUploadCredentials = process.env.EDGE_FUNCTION_URL && process.env.ACS_UPLOAD_WEBHOOK_SECRET;
+  
+  if (hasUploadCredentials) {
+    console.log(`\n🔄 Uploading final batch and marking complete...`);
+    await uploadBatch({
+      templatesData,
+      snapshotId: snapshotId,
+      summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
+      isComplete: true
+    });
+    console.log(`✅ Final upload complete!\n`);
+  } else {
+    console.log(`\n💾 All data saved locally to ${outputDir}/ (upload skipped - no credentials)\n`);
+  }
 
   return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
 }
