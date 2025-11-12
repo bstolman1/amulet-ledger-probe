@@ -265,31 +265,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
 
-        // Push progress update every page (throttled)
-        if (snapshotId) {
-          const now = Date.now();
-          const shouldUpdate = now - lastProgressUpdate >= UPLOAD_DELAY_MS;
-          if (shouldUpdate) {
-            const elapsedMs = now - startTime;
-            const elapsedMinutes = elapsedMs / 1000 / 60;
-            const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
-
-            await uploadToEdgeFunction("progress", {
-              mode: "progress",
-              webhookSecret: WEBHOOK_SECRET,
-              snapshot_id: snapshotId,
-              progress: {
-                processed_pages: page,
-                processed_events: allEvents.length,
-                elapsed_time_ms: elapsedMs,
-                pages_per_minute: pagesPerMin,
-              },
-            });
-
-            lastProgressUpdate = now;
-          }
-        }
-
         if (events.length < pageSize) {
           console.log("\n✅ Last page reached.");
           break;
