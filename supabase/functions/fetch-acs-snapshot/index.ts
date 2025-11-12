@@ -451,109 +451,92 @@ Deno.serve(async (req) => {
 
     const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
 
-    // Create snapshot record
-    const { data: snapshot, error: snapshotError } = await supabaseAdmin
-      .from('acs_snapshots')
-      .insert({
-        sv_url: BASE_URL,
-        migration_id: 0, // Will be updated
-        record_time: '',
-        amulet_total: '0',
-        locked_total: '0',
-        circulating_supply: '0',
-        entry_count: 0,
-        status: 'processing',
-      })
-      .select()
-      .single();
+    // Parse params
+    const url = new URL(req.url);
+    const pagesParam = parseInt(url.searchParams.get('pages') || '10', 10);
+    const batchSize = Number.isFinite(pagesParam) && pagesParam > 0 ? Math.min(pagesParam, 50) : 10;
 
-    if (snapshotError || !snapshot) {
-      throw new Error('Failed to create snapshot record');
+    // Find latest processing snapshot, or create a new one
+    const { data: existingSnapshot } = await supabaseAdmin
+      .from('acs_snapshots')
+      .select('*')
+      .eq('status', 'processing')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let snapshot = existingSnapshot as any | null;
+
+    if (!snapshot) {
+      // Start a new snapshot session
+      const migration_id = await detectLatestMigration(BASE_URL);
+      const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+
+      const { data: created, error: snapshotError } = await supabaseAdmin
+        .from('acs_snapshots')
+        .insert({
+          sv_url: BASE_URL,
+          migration_id,
+          record_time,
+          amulet_total: '0',
+          locked_total: '0',
+          circulating_supply: '0',
+          entry_count: 0,
+          status: 'processing',
+        })
+        .select()
+        .single();
+
+      if (snapshotError || !created) {
+        throw new Error('Failed to create snapshot record');
+      }
+      snapshot = created;
     }
 
-    // Start background task
-    const backgroundTask = async () => {
-      try {
-        const migration_id = await detectLatestMigration(BASE_URL);
-        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    // Process a single batch (resumable)
+    const result = await fetchACSBatch(
+      BASE_URL,
+      snapshot.migration_id,
+      snapshot.record_time,
+      supabaseAdmin,
+      snapshot.id,
+      batchSize
+    );
 
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({ migration_id, record_time })
-          .eq('id', snapshot.id);
+    if (result.completed) {
+      const canonicalPkg = await getCanonicalPackage(supabaseAdmin, snapshot.id);
+      const amuletTotal = new Decimal(result.progress.amuletTotal);
+      const lockedTotal = new Decimal(result.progress.lockedTotal);
+      const circulating = amuletTotal.minus(lockedTotal);
 
-        let completed = false;
-        const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
-
-        while (!completed) {
-          const result = await fetchACSBatch(
-            BASE_URL,
-            migration_id,
-            record_time,
-            supabaseAdmin,
-            snapshot.id,
-            10
-          );
-
-          completed = result.completed;
-
-          if (completed) {
-            const canonicalPkg = await getCanonicalPackage(supabaseAdmin, snapshot.id);
-            const amuletTotal = new Decimal(result.progress.amuletTotal);
-            const lockedTotal = new Decimal(result.progress.lockedTotal);
-            const circulating = amuletTotal.minus(lockedTotal);
-
-            await supabaseAdmin
-              .from('acs_snapshots')
-              .update({
-                canonical_package: canonicalPkg,
-                amulet_total: amuletTotal.toString(),
-                locked_total: lockedTotal.toString(),
-                circulating_supply: circulating.toString(),
-                entry_count: result.progress.entryCount,
-                status: 'completed',
-                progress: null,
-              })
-              .eq('id', snapshot.id);
-
-            console.log('✅ ACS snapshot completed successfully');
-          } else {
-            console.log(`📊 Progress: Page ${result.progress.page}, Entries: ${result.progress.entryCount}`);
-          }
-        }
-      } catch (error: any) {
-        console.error('❌ ACS snapshot failed:', error);
-        
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({
-            status: 'failed',
-            error_message: error.message,
-          })
-          .eq('id', snapshot.id);
-      }
-    };
-
-    // Start background task (fire and forget)
-    backgroundTask();
+      await supabaseAdmin
+        .from('acs_snapshots')
+        .update({
+          canonical_package: canonicalPkg,
+          amulet_total: amuletTotal.toString(),
+          locked_total: lockedTotal.toString(),
+          circulating_supply: circulating.toString(),
+          entry_count: result.progress.entryCount,
+          status: 'completed',
+          progress: null,
+        })
+        .eq('id', snapshot.id);
+    }
 
     return new Response(
       JSON.stringify({
-        message: 'ACS snapshot started',
+        message: 'ACS snapshot step processed',
         snapshot_id: snapshot.id,
+        completed: result.completed,
+        progress: result.progress,
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
     console.error('Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
