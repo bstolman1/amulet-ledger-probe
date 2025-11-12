@@ -171,32 +171,6 @@ const SnapshotProgress = () => {
 
     setIsPurging(true);
     try {
-      // Require login
-      const { data: sessionRes } = await supabase.auth.getSession();
-      const session = sessionRes?.session;
-      if (!session) {
-        toast({ title: "Not signed in", description: "Please log in to perform this action.", variant: "destructive" });
-        return;
-      }
-
-      // Require admin role
-      const { data: roles, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', session.user.id);
-
-      if (rolesError) {
-        console.error('Role check error:', rolesError);
-        toast({ title: "Permission check failed", description: "Could not verify your role.", variant: "destructive" });
-        return;
-      }
-
-      const isAdmin = (roles || []).some((r: any) => r.role === 'admin');
-      if (!isAdmin) {
-        toast({ title: "Insufficient permissions", description: "You must be an admin to purge ACS data.", variant: "destructive" });
-        return;
-      }
-
       const { data, error } = await supabase.functions.invoke('purge-acs-storage', {
         body: { purge_all: true },
       });
