@@ -23,18 +23,14 @@ jobs:
           npm init -y
           npm install axios bignumber.js @supabase/supabase-js
       
-      - name: Fetch ACS Data
+      - name: Fetch and Upload ACS Data in Real-Time
         run: node scripts/fetch-acs-data.js
         env:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
-      
-      - name: Upload to Lovable Cloud
-        run: node scripts/upload-via-edge-function.js
-        env:
           EDGE_FUNCTION_URL: ${{ secrets.EDGE_FUNCTION_URL }}
           ACS_UPLOAD_WEBHOOK_SECRET: ${{ secrets.ACS_UPLOAD_WEBHOOK_SECRET }}
-          UPLOAD_CHUNK_SIZE: '1'
-          UPLOAD_DELAY_MS: '2000'
+          UPLOAD_CHUNK_SIZE: '5'
+          UPLOAD_DELAY_MS: '500'
       
       - name: Upload artifacts (backup)
         uses: actions/upload-artifact@v4
