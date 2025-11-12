@@ -369,7 +369,25 @@ Deno.serve(async (req) => {
       snapshot = data;
     }
 
-    // Process batch
+    // If this is the initial client-triggered call, enqueue work and return immediately
+    if (!snapshotId) {
+      console.log('▶️ Start requested from client, enqueue first batch...');
+      // Kick off processing asynchronously
+      supabaseAdmin.functions
+        .invoke('fetch-acs-snapshot', { body: { snapshot_id: snapshot.id } })
+        .catch((err: any) => console.error('Failed to enqueue first batch:', err));
+
+      return new Response(
+        JSON.stringify({
+          message: 'ACS snapshot started',
+          snapshot_id: snapshot.id,
+          status: 'processing',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Process batch for resumed/background calls
     const { isComplete, nextCursor } = await processBatch(
       BASE_URL,
       snapshot.migration_id,
