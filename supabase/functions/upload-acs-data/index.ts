@@ -38,6 +38,15 @@ interface CompleteRequest {
   mode: 'complete';
   snapshot_id: string;
   webhookSecret: string;
+  summary?: {
+    totals: {
+      amulet: string;
+      locked: string;
+      circulating: string;
+    };
+    entry_count: number;
+    canonical_package: string;
+  };
 }
 
 type UploadRequest = StartRequest | AppendRequest | CompleteRequest;
@@ -164,12 +173,26 @@ Deno.serve(async (req) => {
     }
 
     if (request.mode === 'complete') {
-      const { snapshot_id } = request;
+      const { snapshot_id, summary } = request;
       console.log(`Marking snapshot ${snapshot_id} as completed`);
+
+      const updateData: any = { 
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      };
+
+      // Update with final totals if summary is provided
+      if (summary) {
+        updateData.amulet_total = summary.totals.amulet;
+        updateData.locked_total = summary.totals.locked;
+        updateData.circulating_supply = summary.totals.circulating;
+        updateData.entry_count = summary.entry_count;
+        updateData.canonical_package = summary.canonical_package;
+      }
 
       const { error: updateError } = await supabase
         .from('acs_snapshots')
-        .update({ status: 'completed' })
+        .update(updateData)
         .eq('id', snapshot_id);
 
       if (updateError) {
@@ -177,7 +200,7 @@ Deno.serve(async (req) => {
         throw updateError;
       }
 
-      console.log('Snapshot marked as completed');
+      console.log('Snapshot marked as completed with final totals');
 
       return new Response(
         JSON.stringify({ 

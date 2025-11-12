@@ -118,19 +118,23 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   // Start snapshot
   let snapshotId = null;
+  let canonicalPkg = "unknown";
   if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
     console.log("🚀 Creating snapshot in database...");
-    const circulatingSupply = amuletTotal.plus(lockedTotal);
     const startResult = await uploadToEdgeFunction("start", {
       mode: "start",
       webhookSecret: WEBHOOK_SECRET,
       summary: {
-        amulet_total: "0",
-        locked_total: "0",
-        circulating_supply: "0",
+        sv_url: baseUrl,
         migration_id,
         record_time,
-        sv_url: baseUrl,
+        canonical_package: canonicalPkg,
+        totals: {
+          amulet: "0",
+          locked: "0",
+          circulating: "0",
+        },
+        entry_count: 0,
       },
     });
     snapshotId = startResult?.snapshot_id;
@@ -213,15 +217,14 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           console.log(`📤 Uploading ${Object.keys(pendingUploads).length} templates...`);
           
           const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
-            templateId,
-            fileName: `${safeFileName(templateId)}.json`,
+            filename: `${safeFileName(templateId)}.json`,
             content: JSON.stringify(contracts, null, 2),
           }));
 
           await uploadToEdgeFunction("append", {
             mode: "append",
             webhookSecret: WEBHOOK_SECRET,
-            snapshotId,
+            snapshot_id: snapshotId,
             templates,
           });
 
@@ -314,15 +317,14 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     console.log(`📤 Uploading final ${Object.keys(pendingUploads).length} templates...`);
     
     const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
-      templateId,
-      fileName: `${safeFileName(templateId)}.json`,
+      filename: `${safeFileName(templateId)}.json`,
       content: JSON.stringify(contracts, null, 2),
     }));
 
     await uploadToEdgeFunction("append", {
       mode: "append",
       webhookSecret: WEBHOOK_SECRET,
-      snapshotId,
+      snapshot_id: snapshotId,
       templates,
     });
   }
@@ -337,7 +339,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const canonicalPkgEntry = Object.entries(perPackage).sort(
     (a, b) => b[1].amulet.minus(a[1].amulet)
   )[0];
-  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
+  canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
 
   const canonicalTemplates = templatesByPackage[canonicalPkg]
     ? Array.from(templatesByPackage[canonicalPkg])
@@ -364,8 +366,16 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     await uploadToEdgeFunction("complete", {
       mode: "complete",
       webhookSecret: WEBHOOK_SECRET,
-      snapshotId,
-      summary,
+      snapshot_id: snapshotId,
+      summary: {
+        totals: {
+          amulet: amuletTotal.toString(),
+          locked: lockedTotal.toString(),
+          circulating: circulatingSupply.toString(),
+        },
+        entry_count: allEvents.length,
+        canonical_package: canonicalPkg,
+      },
     });
     console.log("✅ Snapshot completed!");
   } else {
