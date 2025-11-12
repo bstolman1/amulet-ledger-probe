@@ -4,10 +4,19 @@
  */
 
 import axios from "axios";
+import { Agent as HttpAgent } from "http";
+import { Agent as HttpsAgent } from "https";
 import fs from "fs";
 import BigNumber from "bignumber.js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+// Create axios instance with keep-alive for persistent connections
+const cantonClient = axios.create({
+  httpAgent: new HttpAgent({ keepAlive: true, keepAliveMsecs: 30000 }),
+  httpsAgent: new HttpsAgent({ keepAlive: true, keepAliveMsecs: 30000, rejectUnauthorized: false }),
+  timeout: 120000,
+});
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
@@ -59,7 +68,7 @@ async function detectLatestMigration(baseUrl) {
 
   while (true) {
     try {
-      const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+      const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
         params: { before: new Date().toISOString(), migration_id: id },
       });
       if (res.data?.record_time) {
@@ -77,14 +86,14 @@ async function detectLatestMigration(baseUrl) {
 }
 
 async function fetchSnapshotTimestamp(baseUrl, migration_id) {
-  const res = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+  const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
     params: { before: new Date().toISOString(), migration_id },
   });
 
   let record_time = res.data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  const verify = await axios.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+  const verify = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
     params: { before: record_time, migration_id },
   });
 
@@ -102,7 +111,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   const allEvents = [];
   let after = 0;
-  const pageSize = 500;
+  const pageSize = parseInt(process.env.PAGE_SIZE || "1000", 10);
   let page = 1;
   const seen = new Set();
 
@@ -148,8 +157,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const MAX_RETRIES = 8;
   const BASE_DELAY = 3000; // Start with 3 seconds
   const MAX_PAGE_COOLDOWNS = 2; // Allow a couple of cooldown cycles per page
-  const COOLDOWN_AFTER_FAIL_MS = 60000; // 60s cooldown when a page keeps failing
+  const COOLDOWN_AFTER_FAIL_MS = parseInt(process.env.RETRY_COOLDOWN_MS || "15000", 10); // Configurable cooldown
   const JITTER_MS = 500; // add small random jitter to avoid thundering herd
+  const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
+  const inflightUploads = [];
   while (true) {
     let retryCount = 0;
     let cooldowns = 0;
@@ -157,7 +168,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     
     while (retryCount < MAX_RETRIES && !success) {
       try {
-        const res = await axios.post(
+        const res = await cantonClient.post(
           `${baseUrl}/v0/state/acs`,
           {
             migration_id,
@@ -216,47 +227,60 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           pendingUploads[templateId] = templatesData[templateId];
         }
 
-        // Upload when we have enough templates
+        // Upload when we have enough templates (non-blocking pipeline)
         if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE) {
-          console.log(`📤 Uploading ${Object.keys(pendingUploads).length} templates...`);
+          // Wait if we have too many in-flight uploads
+          if (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
+            await Promise.race(inflightUploads);
+            inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
+          }
+
+          console.log(`📤 Starting upload of ${Object.keys(pendingUploads).length} templates...`);
           
           const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
             filename: `${safeFileName(templateId)}.json`,
             content: JSON.stringify(contracts, null, 2),
           }));
 
-          await uploadToEdgeFunction("append", {
-            mode: "append",
-            webhookSecret: WEBHOOK_SECRET,
-            snapshot_id: snapshotId,
-            templates,
-          });
-
-          // Clear pending uploads
+          const uploadSnapshot = { ...pendingUploads };
           Object.keys(pendingUploads).forEach(key => delete pendingUploads[key]);
-          
-          // Send progress update immediately after upload
-          const now = Date.now();
-          const elapsedMs = now - startTime;
-          const elapsedMinutes = elapsedMs / 1000 / 60;
-          const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-          await uploadToEdgeFunction("progress", {
-            mode: "progress",
-            webhookSecret: WEBHOOK_SECRET,
-            snapshot_id: snapshotId,
-            progress: {
-              processed_pages: page,
-              processed_events: allEvents.length,
-              elapsed_time_ms: elapsedMs,
-              pages_per_minute: pagesPerMin,
-            },
-          });
+          // Start upload without waiting (pipelined)
+          const uploadPromise = (async () => {
+            try {
+              await uploadToEdgeFunction("append", {
+                mode: "append",
+                webhookSecret: WEBHOOK_SECRET,
+                snapshot_id: snapshotId,
+                templates,
+              });
+              
+              // Send progress update after upload
+              const now = Date.now();
+              const elapsedMs = now - startTime;
+              const elapsedMinutes = elapsedMs / 1000 / 60;
+              const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-          lastProgressUpdate = now;
-          console.log(`📊 Progress: ${page} pages, ${allEvents.length} events, ${pagesPerMin.toFixed(1)} pages/min`);
-          
-          await sleep(UPLOAD_DELAY_MS);
+              await uploadToEdgeFunction("progress", {
+                mode: "progress",
+                webhookSecret: WEBHOOK_SECRET,
+                snapshot_id: snapshotId,
+                progress: {
+                  processed_pages: page,
+                  processed_events: allEvents.length,
+                  elapsed_time_ms: elapsedMs,
+                  pages_per_minute: pagesPerMin,
+                },
+              });
+
+              console.log(`✅ Upload completed. Progress: ${page} pages, ${pagesPerMin.toFixed(1)} pages/min`);
+            } catch (error) {
+              console.error(`❌ Upload failed:`, error.message);
+            }
+            uploadPromise.settled = true;
+          })();
+
+          inflightUploads.push(uploadPromise);
         }
 
         // Track total pages
@@ -298,9 +322,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         after = rangeTo ?? after + events.length;
         page++;
         success = true;
-        
-        // Throttle requests to avoid overwhelming server
-        await sleep(3000);
         
       } catch (err) {
         const statusCode = err.response?.status;
@@ -364,6 +385,12 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   }
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
+
+  // Wait for all remaining in-flight uploads
+  if (inflightUploads.length > 0) {
+    console.log(`⏳ Waiting for ${inflightUploads.length} in-flight uploads...`);
+    await Promise.all(inflightUploads);
+  }
 
   // Upload any remaining templates
   if (snapshotId && Object.keys(pendingUploads).length > 0) {
