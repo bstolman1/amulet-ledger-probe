@@ -105,20 +105,37 @@ export type Database = {
           amulet_total: number
           canonical_package: string | null
           circulating_supply: number
+          completed_at: string | null
           created_at: string
+          current_page: number | null
+          cursor_after: number
+          elapsed_time_ms: number | null
           entry_count: number
           error_message: string | null
+          failure_count: number
           id: string
           is_delta: boolean | null
+          iteration_count: number | null
+          last_error_message: string | null
+          last_progress_update: string | null
           last_update_id: string | null
           locked_total: number
+          max_iterations: number | null
           migration_id: number
+          page_size: number
+          pages_per_minute: number | null
           previous_snapshot_id: string | null
+          processed_events: number
+          processed_pages: number
           processing_mode: string | null
+          progress: Json | null
+          progress_percentage: number | null
           record_time: string
+          started_at: string | null
           status: string
           sv_url: string
           timestamp: string
+          total_events: number | null
           updated_at: string
           updates_processed: number | null
         }
@@ -126,20 +143,37 @@ export type Database = {
           amulet_total: number
           canonical_package?: string | null
           circulating_supply: number
+          completed_at?: string | null
           created_at?: string
+          current_page?: number | null
+          cursor_after?: number
+          elapsed_time_ms?: number | null
           entry_count: number
           error_message?: string | null
+          failure_count?: number
           id?: string
           is_delta?: boolean | null
+          iteration_count?: number | null
+          last_error_message?: string | null
+          last_progress_update?: string | null
           last_update_id?: string | null
           locked_total: number
+          max_iterations?: number | null
           migration_id: number
+          page_size?: number
+          pages_per_minute?: number | null
           previous_snapshot_id?: string | null
+          processed_events?: number
+          processed_pages?: number
           processing_mode?: string | null
+          progress?: Json | null
+          progress_percentage?: number | null
           record_time: string
+          started_at?: string | null
           status?: string
           sv_url: string
           timestamp?: string
+          total_events?: number | null
           updated_at?: string
           updates_processed?: number | null
         }
@@ -147,20 +181,37 @@ export type Database = {
           amulet_total?: number
           canonical_package?: string | null
           circulating_supply?: number
+          completed_at?: string | null
           created_at?: string
+          current_page?: number | null
+          cursor_after?: number
+          elapsed_time_ms?: number | null
           entry_count?: number
           error_message?: string | null
+          failure_count?: number
           id?: string
           is_delta?: boolean | null
+          iteration_count?: number | null
+          last_error_message?: string | null
+          last_progress_update?: string | null
           last_update_id?: string | null
           locked_total?: number
+          max_iterations?: number | null
           migration_id?: number
+          page_size?: number
+          pages_per_minute?: number | null
           previous_snapshot_id?: string | null
+          processed_events?: number
+          processed_pages?: number
           processing_mode?: string | null
+          progress?: Json | null
+          progress_percentage?: number | null
           record_time?: string
+          started_at?: string | null
           status?: string
           sv_url?: string
           timestamp?: string
+          total_events?: number | null
           updated_at?: string
           updates_processed?: number | null
         }

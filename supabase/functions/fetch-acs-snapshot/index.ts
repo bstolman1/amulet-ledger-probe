@@ -5,6 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const PAGES_PER_BATCH = 20; // Process 20 pages per invocation
+const PAGE_SIZE = 1000;
+
 // Decimal arithmetic helpers (10 decimal precision)
 class Decimal {
   private value: string;
@@ -52,7 +55,6 @@ function isTemplate(event: any, moduleName: string, entityName: string): boolean
 function analyzeArgs(args: any, agg: TemplateStats): void {
   if (!args || typeof args !== 'object') return;
 
-  // Check common schema patterns
   const candidates = [
     args?.amount?.initialAmount,
     args?.amulet?.amount?.initialAmount,
@@ -66,7 +68,6 @@ function analyzeArgs(args: any, agg: TemplateStats): void {
     }
   }
 
-  // Generic recursive walk for other numeric fields
   const STATUS_KEYS = ['status', 'state', 'phase', 'result'];
   const stack = [args];
   
@@ -75,20 +76,17 @@ function analyzeArgs(args: any, agg: TemplateStats): void {
     if (!cur || typeof cur !== 'object') continue;
 
     for (const [k, v] of Object.entries(cur)) {
-      // Tally status fields
       if (STATUS_KEYS.includes(k) && typeof v === 'string' && v.length) {
         agg.status = agg.status || {};
         agg.status[v] = (agg.status[v] || 0) + 1;
       }
 
-      // Numeric string fields
       if (typeof v === 'string' && DECIMAL_RE.test(v) && v.includes('.')) {
         if (!/id|hash|cid|guid|index/i.test(k)) {
           addField(agg, k, new Decimal(v));
         }
       }
 
-      // Recurse
       if (v && typeof v === 'object') stack.push(v);
     }
   }
@@ -129,7 +127,6 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   let record_time = data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  // Re-verify
   const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
   const verifyData = await verify.json();
   if (verifyData?.record_time && verifyData.record_time !== record_time) {
@@ -139,34 +136,26 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
-async function fetchAllACS(
+async function processBatch(
   baseUrl: string,
   migration_id: number,
   record_time: string,
   supabaseAdmin: any,
-  snapshotId: string
-): Promise<{
-  amuletTotal: Decimal;
-  lockedTotal: Decimal;
-  canonicalPkg: string;
-  templateStats: Record<string, TemplateStats>;
-  entryCount: number;
-}> {
-  console.log('📦 Fetching ACS snapshot...');
+  snapshot: any
+): Promise<{ isComplete: boolean; nextCursor: number }> {
+  console.log(`📦 Processing batch starting from cursor: ${snapshot.cursor_after}`);
 
   const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
   const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
-  const templatesByPackage: Record<string, Set<string>> = {};
 
-  let amuletTotal = new Decimal('0');
-  let lockedTotal = new Decimal('0');
-  let after = 0;
-  const pageSize = 1000;
-  let page = 1;
+  let amuletTotal = new Decimal(snapshot.amulet_total || '0');
+  let lockedTotal = new Decimal(snapshot.locked_total || '0');
+  let after = snapshot.cursor_after || 0;
+  let pagesProcessed = 0;
   const seen = new Set<string>();
 
-  while (true) {
+  while (pagesProcessed < PAGES_PER_BATCH) {
     try {
       const res = await fetch(`${baseUrl}/v0/state/acs`, {
         method: 'POST',
@@ -174,7 +163,7 @@ async function fetchAllACS(
         body: JSON.stringify({
           migration_id,
           record_time,
-          page_size: pageSize,
+          page_size: PAGE_SIZE,
           after,
           daml_value_encoding: 'compact_json',
         }),
@@ -185,8 +174,8 @@ async function fetchAllACS(
       const rangeTo = data.range?.to;
 
       if (events.length === 0) {
-        console.log('✅ No more events — finished.');
-        break;
+        console.log('✅ No more events — batch complete.');
+        return { isComplete: true, nextCursor: after };
       }
 
       for (const e of events) {
@@ -198,22 +187,14 @@ async function fetchAllACS(
         const pkg = templateId.split(':')[0] || 'unknown';
         const args = e.create_arguments || {};
 
-        // Initialize tracking
         perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
-        templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
-        templatesByPackage[pkg].add(templateId);
-
         templatesData[templateId] = templatesData[templateId] || [];
         templateStats[templateId] = templateStats[templateId] || { count: 0 };
 
-        // Save raw args
         templatesData[templateId].push(args);
         templateStats[templateId].count += 1;
-
-        // Analyze args
         analyzeArgs(args, templateStats[templateId]);
 
-        // Token totals
         if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
           const val = args?.amount?.initialAmount ?? '0';
           if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
@@ -231,39 +212,30 @@ async function fetchAllACS(
         }
       }
 
-      console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
+      pagesProcessed++;
+      console.log(`📄 Processed page ${pagesProcessed}/${PAGES_PER_BATCH} | Amulet: ${amuletTotal.toString()}`);
 
-      if (events.length < pageSize) {
-        console.log('✅ Last page reached.');
-        break;
+      if (events.length < PAGE_SIZE) {
+        console.log('✅ Last page reached in batch.');
+        return { isComplete: true, nextCursor: rangeTo ?? after + events.length };
       }
 
       after = rangeTo ?? after + events.length;
-      page++;
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 50));
     } catch (err: any) {
-      console.error(`⚠️ Page ${page} failed:`, err.message);
+      console.error(`⚠️ Page processing failed:`, err.message);
       throw err;
     }
   }
 
-  // Find canonical package
-  const canonicalPkgEntry = Object.entries(perPackage).sort(
-    (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber()
-  )[0];
-  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
-
-  console.log(`📦 Canonical package: ${canonicalPkg}`);
-
-  // Upload per-template JSON files to storage
+  // Upload template data to storage
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
-    const filePath = `${snapshotId}/${fileName}.json`;
+    const filePath = `${snapshot.id}/${fileName}.json`;
     
     const fileContent = JSON.stringify({
       metadata: {
         template_id: templateId,
-        canonical_package: canonicalPkg,
         migration_id,
         record_time,
         timestamp: new Date().toISOString(),
@@ -281,11 +253,9 @@ async function fetchAllACS(
 
     if (uploadError) {
       console.error(`Failed to upload ${filePath}:`, uploadError);
-    } else {
-      console.log(`✅ Uploaded ${filePath}`);
     }
 
-    // Store template stats in DB
+    // Store or update template stats
     const fieldSums: Record<string, string> = {};
     if (templateStats[templateId].fields) {
       for (const [fname, fBN] of Object.entries(templateStats[templateId].fields)) {
@@ -293,23 +263,32 @@ async function fetchAllACS(
       }
     }
 
-    await supabaseAdmin.from('acs_template_stats').insert({
-      snapshot_id: snapshotId,
+    await supabaseAdmin.from('acs_template_stats').upsert({
+      snapshot_id: snapshot.id,
       template_id: templateId,
       contract_count: templateStats[templateId].count,
       field_sums: fieldSums,
       status_tallies: templateStats[templateId].status || null,
       storage_path: filePath,
-    });
+    }, { onConflict: 'snapshot_id,template_id' });
   }
 
-  return {
-    amuletTotal,
-    lockedTotal,
-    canonicalPkg,
-    templateStats,
-    entryCount: seen.size,
-  };
+  // Update snapshot progress
+  const circulating = amuletTotal.minus(lockedTotal);
+  await supabaseAdmin
+    .from('acs_snapshots')
+    .update({
+      cursor_after: after,
+      amulet_total: amuletTotal.toString(),
+      locked_total: lockedTotal.toString(),
+      circulating_supply: circulating.toString(),
+      entry_count: snapshot.entry_count + seen.size,
+      iteration_count: (snapshot.iteration_count || 0) + 1,
+    })
+    .eq('id', snapshot.id);
+
+  console.log(`✅ Batch complete. Next cursor: ${after}`);
+  return { isComplete: false, nextCursor: after };
 }
 
 Deno.serve(async (req) => {
@@ -324,86 +303,108 @@ Deno.serve(async (req) => {
     );
 
     const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
+    
+    const body = await req.json().catch(() => ({}));
+    const snapshotId = body?.snapshot_id;
 
-    // Create snapshot record
-    const { data: snapshot, error: snapshotError } = await supabaseAdmin
-      .from('acs_snapshots')
-      .insert({
-        sv_url: BASE_URL,
-        migration_id: 0, // Will be updated
-        record_time: '',
-        amulet_total: '0',
-        locked_total: '0',
-        circulating_supply: '0',
-        entry_count: 0,
-        status: 'processing',
-      })
-      .select()
-      .single();
+    let snapshot: any;
 
-    if (snapshotError || !snapshot) {
-      throw new Error('Failed to create snapshot record');
-    }
+    if (snapshotId) {
+      // Resume existing snapshot
+      console.log(`🔄 Resuming snapshot: ${snapshotId}`);
+      const { data, error } = await supabaseAdmin
+        .from('acs_snapshots')
+        .select('*')
+        .eq('id', snapshotId)
+        .single();
 
-    // Start background task
-    const backgroundTask = async () => {
-      try {
-        const migration_id = await detectLatestMigration(BASE_URL);
-        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+      if (error || !data) {
+        throw new Error(`Snapshot ${snapshotId} not found`);
+      }
 
-        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
-          BASE_URL,
+      snapshot = data;
+
+      // Safety check for infinite loops
+      if (snapshot.iteration_count >= snapshot.max_iterations) {
+        throw new Error(`Max iterations (${snapshot.max_iterations}) reached`);
+      }
+    } else {
+      // Create new snapshot
+      console.log('🆕 Creating new snapshot');
+      const migration_id = await detectLatestMigration(BASE_URL);
+      const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+
+      const { data, error } = await supabaseAdmin
+        .from('acs_snapshots')
+        .insert({
+          sv_url: BASE_URL,
           migration_id,
           record_time,
-          supabaseAdmin,
-          snapshot.id
-        );
+          amulet_total: '0',
+          locked_total: '0',
+          circulating_supply: '0',
+          entry_count: 0,
+          cursor_after: 0,
+          iteration_count: 0,
+          status: 'processing',
+        })
+        .select()
+        .single();
 
-        const circulating = amuletTotal.minus(lockedTotal);
-
-        // Update snapshot with results
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({
-            migration_id,
-            record_time,
-            canonical_package: canonicalPkg,
-            amulet_total: amuletTotal.toString(),
-            locked_total: lockedTotal.toString(),
-            circulating_supply: circulating.toString(),
-            entry_count: entryCount,
-            status: 'completed',
-          })
-          .eq('id', snapshot.id);
-
-        console.log('✅ ACS snapshot completed successfully');
-      } catch (error: any) {
-        console.error('❌ ACS snapshot failed:', error);
-        
-        await supabaseAdmin
-          .from('acs_snapshots')
-          .update({
-            status: 'failed',
-            error_message: error.message,
-          })
-          .eq('id', snapshot.id);
+      if (error || !data) {
+        throw new Error('Failed to create snapshot record');
       }
-    };
 
-    // Start background task (fire and forget)
-    backgroundTask();
+      snapshot = data;
+    }
 
-    return new Response(
-      JSON.stringify({
-        message: 'ACS snapshot started',
-        snapshot_id: snapshot.id,
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+    // Process batch
+    const { isComplete, nextCursor } = await processBatch(
+      BASE_URL,
+      snapshot.migration_id,
+      snapshot.record_time,
+      supabaseAdmin,
+      snapshot
     );
+
+    if (isComplete) {
+      // Mark as completed
+      await supabaseAdmin
+        .from('acs_snapshots')
+        .update({ status: 'completed' })
+        .eq('id', snapshot.id);
+
+      console.log('🎉 Snapshot completed!');
+      return new Response(
+        JSON.stringify({
+          message: 'ACS snapshot completed',
+          snapshot_id: snapshot.id,
+          status: 'completed',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } else {
+      // Self-invoke for next batch
+      console.log('🔁 Invoking next batch...');
+      supabaseAdmin.functions.invoke('fetch-acs-snapshot', {
+        body: { snapshot_id: snapshot.id },
+      }).catch((err: any) => {
+        console.error('Failed to invoke next batch:', err);
+      });
+
+      return new Response(
+        JSON.stringify({
+          message: 'Batch processed, continuing...',
+          snapshot_id: snapshot.id,
+          cursor: nextCursor,
+          iteration: snapshot.iteration_count + 1,
+          status: 'processing',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
   } catch (error: any) {
-    console.error('Error:', error);
+    console.error('❌ Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
