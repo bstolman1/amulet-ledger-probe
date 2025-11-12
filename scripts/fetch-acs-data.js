@@ -6,7 +6,6 @@
 import axios from "axios";
 import fs from "fs";
 import BigNumber from "bignumber.js";
-import { uploadBatch } from "./upload-via-edge-function.js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -73,25 +72,6 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   return record_time;
 }
 
-function writeTemplateFiles(templatesData, outputDir) {
-  for (const [templateId, data] of Object.entries(templatesData)) {
-    const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
-    fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
-  }
-}
-
-function getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time) {
-  const circulatingSupply = amuletTotal.plus(lockedTotal);
-  return {
-    amulet_total: amuletTotal.toString(),
-    locked_total: lockedTotal.toString(),
-    circulating_supply: circulatingSupply.toString(),
-    canonical_package: canonicalPkg,
-    templates: canonicalTemplates,
-    migration_id: migration_id,
-    record_time: record_time
-  };
-}
 
 async function fetchAllACS(baseUrl, migration_id, record_time) {
   console.log("📦 Fetching ACS snapshot and exporting per-template files…");
@@ -110,9 +90,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-
-  const BATCH_SIZE = 50; // Upload every 50 pages
-  let snapshotId = null; // Track snapshot across batches
 
   const MAX_RETRIES = 8;
   const BASE_DELAY = 3000; // Start with 3 seconds
@@ -182,40 +159,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
-
-        // Upload batch every 50 pages (if upload credentials are available)
-        if (page % BATCH_SIZE === 0) {
-          // Write current template files
-          writeTemplateFiles(templatesData, outputDir);
-          
-          // Only upload if environment variables are set
-          const hasUploadCredentials = process.env.EDGE_FUNCTION_URL && process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-          
-          if (hasUploadCredentials) {
-            console.log(`\n🔄 Uploading batch at page ${page}...`);
-            
-            // Determine canonical package for summary
-            const canonicalPkgEntry = Object.entries(perPackage).sort(
-              (a, b) => b[1].amulet.minus(a[1].amulet)
-            )[0];
-            const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
-            const canonicalTemplates = templatesByPackage[canonicalPkg]
-              ? Array.from(templatesByPackage[canonicalPkg])
-              : [];
-            
-            // Upload this batch
-            snapshotId = await uploadBatch({
-              templatesData,
-              snapshotId: snapshotId,
-              summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
-              isComplete: false
-            });
-            
-            console.log(`✅ Uploaded batch at page ${page} (snapshot: ${snapshotId})\n`);
-          } else {
-            console.log(`\n💾 Saved batch at page ${page} (upload skipped - no credentials)\n`);
-          }
-        }
 
         if (events.length < pageSize) {
           console.log("\n✅ Last page reached.");
@@ -292,8 +235,11 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
 
-  // 🧾 Write final template files
-  writeTemplateFiles(templatesData, outputDir);
+  // 🧾 Write per-template files
+  for (const [templateId, data] of Object.entries(templatesData)) {
+    const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
+    fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
+  }
   console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
   const canonicalPkgEntry = Object.entries(perPackage).sort(
@@ -305,21 +251,20 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
     ? Array.from(templatesByPackage[canonicalPkg])
     : [];
 
-  // Final upload and mark complete (if upload credentials are available)
-  const hasUploadCredentials = process.env.EDGE_FUNCTION_URL && process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-  
-  if (hasUploadCredentials) {
-    console.log(`\n🔄 Uploading final batch and marking complete...`);
-    await uploadBatch({
-      templatesData,
-      snapshotId: snapshotId,
-      summary: getSummaryData(amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, migration_id, record_time),
-      isComplete: true
-    });
-    console.log(`✅ Final upload complete!\n`);
-  } else {
-    console.log(`\n💾 All data saved locally to ${outputDir}/ (upload skipped - no credentials)\n`);
-  }
+  // 📦 Write summary file
+  const circulatingSupply = amuletTotal.plus(lockedTotal);
+  const summary = {
+    amulet_total: amuletTotal.toString(),
+    locked_total: lockedTotal.toString(),
+    circulating_supply: circulatingSupply.toString(),
+    canonical_package: canonicalPkg,
+    templates: canonicalTemplates,
+    migration_id: migration_id,
+    record_time: record_time
+  };
+
+  fs.writeFileSync("./circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
+  console.log(`📄 Wrote summary to circulating-supply-single-sv.json\n`);
 
   return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
 }
