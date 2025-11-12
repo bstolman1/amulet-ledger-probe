@@ -139,84 +139,34 @@ async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Pr
   return record_time;
 }
 
-async function fetchACSBatch(
+async function fetchAllACS(
   baseUrl: string,
   migration_id: number,
   record_time: string,
   supabaseAdmin: any,
-  snapshotId: string,
-  batchSize: number = 10 // Process 10 pages per batch
+  snapshotId: string
 ): Promise<{
-  completed: boolean;
-  progress: {
-    after: number;
-    page: number;
-    amuletTotal: string;
-    lockedTotal: string;
-    entryCount: number;
-  };
+  amuletTotal: Decimal;
+  lockedTotal: Decimal;
+  canonicalPkg: string;
+  templateStats: Record<string, TemplateStats>;
+  entryCount: number;
 }> {
-  console.log('📦 Fetching ACS snapshot batch...');
+  console.log('📦 Fetching ACS snapshot...');
 
-  // Load existing progress
-  const { data: snapshot } = await supabaseAdmin
-    .from('acs_snapshots')
-    .select('*')
-    .eq('id', snapshotId)
-    .single();
-
-  if (!snapshot) throw new Error('Snapshot not found');
-
-  const progress = snapshot.progress || {
-    after: 0,
-    page: 1,
-    amuletTotal: '0',
-    lockedTotal: '0',
-    entryCount: 0,
-    templatesData: {},
-    templateStats: {},
-    perPackage: {},
-    seen: [],
-  };
-
-  let amuletTotal = new Decimal(progress.amuletTotal);
-  let lockedTotal = new Decimal(progress.lockedTotal);
-  let after = progress.after;
-  let page = progress.page;
-  const seen = new Set<string>(progress.seen);
-  const templatesData: Record<string, any[]> = progress.templatesData || {};
+  const templatesData: Record<string, any[]> = {};
   const templateStats: Record<string, TemplateStats> = {};
   const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
-  
-  // Restore template stats
-  if (progress.templateStats) {
-    for (const [tid, stats] of Object.entries(progress.templateStats)) {
-      const typedStats = stats as TemplateStats;
-      templateStats[tid] = typedStats;
-      if (typedStats.fields) {
-        templateStats[tid].fields = {};
-        for (const [fname, fval] of Object.entries(typedStats.fields)) {
-          templateStats[tid].fields![fname] = new Decimal(String(fval));
-        }
-      }
-    }
-  }
+  const templatesByPackage: Record<string, Set<string>> = {};
 
-  // Restore per-package stats
-  if (progress.perPackage) {
-    for (const [pkg, vals] of Object.entries(progress.perPackage)) {
-      const v = vals as { amulet: string; locked: string };
-      perPackage[pkg] = {
-        amulet: new Decimal(v.amulet),
-        locked: new Decimal(v.locked),
-      };
-    }
-  }
-
+  let amuletTotal = new Decimal('0');
+  let lockedTotal = new Decimal('0');
+  let after = 0;
   const pageSize = 1000;
-  let pagesProcessed = 0;
+  let page = 1;
+  const seen = new Set<string>();
 
-  while (pagesProcessed < batchSize) {
+  while (true) {
     try {
       const res = await fetch(`${baseUrl}/v0/state/acs`, {
         method: 'POST',
@@ -250,6 +200,8 @@ async function fetchACSBatch(
 
         // Initialize tracking
         perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
+        templatesByPackage[pkg] = templatesByPackage[pkg] || new Set();
+        templatesByPackage[pkg].add(templateId);
 
         templatesData[templateId] = templatesData[templateId] || [];
         templateStats[templateId] = templateStats[templateId] || { count: 0 };
@@ -281,30 +233,9 @@ async function fetchACSBatch(
 
       console.log(`📄 Page ${page} | Amulet: ${amuletTotal.toString()} | Locked: ${lockedTotal.toString()}`);
 
-      pagesProcessed++;
-
       if (events.length < pageSize) {
         console.log('✅ Last page reached.');
-        
-        // Find canonical package
-        const canonicalPkgEntry = Object.entries(perPackage).sort(
-          (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber()
-        )[0];
-        const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
-        
-        // Upload all template data
-        await uploadTemplateData(templatesData, templateStats, snapshotId, canonicalPkg, migration_id, record_time, supabaseAdmin);
-        
-        return {
-          completed: true,
-          progress: {
-            after,
-            page,
-            amuletTotal: amuletTotal.toString(),
-            lockedTotal: lockedTotal.toString(),
-            entryCount: seen.size,
-          },
-        };
+        break;
       }
 
       after = rangeTo ?? after + events.length;
@@ -316,81 +247,15 @@ async function fetchACSBatch(
     }
   }
 
-  // Save progress
-  await supabaseAdmin
-    .from('acs_snapshots')
-    .update({
-      progress: {
-        after,
-        page,
-        amuletTotal: amuletTotal.toString(),
-        lockedTotal: lockedTotal.toString(),
-        entryCount: seen.size,
-        templatesData,
-        templateStats: Object.fromEntries(
-          Object.entries(templateStats).map(([tid, stats]) => [
-            tid,
-            {
-              ...stats,
-              fields: stats.fields
-                ? Object.fromEntries(
-                    Object.entries(stats.fields).map(([k, v]) => [k, v.toString()])
-                  )
-                : undefined,
-            },
-          ])
-        ),
-        perPackage: Object.fromEntries(
-          Object.entries(perPackage).map(([pkg, vals]) => [
-            pkg,
-            { amulet: vals.amulet.toString(), locked: vals.locked.toString() },
-          ])
-        ),
-        seen: Array.from(seen),
-      },
-    })
-    .eq('id', snapshotId);
-
-  return {
-    completed: false,
-    progress: {
-      after,
-      page,
-      amuletTotal: amuletTotal.toString(),
-      lockedTotal: lockedTotal.toString(),
-      entryCount: seen.size,
-    },
-  };
-}
-
-async function getCanonicalPackage(supabaseAdmin: any, snapshotId: string): Promise<string> {
-  const { data: snapshot } = await supabaseAdmin
-    .from('acs_snapshots')
-    .select('progress')
-    .eq('id', snapshotId)
-    .single();
-
-  if (!snapshot?.progress?.perPackage) return 'unknown';
-
-  const perPackage = snapshot.progress.perPackage;
+  // Find canonical package
   const canonicalPkgEntry = Object.entries(perPackage).sort(
-    (a: any, b: any) => parseFloat(b[1].amulet) - parseFloat(a[1].amulet)
+    (a, b) => b[1].amulet.toNumber() - a[1].amulet.toNumber()
   )[0];
-  
-  return canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
-}
+  const canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : 'unknown';
 
-async function uploadTemplateData(
-  templatesData: Record<string, any[]>,
-  templateStats: Record<string, TemplateStats>,
-  snapshotId: string,
-  canonicalPkg: string,
-  migration_id: number,
-  record_time: string,
-  supabaseAdmin: any
-) {
-  console.log(`📦 Uploading template data for canonical package: ${canonicalPkg}`);
+  console.log(`📦 Canonical package: ${canonicalPkg}`);
 
+  // Upload per-template JSON files to storage
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshotId}/${fileName}.json`;
@@ -420,6 +285,7 @@ async function uploadTemplateData(
       console.log(`✅ Uploaded ${filePath}`);
     }
 
+    // Store template stats in DB
     const fieldSums: Record<string, string> = {};
     if (templateStats[templateId].fields) {
       for (const [fname, fBN] of Object.entries(templateStats[templateId].fields)) {
@@ -436,6 +302,14 @@ async function uploadTemplateData(
       storage_path: filePath,
     });
   }
+
+  return {
+    amuletTotal,
+    lockedTotal,
+    canonicalPkg,
+    templateStats,
+    entryCount: seen.size,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -451,92 +325,91 @@ Deno.serve(async (req) => {
 
     const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
 
-    // Parse params
-    const url = new URL(req.url);
-    const pagesParam = parseInt(url.searchParams.get('pages') || '10', 10);
-    const batchSize = Number.isFinite(pagesParam) && pagesParam > 0 ? Math.min(pagesParam, 50) : 10;
-
-    // Find latest processing snapshot, or create a new one
-    const { data: existingSnapshot } = await supabaseAdmin
+    // Create snapshot record
+    const { data: snapshot, error: snapshotError } = await supabaseAdmin
       .from('acs_snapshots')
-      .select('*')
-      .eq('status', 'processing')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .insert({
+        sv_url: BASE_URL,
+        migration_id: 0, // Will be updated
+        record_time: '',
+        amulet_total: '0',
+        locked_total: '0',
+        circulating_supply: '0',
+        entry_count: 0,
+        status: 'processing',
+      })
+      .select()
+      .single();
 
-    let snapshot = existingSnapshot as any | null;
+    if (snapshotError || !snapshot) {
+      throw new Error('Failed to create snapshot record');
+    }
 
-    if (!snapshot) {
-      // Start a new snapshot session
-      const migration_id = await detectLatestMigration(BASE_URL);
-      const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    // Start background task
+    const backgroundTask = async () => {
+      try {
+        const migration_id = await detectLatestMigration(BASE_URL);
+        const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
-      const { data: created, error: snapshotError } = await supabaseAdmin
-        .from('acs_snapshots')
-        .insert({
-          sv_url: BASE_URL,
+        const { amuletTotal, lockedTotal, canonicalPkg, entryCount } = await fetchAllACS(
+          BASE_URL,
           migration_id,
           record_time,
-          amulet_total: '0',
-          locked_total: '0',
-          circulating_supply: '0',
-          entry_count: 0,
-          status: 'processing',
-        })
-        .select()
-        .single();
+          supabaseAdmin,
+          snapshot.id
+        );
 
-      if (snapshotError || !created) {
-        throw new Error('Failed to create snapshot record');
+        const circulating = amuletTotal.minus(lockedTotal);
+
+        // Update snapshot with results
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            migration_id,
+            record_time,
+            canonical_package: canonicalPkg,
+            amulet_total: amuletTotal.toString(),
+            locked_total: lockedTotal.toString(),
+            circulating_supply: circulating.toString(),
+            entry_count: entryCount,
+            status: 'completed',
+          })
+          .eq('id', snapshot.id);
+
+        console.log('✅ ACS snapshot completed successfully');
+      } catch (error: any) {
+        console.error('❌ ACS snapshot failed:', error);
+        
+        await supabaseAdmin
+          .from('acs_snapshots')
+          .update({
+            status: 'failed',
+            error_message: error.message,
+          })
+          .eq('id', snapshot.id);
       }
-      snapshot = created;
-    }
+    };
 
-    // Process a single batch (resumable)
-    const result = await fetchACSBatch(
-      BASE_URL,
-      snapshot.migration_id,
-      snapshot.record_time,
-      supabaseAdmin,
-      snapshot.id,
-      batchSize
-    );
-
-    if (result.completed) {
-      const canonicalPkg = await getCanonicalPackage(supabaseAdmin, snapshot.id);
-      const amuletTotal = new Decimal(result.progress.amuletTotal);
-      const lockedTotal = new Decimal(result.progress.lockedTotal);
-      const circulating = amuletTotal.minus(lockedTotal);
-
-      await supabaseAdmin
-        .from('acs_snapshots')
-        .update({
-          canonical_package: canonicalPkg,
-          amulet_total: amuletTotal.toString(),
-          locked_total: lockedTotal.toString(),
-          circulating_supply: circulating.toString(),
-          entry_count: result.progress.entryCount,
-          status: 'completed',
-          progress: null,
-        })
-        .eq('id', snapshot.id);
-    }
+    // Start background task (fire and forget)
+    backgroundTask();
 
     return new Response(
       JSON.stringify({
-        message: 'ACS snapshot step processed',
+        message: 'ACS snapshot started',
         snapshot_id: snapshot.id,
-        completed: result.completed,
-        progress: result.progress,
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     );
   } catch (error: any) {
     console.error('Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     );
   }
 });
