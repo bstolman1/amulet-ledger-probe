@@ -5,18 +5,18 @@
 import fs from "fs";
 import path from "path";
 
-const edgeFunctionUrl = process.env.EDGE_FUNCTION_URL;
-const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
 let CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || '1'); // Configurable, default to 1 for safety
 const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || '1000'); // Configurable delay between chunks
 const MAX_RETRIES = 3;
 
-if (!edgeFunctionUrl || !webhookSecret) {
-  console.error("❌ Missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET");
-  process.exit(1);
-}
-
 export async function uploadBatch({ templatesData, snapshotId, summary, isComplete }) {
+  const edgeFunctionUrl = process.env.EDGE_FUNCTION_URL;
+  const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
+
+  if (!edgeFunctionUrl || !webhookSecret) {
+    throw new Error("Missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET environment variables");
+  }
+
   try {
     // Convert templatesData object to array format expected by edge function
     const templates = Object.entries(templatesData).map(([templateId, data]) => ({
