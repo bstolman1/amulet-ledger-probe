@@ -25,6 +25,7 @@ interface Snapshot {
 
 interface TemplateStats {
   id: string;
+  snapshot_id: string;
   template_id: string;
   contract_count: number;
   created_at: string;
@@ -72,12 +73,12 @@ const SnapshotProgress = () => {
           schema: 'public',
           table: 'acs_template_stats'
         },
-        (payload) => {
+(payload) => {
           console.log('Template stats update:', payload);
           const newStat = payload.new as TemplateStats;
           setTemplateStats((prev) => ({
             ...prev,
-            [newStat.id]: [...(prev[newStat.id] || []), newStat]
+            [newStat.snapshot_id]: [...(prev[newStat.snapshot_id] || []), newStat]
           }));
         }
       )
@@ -233,7 +234,7 @@ const SnapshotProgress = () => {
                     <Activity className="w-4 h-4" />
                     Pages/Min
                   </div>
-                  <p className="text-2xl font-bold">{snapshot.pages_per_minute?.toFixed(1) || 0}</p>
+                  <p className="text-2xl font-bold">{Number(snapshot.pages_per_minute ?? 0).toFixed(1)}</p>
                 </div>
               </div>
 
