@@ -235,15 +235,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           // Clear pending uploads
           Object.keys(pendingUploads).forEach(key => delete pendingUploads[key]);
           
-          await sleep(UPLOAD_DELAY_MS);
-        }
-
-        // Track total pages
-        totalPages = page;
-
-        // Send progress update every 10 pages or every 5 seconds
-        const now = Date.now();
-        if (snapshotId && (page % 10 === 0 || (now - lastProgressUpdate) >= 5000)) {
+          // Send progress update immediately after upload
+          const now = Date.now();
           const elapsedMs = now - startTime;
           const elapsedMinutes = elapsedMs / 1000 / 60;
           const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
@@ -262,7 +255,12 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
           lastProgressUpdate = now;
           console.log(`📊 Progress: ${page} pages, ${allEvents.length} events, ${pagesPerMin.toFixed(1)} pages/min`);
+          
+          await sleep(UPLOAD_DELAY_MS);
         }
+
+        // Track total pages
+        totalPages = page;
 
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
