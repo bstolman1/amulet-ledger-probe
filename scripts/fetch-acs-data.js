@@ -1,5 +1,5 @@
 /**
- * Fetch ACS data from Canton Network
+ * Fetch ACS data from Canton Network and upload in real-time
  * Runs in GitHub Actions with no IP restrictions
  */
 
@@ -10,6 +10,10 @@ import BigNumber from "bignumber.js";
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
+const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
+const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
+const UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
+const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || "500", 10);
 
 function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
@@ -26,6 +30,26 @@ function sleep(ms) {
 
 function safeFileName(templateId) {
   return templateId.replace(/[:.]/g, "_");
+}
+
+async function uploadToEdgeFunction(phase, data) {
+  if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) {
+    return null;
+  }
+
+  try {
+    const response = await axios.post(EDGE_FUNCTION_URL, data, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-secret": WEBHOOK_SECRET,
+      },
+      timeout: 300000, // 5 minute timeout for large uploads
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Upload failed (${phase}):`, error.message);
+    throw error;
+  }
 }
 
 async function detectLatestMigration(baseUrl) {
@@ -74,7 +98,7 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
 
 
 async function fetchAllACS(baseUrl, migration_id, record_time) {
-  console.log("📦 Fetching ACS snapshot and exporting per-template files…");
+  console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
   const allEvents = [];
   let after = 0;
@@ -87,9 +111,31 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const perPackage = {};
   const templatesByPackage = {};
   const templatesData = {};
+  const pendingUploads = {};
 
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+
+  // Start snapshot
+  let snapshotId = null;
+  if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+    console.log("🚀 Creating snapshot in database...");
+    const circulatingSupply = amuletTotal.plus(lockedTotal);
+    const startResult = await uploadToEdgeFunction("start", {
+      mode: "start",
+      webhookSecret: WEBHOOK_SECRET,
+      summary: {
+        amulet_total: "0",
+        locked_total: "0",
+        circulating_supply: "0",
+        migration_id,
+        record_time,
+        sv_url: baseUrl,
+      },
+    });
+    snapshotId = startResult?.snapshot_id;
+    console.log(`✅ Snapshot created: ${snapshotId}`);
+  }
 
   const MAX_RETRIES = 8;
   const BASE_DELAY = 3000; // Start with 3 seconds
@@ -156,6 +202,34 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
         }
 
         allEvents.push(...events);
+
+        // Add to pending uploads
+        for (const templateId of pageTemplates) {
+          pendingUploads[templateId] = templatesData[templateId];
+        }
+
+        // Upload when we have enough templates
+        if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE) {
+          console.log(`📤 Uploading ${Object.keys(pendingUploads).length} templates...`);
+          
+          const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
+            templateId,
+            fileName: `${safeFileName(templateId)}.json`,
+            content: JSON.stringify(contracts, null, 2),
+          }));
+
+          await uploadToEdgeFunction("append", {
+            mode: "append",
+            webhookSecret: WEBHOOK_SECRET,
+            snapshotId,
+            templates,
+          });
+
+          // Clear pending uploads
+          Object.keys(pendingUploads).forEach(key => delete pendingUploads[key]);
+          
+          await sleep(UPLOAD_DELAY_MS);
+        }
 
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
@@ -235,7 +309,25 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
 
   console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
 
-  // 🧾 Write per-template files
+  // Upload any remaining templates
+  if (snapshotId && Object.keys(pendingUploads).length > 0) {
+    console.log(`📤 Uploading final ${Object.keys(pendingUploads).length} templates...`);
+    
+    const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
+      templateId,
+      fileName: `${safeFileName(templateId)}.json`,
+      content: JSON.stringify(contracts, null, 2),
+    }));
+
+    await uploadToEdgeFunction("append", {
+      mode: "append",
+      webhookSecret: WEBHOOK_SECRET,
+      snapshotId,
+      templates,
+    });
+  }
+
+  // 🧾 Write per-template files (local backup)
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
     fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
@@ -266,7 +358,21 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   fs.writeFileSync("./circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
   console.log(`📄 Wrote summary to circulating-supply-single-sv.json\n`);
 
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates };
+  // Complete snapshot with final summary
+  if (snapshotId) {
+    console.log("🏁 Marking snapshot as complete...");
+    await uploadToEdgeFunction("complete", {
+      mode: "complete",
+      webhookSecret: WEBHOOK_SECRET,
+      snapshotId,
+      summary,
+    });
+    console.log("✅ Snapshot completed!");
+  } else {
+    console.log("⚠️ No upload configured (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET)");
+  }
+
+  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
 }
 
 async function run() {
