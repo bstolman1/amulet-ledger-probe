@@ -49,7 +49,19 @@ interface CompleteRequest {
   };
 }
 
-type UploadRequest = StartRequest | AppendRequest | CompleteRequest;
+interface ProgressRequest {
+  mode: 'progress';
+  snapshot_id: string;
+  webhookSecret: string;
+  progress: {
+    processed_pages: number;
+    processed_events: number;
+    elapsed_time_ms: number;
+    pages_per_minute: number;
+  };
+}
+
+type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -164,6 +176,39 @@ Deno.serve(async (req) => {
         JSON.stringify({ 
           success: true, 
           processed: processed
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    if (request.mode === 'progress') {
+      const { snapshot_id, progress } = request;
+      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events`);
+
+      const { error: updateError } = await supabase
+        .from('acs_snapshots')
+        .update({
+          processed_pages: progress.processed_pages,
+          processed_events: progress.processed_events,
+          elapsed_time_ms: progress.elapsed_time_ms,
+          pages_per_minute: progress.pages_per_minute,
+          progress_percentage: 0, // Will be calculated based on events later
+        })
+        .eq('id', snapshot_id);
+
+      if (updateError) {
+        console.error('Failed to update snapshot progress:', updateError);
+        throw updateError;
+      }
+
+      console.log('Progress updated successfully');
+
+      return new Response(
+        JSON.stringify({ 
+          success: true
         }),
         { 
           status: 200, 

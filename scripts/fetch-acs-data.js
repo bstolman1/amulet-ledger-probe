@@ -119,6 +119,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   // Start snapshot
   let snapshotId = null;
   let canonicalPkg = "unknown";
+  const startTime = Date.now();
+  let lastProgressUpdate = startTime;
+  let totalPages = 0;
+  
   if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
     console.log("🚀 Creating snapshot in database...");
     const startResult = await uploadToEdgeFunction("start", {
@@ -232,6 +236,32 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
           Object.keys(pendingUploads).forEach(key => delete pendingUploads[key]);
           
           await sleep(UPLOAD_DELAY_MS);
+        }
+
+        // Track total pages
+        totalPages = page;
+
+        // Send progress update every 10 pages or every 5 seconds
+        const now = Date.now();
+        if (snapshotId && (page % 10 === 0 || (now - lastProgressUpdate) >= 5000)) {
+          const elapsedMs = now - startTime;
+          const elapsedMinutes = elapsedMs / 1000 / 60;
+          const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
+
+          await uploadToEdgeFunction("progress", {
+            mode: "progress",
+            webhookSecret: WEBHOOK_SECRET,
+            snapshot_id: snapshotId,
+            progress: {
+              processed_pages: page,
+              processed_events: allEvents.length,
+              elapsed_time_ms: elapsedMs,
+              pages_per_minute: pagesPerMin,
+            },
+          });
+
+          lastProgressUpdate = now;
+          console.log(`📊 Progress: ${page} pages, ${allEvents.length} events, ${pagesPerMin.toFixed(1)} pages/min`);
         }
 
         // Simple page progress
