@@ -3,9 +3,12 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Clock, Database, FileText, Activity, CheckCircle, XCircle } from "lucide-react";
+import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { toast } from "sonner";
+import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 
 interface Snapshot {
   id: string;
@@ -35,6 +38,7 @@ const SnapshotProgress = () => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [templateStats, setTemplateStats] = useState<Record<string, TemplateStats[]>>({});
   const [loading, setLoading] = useState(true);
+  const [isPurging, setIsPurging] = useState(false);
 
   useEffect(() => {
     // Initial fetch
@@ -159,6 +163,49 @@ const SnapshotProgress = () => {
     return `${seconds}s`;
   };
 
+  const handlePurgeAll = async () => {
+    if (!confirm("Are you sure you want to purge ALL ACS data? This will delete all snapshots, template stats, and storage files. This action cannot be undone.")) {
+      return;
+    }
+
+    setIsPurging(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("You must be logged in to perform this action");
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/purge-acs-storage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ purge_all: true }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Purge failed (${response.status}): ${errorText}`);
+      }
+
+      const result = await response.json();
+      toast.success(`Purge complete! Deleted ${result.deleted_files} files and ${result.deleted_stats} stats`);
+      
+      // Refresh the snapshots list
+      fetchSnapshots();
+    } catch (error: any) {
+      console.error("Purge error:", error);
+      toast.error(`Purge failed: ${error.message}`);
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -172,9 +219,23 @@ const SnapshotProgress = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Real-Time Snapshot Progress</h1>
-          <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">ACS Snapshot</h1>
+            <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
+          </div>
+          <div className="flex gap-2">
+            <TriggerACSSnapshotButton />
+            <Button
+              onClick={handlePurgeAll}
+              disabled={isPurging}
+              variant="destructive"
+              size="sm"
+            >
+              <Trash2 className={`h-4 w-4 mr-2 ${isPurging ? 'animate-spin' : ''}`} />
+              {isPurging ? 'Purging...' : 'Purge All ACS Data'}
+            </Button>
+          </div>
         </div>
 
         {snapshots.map((snapshot) => (

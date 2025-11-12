@@ -72,9 +72,6 @@ const Admin = () => {
   // History state
   const [cipHistory, setCipHistory] = useState<any[]>([]);
   const [featuredAppHistory, setFeaturedAppHistory] = useState<any[]>([]);
-  
-  // ACS Management state
-  const [isPurgingACS, setIsPurgingACS] = useState(false);
 
   // Fetch CIP types on mount
   useEffect(() => {
@@ -510,47 +507,17 @@ const Admin = () => {
     });
   };
 
-  const handlePurgeACSData = async () => {
-    if (!confirm("⚠️ WARNING: This will permanently delete ALL ACS snapshots, template stats, and storage files. This action cannot be undone. Are you sure?")) {
-      return;
-    }
-
-    setIsPurgingACS(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('purge-acs-storage', {
-        body: { purge_all: true }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: `Purged ${data.deleted_files} files and ${data.deleted_stats} template stats`,
-      });
-    } catch (error) {
-      console.error('Purge error:', error);
-      toast({
-        title: "Error",
-        description: "Failed to purge ACS data. Check console for details.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsPurgingACS(false);
-    }
-  };
-
   return (
     <DashboardLayout>
       <main className="space-y-8">
         <h1 className="text-3xl font-bold mb-6">Admin</h1>
 
         <Tabs defaultValue="cip-votes" className="w-full">
-          <TabsList className="grid w-full max-w-4xl grid-cols-5 gap-1">
+          <TabsList className="grid w-full max-w-4xl grid-cols-4 gap-1">
             <TabsTrigger value="cip-votes">CIP Votes</TabsTrigger>
             <TabsTrigger value="featured-apps">Featured App Votes</TabsTrigger>
             <TabsTrigger value="cip-history">CIP Vote History</TabsTrigger>
             <TabsTrigger value="app-history">App Vote History</TabsTrigger>
-            <TabsTrigger value="acs-management">ACS Management</TabsTrigger>
           </TabsList>
 
           {/* CIP Votes Tab */}
@@ -1347,63 +1314,6 @@ const Admin = () => {
                 );
               })
             )}
-          </TabsContent>
-
-          {/* ACS Management Tab */}
-          <TabsContent value="acs-management" className="space-y-6">
-            <h2 className="text-2xl font-semibold">ACS Data Management</h2>
-            
-            <Card className="glass-card border-destructive/50">
-              <CardHeader>
-                <div className="flex items-start gap-3">
-                  <Database className="h-6 w-6 text-destructive mt-0.5" />
-                  <div>
-                    <CardTitle className="text-destructive">Danger Zone</CardTitle>
-                    <CardDescription>
-                      Permanently delete all ACS snapshots, template stats, and storage files
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                  <h3 className="font-semibold mb-2 flex items-center gap-2">
-                    ⚠️ Warning
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    This action will:
-                  </p>
-                  <ul className="text-sm text-muted-foreground space-y-1 mb-4 ml-4">
-                    <li>• Delete ALL ACS snapshot records from the database</li>
-                    <li>• Delete ALL template statistics records</li>
-                    <li>• Delete ALL files from the acs-data storage bucket</li>
-                    <li>• Cannot be undone</li>
-                  </ul>
-                  <p className="text-sm text-muted-foreground font-medium">
-                    Use this before triggering a fresh snapshot to start clean.
-                  </p>
-                </div>
-                
-                <Button 
-                  onClick={handlePurgeACSData}
-                  variant="destructive"
-                  disabled={isPurgingACS}
-                  className="w-full"
-                >
-                  {isPurgingACS ? (
-                    <>
-                      <Database className="h-4 w-4 mr-2 animate-pulse" />
-                      Purging Data...
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Purge All ACS Data
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </main>
