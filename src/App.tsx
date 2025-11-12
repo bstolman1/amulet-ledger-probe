@@ -15,6 +15,7 @@ import Governance from "./pages/Governance";
 import Supply from "./pages/Supply";
 import UnclaimedSVRewards from "./pages/UnclaimedSVRewards";
 import Admin from "./pages/Admin";
+import SnapshotProgress from "./pages/SnapshotProgress";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/supply" element={<Supply />} />
           <Route path="/unclaimed-sv-rewards" element={<UnclaimedSVRewards />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/snapshot-progress" element={<SnapshotProgress />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

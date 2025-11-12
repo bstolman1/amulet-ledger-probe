@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award, Shield } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award, Shield, Upload } from "lucide-react";
 
 
 interface DashboardLayoutProps {
@@ -19,6 +19,7 @@ const navigation = [
   { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
+  { name: "Snapshot Progress", href: "/snapshot-progress", icon: Upload },
   { name: "Admin", href: "/admin", icon: Shield },
 ];
 
