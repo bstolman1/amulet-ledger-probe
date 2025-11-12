@@ -5,8 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const PAGES_PER_BATCH = 20; // Process 20 pages per invocation
-const PAGE_SIZE = 1000;
+const PAGES_PER_BATCH = 40; // Process 40 pages per invocation
+const PAGE_SIZE = 500;
 
 // Decimal arithmetic helpers (10 decimal precision)
 class Decimal {
@@ -275,6 +275,12 @@ async function processBatch(
 
   // Update snapshot progress
   const circulating = amuletTotal.minus(lockedTotal);
+  const totalProcessedPages = (snapshot.processed_pages || 0) + pagesProcessed;
+  const totalProcessedEvents = (snapshot.processed_events || 0) + seen.size;
+  const startedAtMs = snapshot.started_at ? Date.parse(snapshot.started_at) : Date.now();
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+  const pagesPerMinute = elapsedMs > 0 ? totalProcessedPages / (elapsedMs / 60000) : 0;
+
   await supabaseAdmin
     .from('acs_snapshots')
     .update({
@@ -284,6 +290,11 @@ async function processBatch(
       circulating_supply: circulating.toString(),
       entry_count: snapshot.entry_count + seen.size,
       iteration_count: (snapshot.iteration_count || 0) + 1,
+      processed_pages: totalProcessedPages,
+      processed_events: totalProcessedEvents,
+      elapsed_time_ms: elapsedMs,
+      pages_per_minute: pagesPerMinute,
+      last_progress_update: new Date().toISOString(),
     })
     .eq('id', snapshot.id);
 
@@ -358,7 +369,25 @@ Deno.serve(async (req) => {
       snapshot = data;
     }
 
-    // Process batch
+    // If this is the initial client-triggered call, enqueue work and return immediately
+    if (!snapshotId) {
+      console.log('▶️ Start requested from client, enqueue first batch...');
+      // Kick off processing asynchronously
+      supabaseAdmin.functions
+        .invoke('fetch-acs-snapshot', { body: { snapshot_id: snapshot.id } })
+        .catch((err: any) => console.error('Failed to enqueue first batch:', err));
+
+      return new Response(
+        JSON.stringify({
+          message: 'ACS snapshot started',
+          snapshot_id: snapshot.id,
+          status: 'processing',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Process batch for resumed/background calls
     const { isComplete, nextCursor } = await processBatch(
       BASE_URL,
       snapshot.migration_id,

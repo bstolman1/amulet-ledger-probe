@@ -3,9 +3,12 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Clock, Database, FileText, Activity, CheckCircle, XCircle } from "lucide-react";
+import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 
 interface Snapshot {
   id: string;
@@ -25,6 +28,7 @@ interface Snapshot {
 
 interface TemplateStats {
   id: string;
+  snapshot_id: string;
   template_id: string;
   contract_count: number;
   created_at: string;
@@ -34,6 +38,8 @@ const SnapshotProgress = () => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [templateStats, setTemplateStats] = useState<Record<string, TemplateStats[]>>({});
   const [loading, setLoading] = useState(true);
+  const [isPurging, setIsPurging] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     // Initial fetch
@@ -72,12 +78,12 @@ const SnapshotProgress = () => {
           schema: 'public',
           table: 'acs_template_stats'
         },
-        (payload) => {
+(payload) => {
           console.log('Template stats update:', payload);
           const newStat = payload.new as TemplateStats;
           setTemplateStats((prev) => ({
             ...prev,
-            [newStat.id]: [...(prev[newStat.id] || []), newStat]
+            [newStat.snapshot_id]: [...(prev[newStat.snapshot_id] || []), newStat]
           }));
         }
       )
@@ -158,6 +164,34 @@ const SnapshotProgress = () => {
     return `${seconds}s`;
   };
 
+  const handlePurgeAll = async () => {
+    if (!confirm("Are you sure you want to purge ALL ACS data? This will delete all snapshots, template stats, and storage files. This action cannot be undone.")) {
+      return;
+    }
+
+    setIsPurging(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('purge-acs-storage', {
+        body: { purge_all: true },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Purge complete",
+        description: `Deleted ${data.deleted_files} files and ${data.deleted_stats} stats`,
+      });
+      
+      // Refresh the snapshots list
+      fetchSnapshots();
+    } catch (error: any) {
+      console.error("Purge error:", error);
+      toast({ title: "Purge failed", description: error.message || 'Unknown error', variant: "destructive" });
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -171,9 +205,23 @@ const SnapshotProgress = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Real-Time Snapshot Progress</h1>
-          <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">ACS Snapshot</h1>
+            <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
+          </div>
+          <div className="flex gap-2">
+            <TriggerACSSnapshotButton />
+            <Button
+              onClick={handlePurgeAll}
+              disabled={isPurging}
+              variant="destructive"
+              size="sm"
+            >
+              <Trash2 className={`h-4 w-4 mr-2 ${isPurging ? 'animate-spin' : ''}`} />
+              {isPurging ? 'Purging...' : 'Purge All ACS Data'}
+            </Button>
+          </div>
         </div>
 
         {snapshots.map((snapshot) => (
@@ -233,7 +281,7 @@ const SnapshotProgress = () => {
                     <Activity className="w-4 h-4" />
                     Pages/Min
                   </div>
-                  <p className="text-2xl font-bold">{snapshot.pages_per_minute?.toFixed(1) || 0}</p>
+                  <p className="text-2xl font-bold">{Number(snapshot.pages_per_minute ?? 0).toFixed(1)}</p>
                 </div>
               </div>
 
