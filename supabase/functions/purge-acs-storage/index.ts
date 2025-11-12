@@ -90,83 +90,71 @@ Deno.serve(async (req) => {
 
       // Recursively delete all files from the storage bucket
       console.log('Listing all files in storage bucket...');
-      
-      // First, get all top-level items (files and folders)
-      const { data: items, error: listError } = await supabase.storage
-        .from('acs-data')
-        .list('', { limit: 1000, sortBy: { column: 'name', order: 'asc' } });
 
-      if (listError) {
-        console.error('Error listing storage items:', listError);
-        throw listError;
-      }
+      // Helper: recursively collect all file paths under a prefix
+      const collectAllFiles = async (prefix: string): Promise<string[]> => {
+        const all: string[] = [];
+        let offset = 0;
+        const limit = 1000;
+        let hasMore = true;
 
-      console.log(`Found ${items?.length || 0} top-level items in storage`);
-
-      if (items && items.length > 0) {
-        // Collect all file paths to delete
-        const allFilePaths: string[] = [];
-        
-        for (const item of items) {
-          if (item.id) {
-            // This is a folder, list its contents
-            console.log(`Listing files in folder: ${item.name}`);
-            let offset = 0;
-            const limit = 1000;
-            let hasMore = true;
-            
-            while (hasMore) {
-              const { data: files, error: fileListError } = await supabase.storage
-                .from('acs-data')
-                .list(item.name, { limit, offset, sortBy: { column: 'name', order: 'asc' } });
-
-              if (fileListError) {
-                console.error(`Error listing files in ${item.name}:`, fileListError);
-                break;
-              }
-
-              if (files && files.length > 0) {
-                const paths = files.map(file => `${item.name}/${file.name}`);
-                allFilePaths.push(...paths);
-                console.log(`Added ${files.length} files from ${item.name}`);
-                
-                if (files.length < limit) {
-                  hasMore = false;
-                } else {
-                  offset += limit;
-                }
-              } else {
-                hasMore = false;
-              }
-            }
-          } else {
-            // This is a file at root level
-            allFilePaths.push(item.name);
-          }
-        }
-
-        console.log(`Total files to delete: ${allFilePaths.length}`);
-
-        // Delete files in batches of 100 (Supabase limit)
-        const batchSize = 100;
-        for (let i = 0; i < allFilePaths.length; i += batchSize) {
-          const batch = allFilePaths.slice(i, i + batchSize);
-          console.log(`Deleting batch ${Math.floor(i / batchSize) + 1} (${batch.length} files)`);
-          
-          const { error: deleteError } = await supabase.storage
+        while (hasMore) {
+          const { data: entries, error } = await supabase.storage
             .from('acs-data')
-            .remove(batch);
+            .list(prefix, { limit, offset, sortBy: { column: 'name', order: 'asc' } });
 
-          if (deleteError) {
-            console.error(`Error deleting batch ${Math.floor(i / batchSize) + 1}:`, deleteError);
-            // Continue with next batch even if this one failed
+          if (error) {
+            console.error(`Error listing at prefix '${prefix}':`, error);
+            break;
+          }
+
+          if (!entries || entries.length === 0) {
+            hasMore = false;
+            break;
+          }
+
+          for (const entry of entries) {
+            const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+            // Files have metadata; folders appear without metadata
+            if (entry && (entry as any).metadata) {
+              // file
+              all.push(path);
+            } else {
+              // folder - recurse
+              const nested = await collectAllFiles(path);
+              all.push(...nested);
+            }
+          }
+
+          if (entries.length < limit) {
+            hasMore = false;
           } else {
-            deletedFiles += batch.length;
+            offset += limit;
           }
         }
-        
-        console.log(`Successfully deleted ${deletedFiles} files from storage`);
+
+        return all;
+      };
+
+      const allFilePaths = await collectAllFiles('');
+      console.log(`Total files to delete: ${allFilePaths.length}`);
+
+      // Delete files in batches of 100 (Supabase limit)
+      const batchSize = 100;
+      for (let i = 0; i < allFilePaths.length; i += batchSize) {
+        const batch = allFilePaths.slice(i, i + batchSize);
+        console.log(`Deleting batch ${Math.floor(i / batchSize) + 1} (${batch.length} files)`);
+        const { error: deleteError } = await supabase.storage
+          .from('acs-data')
+          .remove(batch);
+        if (deleteError) {
+          console.error(`Error deleting batch ${Math.floor(i / batchSize) + 1}:`, deleteError);
+        } else {
+          deletedFiles += batch.length;
+        }
       }
+
+      console.log(`Successfully deleted ${deletedFiles} files from storage`);
 
       // Delete all snapshot records
       const { error: deleteSnapshotsError } = await supabase

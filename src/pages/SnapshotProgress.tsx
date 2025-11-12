@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 
 interface Snapshot {
@@ -39,6 +39,7 @@ const SnapshotProgress = () => {
   const [templateStats, setTemplateStats] = useState<Record<string, TemplateStats[]>>({});
   const [loading, setLoading] = useState(true);
   const [isPurging, setIsPurging] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     // Initial fetch
@@ -170,37 +171,22 @@ const SnapshotProgress = () => {
 
     setIsPurging(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("You must be logged in to perform this action");
-        return;
-      }
+      const { data, error } = await supabase.functions.invoke('purge-acs-storage', {
+        body: { purge_all: true },
+      });
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/purge-acs-storage`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ purge_all: true }),
-        }
-      );
+      if (error) throw error;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Purge failed (${response.status}): ${errorText}`);
-      }
-
-      const result = await response.json();
-      toast.success(`Purge complete! Deleted ${result.deleted_files} files and ${result.deleted_stats} stats`);
+      toast({
+        title: "Purge complete",
+        description: `Deleted ${data.deleted_files} files and ${data.deleted_stats} stats`,
+      });
       
       // Refresh the snapshots list
       fetchSnapshots();
     } catch (error: any) {
       console.error("Purge error:", error);
-      toast.error(`Purge failed: ${error.message}`);
+      toast({ title: "Purge failed", description: error.message || 'Unknown error', variant: "destructive" });
     } finally {
       setIsPurging(false);
     }
