@@ -25,45 +25,8 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     
-    // Check authorization - either webhook secret OR admin user
-    const authHeader = req.headers.get('Authorization');
-    let isAuthorized = false;
-    
-    if (authHeader) {
-      // Check if user is admin
-      const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader } }
-      });
-      
-      const { data: { user }, error: userError } = await userClient.auth.getUser();
-      
-      if (user && !userError) {
-        // Check if user has admin role
-        const { data: roles, error: roleError } = await userClient
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .eq('role', 'admin')
-          .single();
-        
-        if (roles && !roleError) {
-          isAuthorized = true;
-          console.log('Admin user authorized for purge');
-        }
-      }
-    }
-    
-    // If not authorized via user role, check webhook secret
-    if (!isAuthorized) {
-      const expectedSecret = Deno.env.get('ACS_UPLOAD_WEBHOOK_SECRET');
-      if (!expectedSecret || request.webhookSecret !== expectedSecret) {
-        console.error('Invalid authorization');
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-    }
+    // DEMO MODE: public access (no auth). WARNING: Do not use in production.
+    console.warn('purge-acs-storage called in DEMO MODE (no auth enforced)');
 
     // Use service role client for actual operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
