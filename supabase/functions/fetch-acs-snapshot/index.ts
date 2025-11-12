@@ -275,12 +275,6 @@ async function processBatch(
 
   // Update snapshot progress
   const circulating = amuletTotal.minus(lockedTotal);
-  const totalProcessedPages = (snapshot.processed_pages || 0) + pagesProcessed;
-  const totalProcessedEvents = (snapshot.processed_events || 0) + seen.size;
-  const startedAtMs = snapshot.started_at ? Date.parse(snapshot.started_at) : Date.now();
-  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
-  const pagesPerMinute = elapsedMs > 0 ? totalProcessedPages / (elapsedMs / 60000) : 0;
-
   await supabaseAdmin
     .from('acs_snapshots')
     .update({
@@ -290,11 +284,6 @@ async function processBatch(
       circulating_supply: circulating.toString(),
       entry_count: snapshot.entry_count + seen.size,
       iteration_count: (snapshot.iteration_count || 0) + 1,
-      processed_pages: totalProcessedPages,
-      processed_events: totalProcessedEvents,
-      elapsed_time_ms: elapsedMs,
-      pages_per_minute: pagesPerMinute,
-      last_progress_update: new Date().toISOString(),
     })
     .eq('id', snapshot.id);
 

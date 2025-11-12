@@ -19,7 +19,7 @@ const navigation = [
   { name: "Governance", href: "/governance", icon: Vote },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
-  { name: "ACS Snapshot", href: "/snapshot-progress", icon: Upload },
+  { name: "Snapshot Progress", href: "/snapshot-progress", icon: Upload },
   { name: "Admin", href: "/admin", icon: Shield },
 ];
 
