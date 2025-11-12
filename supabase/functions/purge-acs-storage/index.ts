@@ -88,43 +88,84 @@ Deno.serve(async (req) => {
       
       deletedStats = statsCount || 0;
 
-      // List all folders in storage bucket
-      const { data: folders, error: listError } = await supabase.storage
+      // Recursively delete all files from the storage bucket
+      console.log('Listing all files in storage bucket...');
+      
+      // First, get all top-level items (files and folders)
+      const { data: items, error: listError } = await supabase.storage
         .from('acs-data')
-        .list('', { limit: 1000 });
+        .list('', { limit: 1000, sortBy: { column: 'name', order: 'asc' } });
 
       if (listError) {
-        console.error('Error listing storage folders:', listError);
+        console.error('Error listing storage items:', listError);
         throw listError;
       }
 
-      if (folders && folders.length > 0) {
-        // Delete all files in each folder
-        for (const folder of folders) {
-          const { data: files, error: fileListError } = await supabase.storage
-            .from('acs-data')
-            .list(folder.name);
+      console.log(`Found ${items?.length || 0} top-level items in storage`);
 
-          if (fileListError) {
-            console.error(`Error listing files in ${folder.name}:`, fileListError);
-            continue;
-          }
-
-          if (files && files.length > 0) {
-            const filePaths = files.map(file => `${folder.name}/${file.name}`);
+      if (items && items.length > 0) {
+        // Collect all file paths to delete
+        const allFilePaths: string[] = [];
+        
+        for (const item of items) {
+          if (item.id) {
+            // This is a folder, list its contents
+            console.log(`Listing files in folder: ${item.name}`);
+            let offset = 0;
+            const limit = 1000;
+            let hasMore = true;
             
-            const { error: deleteError } = await supabase.storage
-              .from('acs-data')
-              .remove(filePaths);
+            while (hasMore) {
+              const { data: files, error: fileListError } = await supabase.storage
+                .from('acs-data')
+                .list(item.name, { limit, offset, sortBy: { column: 'name', order: 'asc' } });
 
-            if (deleteError) {
-              console.error(`Error deleting files in ${folder.name}:`, deleteError);
-              continue;
+              if (fileListError) {
+                console.error(`Error listing files in ${item.name}:`, fileListError);
+                break;
+              }
+
+              if (files && files.length > 0) {
+                const paths = files.map(file => `${item.name}/${file.name}`);
+                allFilePaths.push(...paths);
+                console.log(`Added ${files.length} files from ${item.name}`);
+                
+                if (files.length < limit) {
+                  hasMore = false;
+                } else {
+                  offset += limit;
+                }
+              } else {
+                hasMore = false;
+              }
             }
-
-            deletedFiles += files.length;
+          } else {
+            // This is a file at root level
+            allFilePaths.push(item.name);
           }
         }
+
+        console.log(`Total files to delete: ${allFilePaths.length}`);
+
+        // Delete files in batches of 100 (Supabase limit)
+        const batchSize = 100;
+        for (let i = 0; i < allFilePaths.length; i += batchSize) {
+          const batch = allFilePaths.slice(i, i + batchSize);
+          console.log(`Deleting batch ${Math.floor(i / batchSize) + 1} (${batch.length} files)`);
+          
+          const { error: deleteError } = await supabase.storage
+            .from('acs-data')
+            .remove(batch);
+
+          if (deleteError) {
+            console.error(`Error deleting batch ${Math.floor(i / batchSize) + 1}:`, deleteError);
+            // Continue with next batch even if this one failed
+          } else {
+            deletedFiles += batch.length;
+          }
+        }
+        
+        console.log(`Successfully deleted ${deletedFiles} files from storage`);
       }
 
       // Delete all snapshot records
@@ -137,6 +178,8 @@ Deno.serve(async (req) => {
         console.error('Error deleting all snapshots:', deleteSnapshotsError);
         throw deleteSnapshotsError;
       }
+      
+      console.log('All snapshot records deleted from database');
 
     } else if (request.snapshot_id) {
       // Purge specific snapshot
