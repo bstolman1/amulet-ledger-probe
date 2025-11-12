@@ -115,13 +115,11 @@ Deno.serve(async (req) => {
 
           for (const entry of entries) {
             const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-            // Files have metadata; folders appear without metadata
-            if (entry && (entry as any).metadata) {
-              // file
-              all.push(path);
+            // Supabase lists: files have an 'id', folders do not
+            if ((entry as any).id) {
+              all.push(path); // file
             } else {
-              // folder - recurse
-              const nested = await collectAllFiles(path);
+              const nested = await collectAllFiles(path); // folder
               all.push(...nested);
             }
           }
