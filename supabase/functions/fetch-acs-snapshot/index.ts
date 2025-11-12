@@ -5,8 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const PAGES_PER_BATCH = 40; // Process 40 pages per invocation
-const PAGE_SIZE = 500;
+const PAGES_PER_BATCH = 20; // Process 20 pages per invocation
+const PAGE_SIZE = 1000;
 
 // Decimal arithmetic helpers (10 decimal precision)
 class Decimal {
