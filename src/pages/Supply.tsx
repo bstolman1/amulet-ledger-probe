@@ -23,45 +23,47 @@ const Supply = () => {
 
   const latestSnapshot = snapshots?.[0];
 
-  // Fetch Amulet balances (circulating supply)
+  // Fetch Amulet balances (circulating supply) - fix parameter order
   const { data: amuletData, isLoading: amuletLoading } = useACSTemplateData(
-    "Splice:Amulet:Amulet",
-    latestSnapshot?.id
+    latestSnapshot?.id,
+    "Splice:Amulet:Amulet"
   );
 
   // Fetch Locked Amulet balances
   const { data: lockedData, isLoading: lockedLoading } = useACSTemplateData(
-    "Splice:Amulet:LockedAmulet",
-    latestSnapshot?.id
+    latestSnapshot?.id,
+    "Splice:Amulet:LockedAmulet"
   );
 
   // Fetch mining rounds for issuance stats
   const { data: issuingRounds, isLoading: issuingLoading } = useACSTemplateData(
-    "Splice:Round:IssuingMiningRound",
-    latestSnapshot?.id
+    latestSnapshot?.id,
+    "Splice:Round:IssuingMiningRound"
   );
 
   const { data: closedRounds, isLoading: closedLoading } = useACSTemplateData(
-    "Splice:Round:ClosedMiningRound",
-    latestSnapshot?.id
+    latestSnapshot?.id,
+    "Splice:Round:ClosedMiningRound"
   );
 
-  // Calculate supply metrics
-  const circulatingSupply = amuletData?.contracts?.reduce((sum, contract: any) => {
-    const amount = parseFloat(contract.owner?.amount?.initialAmount || "0");
+  // Calculate supply metrics from actual JSON data
+  const circulatingSupply = amuletData?.data?.reduce((sum, contract: any) => {
+    // Parse the actual structure: contract has amount.initialAmount
+    const amount = parseFloat(contract.amount?.initialAmount || "0");
     return sum + amount;
   }, 0) || 0;
 
-  const lockedSupply = lockedData?.contracts?.reduce((sum, contract: any) => {
-    const amount = parseFloat(contract.amulet?.amulet?.amount?.initialAmount || "0");
+  const lockedSupply = lockedData?.data?.reduce((sum, contract: any) => {
+    // Parse locked amulet structure: contract.amulet.amount.initialAmount
+    const amount = parseFloat(contract.amulet?.amount?.initialAmount || "0");
     return sum + amount;
   }, 0) || 0;
 
   const totalSupply = circulatingSupply + lockedSupply;
 
   // Calculate recent issuance from closed rounds
-  const recentIssuance = closedRounds?.contracts?.slice(-30).reduce((sum, contract: any) => {
-    const issued = parseFloat(contract.issuancePerValidatorFaucetCoupon || "0");
+  const recentIssuance = closedRounds?.data?.slice(-30).reduce((sum, contract: any) => {
+    const issued = parseFloat(contract.issuancePerValidatorFaucetCoupon || contract.issuancePerSvReward || "0");
     return sum + issued;
   }, 0) || 0;
 
