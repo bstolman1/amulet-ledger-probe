@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Wallet, Lock, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useACSTemplateData } from "@/hooks/use-acs-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,42 +27,28 @@ const Balances = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Fetch Amulet contracts (package 6e9fc50f)
-  const { data: amuletData1, isLoading: amuletLoading1 } = useACSTemplateData<any>(
+  // Fetch Amulet contracts - aggregated across ALL packages
+  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Amulet:Amulet",
+    "Splice:Amulet:Amulet",
     !!latestSnapshot
   );
 
-  // Fetch Amulet contracts (package a5b05549)
-  const { data: amuletData2, isLoading: amuletLoading2 } = useACSTemplateData<any>(
+  // Fetch LockedAmulet contracts - aggregated across ALL packages
+  const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "a5b055492fb8f08b2e7bc0fc94da6da50c39c2e1d7f24cd5ea8db12fc87c1332:Splice:Amulet:Amulet",
+    "Splice:Amulet:LockedAmulet",
     !!latestSnapshot
   );
 
-  // Fetch LockedAmulet contracts (package 6e9fc50f)
-  const { data: lockedData1, isLoading: lockedLoading1 } = useACSTemplateData<any>(
-    latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Amulet:LockedAmulet",
-    !!latestSnapshot
-  );
-
-  // Fetch LockedAmulet contracts (package a5b05549)
-  const { data: lockedData2, isLoading: lockedLoading2 } = useACSTemplateData<any>(
-    latestSnapshot?.id,
-    "a5b055492fb8f08b2e7bc0fc94da6da50c39c2e1d7f24cd5ea8db12fc87c1332:Splice:Amulet:LockedAmulet",
-    !!latestSnapshot
-  );
-
-  const isLoading = amuletLoading1 || amuletLoading2 || lockedLoading1 || lockedLoading2;
+  const isLoading = amuletLoading || lockedLoading;
 
   // Aggregate balances by owner
   const holderBalances: HolderBalance[] = (() => {
     const balanceMap = new Map<string, HolderBalance>();
 
-    // Process regular amulets from both packages
-    [...(amuletData1?.data || []), ...(amuletData2?.data || [])].forEach((amulet: any) => {
+    // Process regular amulets from all packages
+    (amuletData?.data || []).forEach((amulet: any) => {
       const owner = amulet.owner;
       const amount = parseFloat(amulet.amount?.initialAmount || "0");
       
@@ -74,8 +60,8 @@ const Balances = () => {
       holder.total += amount;
     });
 
-    // Process locked amulets from both packages
-    [...(lockedData1?.data || []), ...(lockedData2?.data || [])].forEach((locked: any) => {
+    // Process locked amulets from all packages
+    (lockedData?.data || []).forEach((locked: any) => {
       const owner = locked.amulet?.owner || locked.owner;
       const amount = parseFloat(locked.amulet?.amount?.initialAmount || locked.amount?.initialAmount || "0");
       

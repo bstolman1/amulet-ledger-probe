@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useACSTemplateData } from "@/hooks/use-acs-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 
 const MiningRounds = () => {
   const { data: latestRound, isLoading: latestLoading } = useQuery({
@@ -17,24 +17,24 @@ const MiningRounds = () => {
   // Get latest ACS snapshot
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Fetch OpenMiningRound contracts
-  const { data: openRoundsData, isLoading: openLoading, isError: openError } = useACSTemplateData<any>(
+  // Fetch OpenMiningRound contracts - aggregated across all packages
+  const { data: openRoundsData, isLoading: openLoading, isError: openError } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:OpenMiningRound",
+    "Splice:Round:OpenMiningRound",
     !!latestSnapshot
   );
 
-  // Fetch IssuingMiningRound contracts
-  const { data: issuingRoundsData, isLoading: issuingLoading, isError: issuingError } = useACSTemplateData<any>(
+  // Fetch IssuingMiningRound contracts - aggregated across all packages
+  const { data: issuingRoundsData, isLoading: issuingLoading, isError: issuingError } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:IssuingMiningRound",
+    "Splice:Round:IssuingMiningRound",
     !!latestSnapshot
   );
 
-  // Fetch ClosedMiningRound contracts
-  const { data: closedRoundsData, isLoading: closedLoading, isError: closedError } = useACSTemplateData<any>(
+  // Fetch ClosedMiningRound contracts - aggregated across all packages
+  const { data: closedRoundsData, isLoading: closedLoading, isError: closedError } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:ClosedMiningRound",
+    "Splice:Round:ClosedMiningRound",
     !!latestSnapshot
   );
 

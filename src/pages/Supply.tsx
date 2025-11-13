@@ -2,7 +2,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Flame, Coins, TrendingUp, TrendingDown, Package } from "lucide-react";
-import { useACSTemplateData } from "@/hooks/use-acs-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -23,27 +23,31 @@ const Supply = () => {
 
   const latestSnapshot = snapshots?.[0];
 
-  // Fetch Amulet balances (circulating supply) - fix parameter order
-  const { data: amuletData, isLoading: amuletLoading } = useACSTemplateData(
+  // Fetch Amulet balances (circulating supply) - aggregated across all packages
+  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "Splice:Amulet:Amulet"
+    "Splice:Amulet:Amulet",
+    !!latestSnapshot
   );
 
   // Fetch Locked Amulet balances
-  const { data: lockedData, isLoading: lockedLoading } = useACSTemplateData(
+  const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "Splice:Amulet:LockedAmulet"
+    "Splice:Amulet:LockedAmulet",
+    !!latestSnapshot
   );
 
   // Fetch mining rounds for issuance stats
-  const { data: issuingRounds, isLoading: issuingLoading } = useACSTemplateData(
+  const { data: issuingRounds, isLoading: issuingLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "Splice:Round:IssuingMiningRound"
+    "Splice:Round:IssuingMiningRound",
+    !!latestSnapshot
   );
 
-  const { data: closedRounds, isLoading: closedLoading } = useACSTemplateData(
+  const { data: closedRounds, isLoading: closedLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "Splice:Round:ClosedMiningRound"
+    "Splice:Round:ClosedMiningRound",
+    !!latestSnapshot
   );
 
   // Calculate supply metrics from actual JSON data
