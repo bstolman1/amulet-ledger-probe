@@ -34,6 +34,23 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
   supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
+// Startup configuration logging
+console.log("\n" + "=".repeat(80));
+console.log("🚀 ACS Data Fetcher - Starting");
+console.log("=".repeat(80));
+console.log("⚙️  Configuration:");
+console.log(`   - Base URL: ${BASE_URL}`);
+console.log(`   - Edge Function URL: ${EDGE_FUNCTION_URL ? '✅ Configured' : '❌ Not configured'}`);
+console.log(`   - Webhook Secret: ${WEBHOOK_SECRET ? '✅ Configured' : '❌ Not configured'}`);
+console.log(`   - Supabase URL: ${SUPABASE_URL ? '✅ Configured' : '❌ Not configured'}`);
+console.log(`   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? '✅ Configured' : '❌ Not configured'}`);
+console.log(`   - Supabase Client: ${supabase ? '✅ Initialized' : '❌ Not initialized'}`);
+console.log(`   - Page Size: ${parseInt(process.env.PAGE_SIZE || "500", 10)}`);
+console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE}`);
+console.log(`   - Upload Delay: ${UPLOAD_DELAY_MS}ms`);
+console.log(`   - Max In-Flight Uploads: ${parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10)}`);
+console.log("=".repeat(80) + "\n");
+
 function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
   if (!t) return false;
@@ -117,11 +134,16 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
 
 async function checkForExistingSnapshot(migration_id) {
   if (!supabase) {
-    console.log("⚠️ Supabase not configured, cannot check for existing snapshots");
+    console.log("\n⚠️  WARNING: Supabase not configured - cannot check for existing snapshots");
+    console.log("   This means a new snapshot will be created even if one is in progress!");
+    console.log("   Please ensure SUPABASE_URL and SUPABASE_ANON_KEY are set in GitHub secrets.\n");
     return null;
   }
 
+  console.log("\n" + "-".repeat(80));
   console.log("🔍 Checking for existing in-progress snapshots...");
+  console.log(`   - Migration ID: ${migration_id}`);
+  console.log(`   - Query: acs_snapshots WHERE migration_id=${migration_id} AND status='processing'`);
   
   const { data, error } = await supabase
     .from('acs_snapshots')
@@ -132,20 +154,34 @@ async function checkForExistingSnapshot(migration_id) {
     .limit(1);
 
   if (error) {
-    console.error("❌ Error checking for existing snapshots:", error);
+    console.error("❌ Error querying for existing snapshots:", error.message);
+    console.error("   Full error:", JSON.stringify(error, null, 2));
     return null;
   }
 
   if (data && data.length > 0) {
     const snapshot = data[0];
-    console.log(`✅ Found existing snapshot: ${snapshot.id}`);
-    console.log(`   - Started: ${snapshot.started_at}`);
-    console.log(`   - Processed pages: ${snapshot.processed_pages}`);
-    console.log(`   - Cursor: ${snapshot.cursor_after}`);
+    const startedAt = new Date(snapshot.started_at);
+    const now = new Date();
+    const runtimeMinutes = ((now - startedAt) / 1000 / 60).toFixed(1);
+    
+    console.log("✅ FOUND EXISTING IN-PROGRESS SNAPSHOT - WILL RESUME");
+    console.log(`   - Snapshot ID: ${snapshot.id}`);
+    console.log(`   - Migration ID: ${snapshot.migration_id}`);
+    console.log(`   - Started: ${snapshot.started_at} (${runtimeMinutes} minutes ago)`);
+    console.log(`   - Processed Pages: ${snapshot.processed_pages || 0}`);
+    console.log(`   - Processed Events: ${snapshot.processed_events || 0}`);
+    console.log(`   - Cursor Position: ${snapshot.cursor_after || 0}`);
+    console.log(`   - Amulet Total: ${snapshot.amulet_total || '0'}`);
+    console.log(`   - Locked Total: ${snapshot.locked_total || '0'}`);
+    console.log("   ⚡ This cron job will continue from where the previous job left off");
+    console.log("-".repeat(80) + "\n");
     return snapshot;
   }
 
-  console.log("ℹ️ No existing in-progress snapshots found");
+  console.log("ℹ️  No existing in-progress snapshots found for this migration");
+  console.log("   - A new snapshot will be created");
+  console.log("-".repeat(80) + "\n");
   return null;
 }
 
@@ -177,12 +213,24 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
   let totalPages = page;
   
   if (existingSnapshot) {
-    console.log(`🔄 Resuming snapshot ${snapshotId} from page ${page} (cursor: ${after})`);
+    console.log("\n" + "🔄".repeat(40));
+    console.log("🔄 RESUMING EXISTING SNAPSHOT");
+    console.log("🔄".repeat(40));
+    console.log(`   - Snapshot ID: ${snapshotId}`);
+    console.log(`   - Resuming from Page: ${page}`);
+    console.log(`   - Resuming from Cursor: ${after}`);
+    console.log(`   - Previous Amulet Total: ${existingSnapshot.amulet_total || '0'}`);
+    console.log(`   - Previous Locked Total: ${existingSnapshot.locked_total || '0'}`);
+    console.log(`   - This job will continue processing from where the last job left off`);
+    console.log("🔄".repeat(40) + "\n");
     // Restore totals from existing snapshot
     amuletTotal = new BigNumber(existingSnapshot.amulet_total || 0);
     lockedTotal = new BigNumber(existingSnapshot.locked_total || 0);
   } else if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-    console.log("🚀 Creating new snapshot in database...");
+    console.log("\n" + "🚀".repeat(40));
+    console.log("🚀 CREATING NEW SNAPSHOT");
+    console.log("🚀".repeat(40));
+    console.log("   - Creating new snapshot record in database...");
     const startResult = await uploadToEdgeFunction("start", {
       mode: "start",
       webhookSecret: WEBHOOK_SECRET,
@@ -200,7 +248,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
       },
     });
     snapshotId = startResult?.snapshot_id;
-    console.log(`✅ Snapshot created: ${snapshotId}`);
+    console.log(`   ✅ New Snapshot Created: ${snapshotId}`);
+    console.log("🚀".repeat(40) + "\n");
   }
 
   const MAX_RETRIES = 8;
@@ -337,6 +386,27 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
         // Simple page progress
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
+
+        // Detailed status update every 10 pages
+        if (page % 10 === 0) {
+          const now = Date.now();
+          const elapsedMs = now - startTime;
+          const elapsedMinutes = (elapsedMs / 1000 / 60).toFixed(1);
+          const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : 0;
+          const eventsPerPage = page > 0 ? (allEvents.length / page).toFixed(0) : 0;
+          
+          console.log("\n" + "-".repeat(80));
+          console.log(`📊 STATUS UPDATE - Page ${page}`);
+          console.log("-".repeat(80));
+          console.log(`   - Snapshot ID: ${snapshotId || 'N/A'}`);
+          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
+          console.log(`   - Elapsed Time: ${elapsedMinutes} minutes`);
+          console.log(`   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`);
+          console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
+          console.log(`   - Locked Total: ${lockedTotal.toString()}`);
+          console.log(`   - In-flight Uploads: ${inflightUploads.length}/${MAX_INFLIGHT_UPLOADS}`);
+          console.log("-".repeat(80) + "\n");
+        }
 
         // Push progress update every page (throttled)
         if (snapshotId) {
@@ -516,25 +586,64 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
 async function run() {
   try {
+    console.log("\n" + "=".repeat(80));
+    console.log("🔎 STEP 1: Detecting Latest Migration");
+    console.log("=".repeat(80));
     const migration_id = await detectLatestMigration(BASE_URL);
+    
+    console.log("\n" + "=".repeat(80));
+    console.log("📅 STEP 2: Fetching Snapshot Timestamp");
+    console.log("=".repeat(80));
     const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
     
-    // Check for existing in-progress snapshot
+    console.log("\n" + "=".repeat(80));
+    console.log("🔍 STEP 3: Checking for Existing Snapshots");
+    console.log("=".repeat(80));
     const existingSnapshot = await checkForExistingSnapshot(migration_id);
     
+    console.log("\n" + "=".repeat(80));
     if (existingSnapshot) {
-      console.log("🔄 Resuming existing snapshot...");
+      console.log("🔄 DECISION: RESUMING EXISTING SNAPSHOT");
+      console.log("=".repeat(80));
+      console.log("   This GitHub Actions run is continuing a previous snapshot.");
+      console.log("   This is the expected behavior when a snapshot takes longer than 2 hours.");
+      console.log(`   - Continuing snapshot: ${existingSnapshot.id}`);
+      console.log(`   - Will resume from page: ${existingSnapshot.processed_pages || 1}`);
+      console.log(`   - Will resume from cursor: ${existingSnapshot.cursor_after || 0}`);
     } else {
-      console.log("🆕 Starting new snapshot...");
+      console.log("🆕 DECISION: STARTING NEW SNAPSHOT");
+      console.log("=".repeat(80));
+      console.log("   No in-progress snapshot found. Creating a new one.");
+      console.log(`   - Migration ID: ${migration_id}`);
+      console.log(`   - Record Time: ${record_time}`);
     }
+    console.log("=".repeat(80) + "\n");
     
+    const startTime = Date.now();
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
       await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
 
-    console.log(`\n✅ Completed! Fetched ${allEvents.length.toLocaleString()} events from ${canonicalPkg}`);
+    const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+    console.log("\n" + "=".repeat(80));
+    console.log("✅ SNAPSHOT COMPLETED SUCCESSFULLY");
+    console.log("=".repeat(80));
+    console.log(`   - Total Events: ${allEvents.length.toLocaleString()}`);
+    console.log(`   - Canonical Package: ${canonicalPkg}`);
+    console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
+    console.log(`   - Locked Total: ${lockedTotal.toString()}`);
+    console.log(`   - Elapsed Time: ${elapsedMinutes} minutes`);
+    console.log("=".repeat(80) + "\n");
   } catch (err) {
-    console.error("❌ Fatal error:", err.message);
-    if (err.response) console.error("Response:", err.response.data);
+    console.error("\n" + "=".repeat(80));
+    console.error("❌ FATAL ERROR");
+    console.error("=".repeat(80));
+    console.error("Error Message:", err.message);
+    console.error("Error Stack:", err.stack);
+    if (err.response) {
+      console.error("Response Status:", err.response.status);
+      console.error("Response Data:", JSON.stringify(err.response.data, null, 2));
+    }
+    console.error("=".repeat(80) + "\n");
     process.exit(1);
   }
 }
