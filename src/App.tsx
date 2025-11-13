@@ -19,6 +19,9 @@ import SnapshotProgress from "./pages/SnapshotProgress";
 import Transfers from "./pages/Transfers";
 import Balances from "./pages/Balances";
 import Templates from "./pages/Templates";
+import MemberTraffic from "./pages/MemberTraffic";
+import Subscriptions from "./pages/Subscriptions";
+import DSOState from "./pages/DSOState";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -57,6 +60,9 @@ const App = () => (
           <Route path="/admin" element={<Admin />} />
           <Route path="/snapshot-progress" element={<SnapshotProgress />} />
           <Route path="/templates" element={<Templates />} />
+          <Route path="/member-traffic" element={<MemberTraffic />} />
+          <Route path="/subscriptions" element={<Subscriptions />} />
+          <Route path="/dso-state" element={<DSOState />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
