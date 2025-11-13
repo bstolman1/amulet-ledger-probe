@@ -5,12 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Search, Users, Clock } from "lucide-react";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const ExternalPartySetup = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
   
   const proposalsQuery = useAggregatedTemplateData(
     latestSnapshot?.id,

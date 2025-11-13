@@ -6,12 +6,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Search, Award, Ticket } from "lucide-react";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { PaginationControls } from "@/components/PaginationControls";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const ValidatorLicenses = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 100;
+
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
   
   const licensesQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -40,13 +47,17 @@ const ValidatorLicenses = () => {
     const sponsor = lic.payload?.sponsor || lic.sponsor || "";
     return validator.toLowerCase().includes(searchTerm.toLowerCase()) ||
            sponsor.toLowerCase().includes(searchTerm.toLowerCase());
-  }).slice(0, 100);
+  });
 
   const filteredCoupons = couponsData.filter((coupon: any) => {
     if (!searchTerm) return true;
     const validator = coupon.payload?.validator || coupon.validator || "";
     return validator.toLowerCase().includes(searchTerm.toLowerCase());
-  }).slice(0, 100);
+  });
+
+  const paginateData = (data: any[]) => {
+    return data.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  };
 
   return (
     <DashboardLayout>
@@ -89,16 +100,19 @@ const ValidatorLicenses = () => {
                 type="text"
                 placeholder="Search by validator..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="pl-10"
               />
             </div>
           </div>
 
-          <Tabs defaultValue="licenses" className="w-full">
+          <Tabs defaultValue="licenses" className="w-full" onValueChange={() => setCurrentPage(1)}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="licenses">Licenses ({licensesQuery.data?.totalContracts || 0})</TabsTrigger>
-              <TabsTrigger value="coupons">Coupons ({couponsQuery.data?.totalContracts || 0})</TabsTrigger>
+              <TabsTrigger value="licenses">Licenses ({filteredLicenses.length})</TabsTrigger>
+              <TabsTrigger value="coupons">Coupons ({filteredCoupons.length})</TabsTrigger>
             </TabsList>
 
             <TabsContent value="licenses" className="space-y-3 mt-4">
@@ -109,28 +123,36 @@ const ValidatorLicenses = () => {
               ) : filteredLicenses.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No validator licenses found</p>
               ) : (
-                filteredLicenses.map((license: any, idx: number) => {
-                  const validator = license.payload?.validator || license.validator;
-                  const sponsor = license.payload?.sponsor || license.sponsor;
-                  const lastActiveRound = license.payload?.lastActiveRound || license.lastActiveRound;
-                  
-                  return (
-                    <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
-                          <p className="text-xs text-muted-foreground">Sponsor: {formatParty(sponsor)}</p>
+                <>
+                  {paginateData(filteredLicenses).map((license: any, idx: number) => {
+                    const validator = license.payload?.validator || license.validator;
+                    const sponsor = license.payload?.sponsor || license.sponsor;
+                    const lastActiveRound = license.payload?.lastActiveRound || license.lastActiveRound;
+                    
+                    return (
+                      <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
+                            <p className="text-xs text-muted-foreground">Sponsor: {formatParty(sponsor)}</p>
+                          </div>
+                          <Badge variant="default">Active</Badge>
                         </div>
-                        <Badge variant="default">Active</Badge>
+                        {lastActiveRound && (
+                          <p className="text-xs text-muted-foreground">
+                            Last Active Round: {lastActiveRound}
+                          </p>
+                        )}
                       </div>
-                      {lastActiveRound && (
-                        <p className="text-xs text-muted-foreground">
-                          Last Active Round: {lastActiveRound}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={filteredLicenses.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               )}
             </TabsContent>
 
@@ -142,31 +164,45 @@ const ValidatorLicenses = () => {
               ) : filteredCoupons.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No faucet coupons found</p>
               ) : (
-                filteredCoupons.map((coupon: any, idx: number) => {
-                  const validator = coupon.payload?.validator || coupon.validator;
-                  const round = coupon.payload?.round || coupon.round;
-                  
-                  return (
-                    <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Ticket className="h-4 w-4 text-primary" />
-                            <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
+                <>
+                  {paginateData(filteredCoupons).map((coupon: any, idx: number) => {
+                    const validator = coupon.payload?.validator || coupon.validator;
+                    const round = coupon.payload?.round || coupon.round;
+                    
+                    return (
+                      <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Ticket className="h-4 w-4 text-primary" />
+                              <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
+                            </div>
+                            {round && (
+                              <p className="text-xs text-muted-foreground">Round: {round}</p>
+                            )}
                           </div>
-                          {round && (
-                            <p className="text-xs text-muted-foreground">Round: {round}</p>
-                          )}
+                          <Badge variant="secondary">Coupon</Badge>
                         </div>
-                        <Badge variant="secondary">Coupon</Badge>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={filteredCoupons.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               )}
             </TabsContent>
           </Tabs>
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={["Splice:ValidatorLicense:ValidatorLicense", "Splice:ValidatorLicense:ValidatorFaucetCoupon"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );
