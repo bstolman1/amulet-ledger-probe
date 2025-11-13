@@ -16,6 +16,8 @@ import Supply from "./pages/Supply";
 import UnclaimedSVRewards from "./pages/UnclaimedSVRewards";
 import Admin from "./pages/Admin";
 import SnapshotProgress from "./pages/SnapshotProgress";
+import Transfers from "./pages/Transfers";
+import Balances from "./pages/Balances";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -40,6 +42,8 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/transfers" element={<Transfers />} />
+          <Route path="/balances" element={<Balances />} />
           <Route path="/validators" element={<Validators />} />
           <Route path="/mining-rounds" element={<MiningRounds />} />
           <Route path="/round-stats" element={<RoundStats />} />

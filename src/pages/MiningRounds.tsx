@@ -5,42 +5,64 @@ import { Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useACSTemplateData } from "@/hooks/use-acs-template-data";
 
 const MiningRounds = () => {
-  // Fetch all mining rounds from /v2/updates
-  const { data: allRounds, isLoading: roundsLoading, isError: roundsError } = useQuery({
-    queryKey: ["allMiningRounds"],
-    queryFn: () => scanApi.fetchAllMiningRoundsCurrent(),
-    retry: 1,
-  });
-
   const { data: latestRound, isLoading: latestLoading } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // Process open rounds
-  const openRoundsData = (allRounds?.open_rounds || []).map((round) => ({
-    id: round.contract_id,
-    contractId: round.contract_id,
-    roundNumber: round.round_number || "N/A",
-    opensAt: round.payload?.opensAt || round.opened_at,
-    targetClosesAt: round.payload?.targetClosesAt,
+  // Get latest ACS snapshot
+  const { data: latestSnapshot } = useLatestACSSnapshot();
+
+  // Fetch OpenMiningRound contracts
+  const { data: openRoundsData, isLoading: openLoading, isError: openError } = useACSTemplateData<any>(
+    latestSnapshot?.id,
+    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:OpenMiningRound",
+    !!latestSnapshot
+  );
+
+  // Fetch IssuingMiningRound contracts
+  const { data: issuingRoundsData, isLoading: issuingLoading, isError: issuingError } = useACSTemplateData<any>(
+    latestSnapshot?.id,
+    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:IssuingMiningRound",
+    !!latestSnapshot
+  );
+
+  // Fetch ClosedMiningRound contracts
+  const { data: closedRoundsData, isLoading: closedLoading, isError: closedError } = useACSTemplateData<any>(
+    latestSnapshot?.id,
+    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:Round:ClosedMiningRound",
+    !!latestSnapshot
+  );
+
+  const roundsLoading = openLoading || issuingLoading || closedLoading;
+  const roundsError = openError || issuingError || closedError;
+
+  // Process open rounds from ACS data
+  const openRounds = (openRoundsData?.data || []).map((round: any, index: number) => ({
+    id: `open-${index}`,
+    contractId: round.round?.number || index,
+    roundNumber: round.round?.number || "N/A",
+    opensAt: round.opensAt,
+    targetClosesAt: round.targetClosesAt,
   }));
 
   // Process issuing rounds
-  const issuingRoundsData = (allRounds?.issuing_rounds || []).map((round) => ({
-    id: round.contract_id,
-    contractId: round.contract_id,
-    roundNumber: round.round_number || "N/A",
-    opensAt: round.payload?.opensAt || round.issued_at,
+  const issuingRounds = (issuingRoundsData?.data || []).map((round: any, index: number) => ({
+    id: `issuing-${index}`,
+    contractId: round.round?.number || index,
+    roundNumber: round.round?.number || "N/A",
+    opensAt: round.issuingAt,
   }));
 
   // Process closed rounds
-  const closedRoundsData = (allRounds?.closed_rounds || []).map((round) => ({
-    contractId: round.contract_id,
-    roundNumber: round.round_number || "N/A",
-    createdAt: round.closed_at,
+  const closedRounds = (closedRoundsData?.data || []).slice(0, 20).map((round: any, index: number) => ({
+    contractId: round.round?.number || index,
+    roundNumber: round.round?.number || "N/A",
+    createdAt: round.closedAt,
   }));
 
   return (
@@ -91,13 +113,13 @@ const MiningRounds = () => {
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">Unable to load open rounds data.</p>
             </Card>
-          ) : openRoundsData.length === 0 ? (
+          ) : openRounds.length === 0 ? (
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">No open rounds at the moment</p>
             </Card>
           ) : (
             <div className="space-y-4">
-              {openRoundsData.map((round) => (
+              {openRounds.map((round) => (
                 <Card key={round.id} className="glass-card">
                   <div className="p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -139,13 +161,13 @@ const MiningRounds = () => {
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">Unable to load issuing rounds data.</p>
             </Card>
-          ) : issuingRoundsData.length === 0 ? (
+          ) : issuingRounds.length === 0 ? (
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">No issuing rounds at the moment</p>
             </Card>
           ) : (
             <div className="space-y-4">
-              {issuingRoundsData.map((round) => (
+              {issuingRounds.map((round) => (
                 <Card key={round.id} className="glass-card">
                   <div className="p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -180,13 +202,13 @@ const MiningRounds = () => {
           </h3>
           {roundsLoading ? (
             <Skeleton className="h-48 w-full" />
-          ) : closedRoundsData.length === 0 ? (
+          ) : closedRounds.length === 0 ? (
             <Card className="glass-card p-6">
               <p className="text-muted-foreground text-center">No closed rounds available</p>
             </Card>
           ) : (
             <div className="space-y-4">
-              {closedRoundsData.map((round) => (
+              {closedRounds.map((round) => (
                 <Card key={round.contractId} className="glass-card">
                   <div className="p-6">
                     <div className="flex items-start justify-between mb-4">

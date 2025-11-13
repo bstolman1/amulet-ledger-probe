@@ -6,6 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useACSTemplateData } from "@/hooks/use-acs-template-data";
 
 const Governance = () => {
   const { data: dsoInfo } = useQuery({
@@ -14,12 +16,48 @@ const Governance = () => {
     retry: 1,
   });
 
-  // Fetch governance proposals from transactions
-  const { data: proposals, isLoading, isError } = useQuery({
-    queryKey: ["governance-proposals"],
-    queryFn: () => scanApi.fetchGovernanceProposals(),
-    retry: 1,
-  });
+  // Get latest ACS snapshot
+  const { data: latestSnapshot } = useLatestACSSnapshot();
+
+  // Fetch DsoRules to get SV count and voting threshold
+  const { data: dsoRulesData } = useACSTemplateData<any>(
+    latestSnapshot?.id,
+    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:DsoRules:DsoRules",
+    !!latestSnapshot
+  );
+
+  // Fetch vote requests
+  const { data: voteRequestsData, isLoading, isError } = useACSTemplateData<any>(
+    latestSnapshot?.id,
+    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:DsoRules:VoteRequest",
+    !!latestSnapshot
+  );
+
+  // Process proposals from ACS data
+  const proposals = voteRequestsData?.data.map((voteRequest: any) => {
+    const votes = voteRequest.votes || {};
+    const votesList = Object.values(votes);
+    const votesFor = votesList.filter((v: any) => v?.accept || v?.Accept).length;
+    const votesAgainst = votesList.filter((v: any) => v?.reject || v?.Reject).length;
+    const action = voteRequest.action || {};
+    const actionKey = Object.keys(action)[0] || "Unknown";
+    const title = actionKey.replace(/ARC_|_/g, " ");
+    
+    return {
+      id: voteRequest.trackingCid?.slice(0, 12) || "unknown",
+      title,
+      description: `Requested by ${voteRequest.requester?.slice(0, 20)}...`,
+      status: "pending" as const,
+      votesFor,
+      votesAgainst,
+      createdAt: voteRequest.effectiveAt,
+    };
+  }) || [];
+
+  // Get SV count and voting threshold from DsoRules
+  const dsoRules = dsoRulesData?.data?.[0];
+  const svCount = Object.keys(dsoRules?.svs || {}).length;
+  const votingThreshold = dsoInfo?.voting_threshold || Math.ceil(svCount * 0.67); // 2/3 majority
 
   const totalProposals = proposals?.length || 0;
   const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
@@ -66,15 +104,32 @@ const Governance = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="glass-card p-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Voting Threshold</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Super Validators</h3>
               <Users className="h-5 w-5 text-primary" />
             </div>
-            {!dsoInfo ? (
+            {!svCount ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <>
                 <p className="text-3xl font-bold text-primary mb-1">
-                  {dsoInfo.voting_threshold}
+                  {svCount}
+                </p>
+                <p className="text-xs text-muted-foreground">Active SVs</p>
+              </>
+            )}
+          </Card>
+
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Voting Threshold</h3>
+              <Vote className="h-5 w-5 text-chart-3" />
+            </div>
+            {!votingThreshold ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <>
+                <p className="text-3xl font-bold text-chart-3 mb-1">
+                  {votingThreshold}
                 </p>
                 <p className="text-xs text-muted-foreground">Votes required</p>
               </>
