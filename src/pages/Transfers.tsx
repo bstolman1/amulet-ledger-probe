@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRightLeft, Clock, CheckCircle2 } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
@@ -13,285 +13,128 @@ const Transfers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Fetch TransferPreapproval contracts - aggregated across all packages
-  const { data: preapprovalsData, isLoading: preapprovalsLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
-    "Splice:AmuletRules:TransferPreapproval",
-    !!latestSnapshot
-  );
+  const preapprovalsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!latestSnapshot);
+  const commandsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:ExternalPartyAmuletRules:TransferCommand", !!latestSnapshot);
+  const instructionsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:AmuletTransferInstruction:AmuletTransferInstruction", !!latestSnapshot);
 
-  // Fetch TransferCommand contracts - aggregated across all packages
-  const { data: commandsData, isLoading: commandsLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
-    "Splice:ExternalPartyAmuletRules:TransferCommand",
-    !!latestSnapshot
-  );
-
-  // Fetch AmuletTransferInstruction contracts - aggregated across all packages
-  const { data: instructionsData, isLoading: instructionsLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
-    "Splice:AmuletTransferInstruction:AmuletTransferInstruction",
-    !!latestSnapshot
-  );
-
-  const isLoading = preapprovalsLoading || commandsLoading || instructionsLoading;
-
-  // Process preapprovals
-  const preapprovals = (preapprovalsData?.data || [])
-    .filter((p: any) => {
-      if (!searchTerm) return true;
-      const search = searchTerm.toLowerCase();
-      return (
-        p.sender?.toLowerCase().includes(search) ||
-        p.receiver?.toLowerCase().includes(search) ||
-        p.amount?.initialAmount?.toString().includes(search)
-      );
-    })
-    .slice(0, 50);
-
-  // Process commands
-  const commands = (commandsData?.data || [])
-    .filter((c: any) => {
-      if (!searchTerm) return true;
-      const search = searchTerm.toLowerCase();
-      return (
-        c.sender?.toLowerCase().includes(search) ||
-        c.nonce?.toString().includes(search)
-      );
-    })
-    .slice(0, 50);
-
-  // Process instructions
-  const instructions = (instructionsData?.data || [])
-    .filter((i: any) => {
-      if (!searchTerm) return true;
-      const search = searchTerm.toLowerCase();
-      return (
-        i.sender?.toLowerCase().includes(search) ||
-        i.receiver?.toLowerCase().includes(search) ||
-        i.amount?.initialAmount?.toString().includes(search)
-      );
-    })
-    .slice(0, 50);
+  const isLoading = preapprovalsQuery.isLoading || commandsQuery.isLoading || instructionsQuery.isLoading;
 
   const formatAmount = (amount: any) => {
-    const val = amount?.initialAmount || amount;
-    return parseFloat(val || "0").toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    });
+    if (!amount) return "0.00";
+    const value = amount?.amount || amount?.initialAmount?.amount || amount;
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    return (numValue || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const formatParty = (party: string) => {
+  const formatParty = (party: any) => {
     if (!party) return "Unknown";
-    const parts = party.split("::");
-    return parts[0]?.substring(0, 20) || party.substring(0, 20);
+    const partyStr = party?.party || party?.provider || party?.sender || party?.receiver || (typeof party === "string" ? party : JSON.stringify(party));
+    return partyStr.length > 20 ? `${partyStr.substring(0, 10)}...${partyStr.substring(partyStr.length - 8)}` : partyStr;
   };
+
+  const preapprovalsData = (preapprovalsQuery.data?.data || []).filter((p: any) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return formatParty(p.payload?.provider || p.provider).toLowerCase().includes(search) || 
+           formatParty(p.payload?.consumer || p.consumer).toLowerCase().includes(search);
+  }).slice(0, 100);
+
+  const commandsData = (commandsQuery.data?.data || []).filter((c: any) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return formatParty(c.payload?.sender || c.sender).toLowerCase().includes(search) || 
+           formatParty(c.payload?.provider || c.provider).toLowerCase().includes(search);
+  }).slice(0, 100);
+
+  const instructionsData = (instructionsQuery.data?.data || []).filter((i: any) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return formatParty(i.payload?.transfer?.sender || i.transfer?.sender).toLowerCase().includes(search) || 
+           formatParty(i.payload?.transfer?.receiver?.receiver || i.transfer?.receiver).toLowerCase().includes(search);
+  }).slice(0, 100);
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-3xl font-bold mb-2">Transfers</h2>
-            <p className="text-muted-foreground">
-              Track transfer preapprovals, commands, and instructions
-            </p>
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
+            <ArrowRightLeft className="h-8 w-8 text-primary" />
+            Transfer Activity
+          </h1>
+          <p className="text-muted-foreground">Track transfer preapprovals, commands, and instructions.</p>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="glass-card p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Transfer Preapprovals</h3>
-              <Clock className="h-5 w-5 text-primary" />
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <>
-                <p className="text-3xl font-bold text-primary mb-1">
-                  {preapprovalsData?.totalContracts?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-muted-foreground">Active preapprovals</p>
-              </>
-            )}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="p-6">
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">Active Preapprovals</h3>
+            {isLoading ? <Skeleton className="h-8 w-24" /> : <p className="text-2xl font-bold">{preapprovalsQuery.data?.totalContracts || 0}</p>}
           </Card>
-
-          <Card className="glass-card p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Transfer Commands</h3>
-              <ArrowRightLeft className="h-5 w-5 text-chart-2" />
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <>
-                <p className="text-3xl font-bold text-chart-2 mb-1">
-                  {commandsData?.totalContracts?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-muted-foreground">External commands</p>
-              </>
-            )}
+          <Card className="p-6">
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">External Commands</h3>
+            {isLoading ? <Skeleton className="h-8 w-24" /> : <p className="text-2xl font-bold">{commandsQuery.data?.totalContracts || 0}</p>}
           </Card>
-
-          <Card className="glass-card p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Transfer Instructions</h3>
-              <CheckCircle2 className="h-5 w-5 text-success" />
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <>
-                <p className="text-3xl font-bold text-success mb-1">
-                  {instructionsData?.totalContracts?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-muted-foreground">Pending instructions</p>
-              </>
-            )}
+          <Card className="p-6">
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">Pending Instructions</h3>
+            {isLoading ? <Skeleton className="h-8 w-24" /> : <p className="text-2xl font-bold">{instructionsQuery.data?.totalContracts || 0}</p>}
           </Card>
         </div>
 
-        {/* Search */}
-        <div className="flex gap-4">
-          <Input
-            placeholder="Search by sender, receiver, or amount..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="max-w-md"
-          />
-        </div>
+        <Card className="p-4">
+          <Input type="text" placeholder="Search transfers..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        </Card>
 
-        {/* Tabs */}
-        <Tabs defaultValue="preapprovals" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="preapprovals">Preapprovals</TabsTrigger>
-            <TabsTrigger value="commands">Commands</TabsTrigger>
-            <TabsTrigger value="instructions">Instructions</TabsTrigger>
-          </TabsList>
+        <Card className="p-6">
+          <Tabs defaultValue="preapprovals" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="preapprovals">Preapprovals ({preapprovalsQuery.data?.totalContracts || 0})</TabsTrigger>
+              <TabsTrigger value="commands">Commands ({commandsQuery.data?.totalContracts || 0})</TabsTrigger>
+              <TabsTrigger value="instructions">Instructions ({instructionsQuery.data?.totalContracts || 0})</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="preapprovals" className="space-y-4 mt-6">
-            {isLoading ? (
-              <Skeleton className="h-96 w-full" />
-            ) : preapprovals.length === 0 ? (
-              <Card className="glass-card p-6">
-                <p className="text-muted-foreground text-center">No transfer preapprovals found</p>
-              </Card>
-            ) : (
-              preapprovals.map((preapproval: any, index: number) => (
-                <Card key={index} className="glass-card">
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {formatParty(preapproval.sender)}
-                          </Badge>
-                          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
-                          <Badge variant="outline" className="text-xs">
-                            {formatParty(preapproval.receiver)}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Amount</p>
-                            <p className="font-semibold">{formatAmount(preapproval.amount)} CC</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Expires At</p>
-                            <p className="font-semibold">
-                              {preapproval.expiresAt
-                                ? new Date(preapproval.expiresAt).toLocaleString()
-                                : "No expiry"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+            <TabsContent value="preapprovals" className="space-y-4 mt-4">
+              {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> : 
+               preapprovalsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No preapprovals found</p> :
+               preapprovalsData.map((p: any, i: number) => (
+                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Provider: {formatParty(p.payload?.provider || p.provider)}</span>
+                    <span className="text-sm text-muted-foreground">Amount: {formatAmount(p.payload?.amount || p.amount)}</span>
                   </div>
-                </Card>
-              ))
-            )}
-          </TabsContent>
+                  <div className="text-sm text-muted-foreground">Consumer: {formatParty(p.payload?.consumer || p.consumer)}</div>
+                </div>
+              ))}
+            </TabsContent>
 
-          <TabsContent value="commands" className="space-y-4 mt-6">
-            {isLoading ? (
-              <Skeleton className="h-96 w-full" />
-            ) : commands.length === 0 ? (
-              <Card className="glass-card p-6">
-                <p className="text-muted-foreground text-center">No transfer commands found</p>
-              </Card>
-            ) : (
-              commands.map((command: any, index: number) => (
-                <Card key={index} className="glass-card">
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {formatParty(command.sender)}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Nonce</p>
-                            <p className="font-semibold">{command.nonce || "N/A"}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Provider</p>
-                            <p className="font-semibold">{formatParty(command.provider)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+            <TabsContent value="commands" className="space-y-4 mt-4">
+              {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> :
+               commandsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No commands found</p> :
+               commandsData.map((c: any, i: number) => (
+                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Sender: {formatParty(c.payload?.sender || c.sender)}</span>
+                    <span className="text-sm text-muted-foreground">Nonce: {c.payload?.nonce || c.nonce || 'N/A'}</span>
                   </div>
-                </Card>
-              ))
-            )}
-          </TabsContent>
+                  <div className="text-sm text-muted-foreground">Provider: {formatParty(c.payload?.provider || c.provider)}</div>
+                </div>
+              ))}
+            </TabsContent>
 
-          <TabsContent value="instructions" className="space-y-4 mt-6">
-            {isLoading ? (
-              <Skeleton className="h-96 w-full" />
-            ) : instructions.length === 0 ? (
-              <Card className="glass-card p-6">
-                <p className="text-muted-foreground text-center">No transfer instructions found</p>
-              </Card>
-            ) : (
-              instructions.map((instruction: any, index: number) => (
-                <Card key={index} className="glass-card">
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {formatParty(instruction.sender)}
-                          </Badge>
-                          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
-                          <Badge variant="outline" className="text-xs">
-                            {formatParty(instruction.receiver)}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Amount</p>
-                            <p className="font-semibold">{formatAmount(instruction.amount)} CC</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Provider</p>
-                            <p className="font-semibold">{formatParty(instruction.provider)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+            <TabsContent value="instructions" className="space-y-4 mt-4">
+              {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> :
+               instructionsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No instructions found</p> :
+               instructionsData.map((ins: any, i: number) => (
+                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Transfer ID: {(ins.contract?.contractId || 'Unknown').substring(0, 16)}...</span>
+                    <span className="text-sm text-muted-foreground">Amount: {formatAmount(ins.payload?.transfer?.amount || ins.transfer?.amount)}</span>
                   </div>
-                </Card>
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
+                  <div className="text-sm text-muted-foreground">Sender: {formatParty(ins.payload?.transfer?.sender || ins.transfer?.sender)}</div>
+                  <div className="text-sm text-muted-foreground">Receiver: {formatParty(ins.payload?.transfer?.receiver?.receiver || ins.transfer?.receiver)}</div>
+                </div>
+              ))}
+            </TabsContent>
+          </Tabs>
+        </Card>
       </div>
     </DashboardLayout>
   );
