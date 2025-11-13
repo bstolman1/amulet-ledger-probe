@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRightLeft, Clock, CheckCircle2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useACSTemplateData } from "@/hooks/use-acs-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -13,24 +13,24 @@ const Transfers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Fetch TransferPreapproval contracts
-  const { data: preapprovalsData, isLoading: preapprovalsLoading } = useACSTemplateData<any>(
+  // Fetch TransferPreapproval contracts - aggregated across all packages
+  const { data: preapprovalsData, isLoading: preapprovalsLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:AmuletRules:TransferPreapproval",
+    "Splice:AmuletRules:TransferPreapproval",
     !!latestSnapshot
   );
 
-  // Fetch TransferCommand contracts
-  const { data: commandsData, isLoading: commandsLoading } = useACSTemplateData<any>(
+  // Fetch TransferCommand contracts - aggregated across all packages
+  const { data: commandsData, isLoading: commandsLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:ExternalPartyAmuletRules:TransferCommand",
+    "Splice:ExternalPartyAmuletRules:TransferCommand",
     !!latestSnapshot
   );
 
-  // Fetch AmuletTransferInstruction contracts
-  const { data: instructionsData, isLoading: instructionsLoading } = useACSTemplateData<any>(
+  // Fetch AmuletTransferInstruction contracts - aggregated across all packages
+  const { data: instructionsData, isLoading: instructionsLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:AmuletTransferInstruction:AmuletTransferInstruction",
+    "Splice:AmuletTransferInstruction:AmuletTransferInstruction",
     !!latestSnapshot
   );
 
@@ -112,7 +112,7 @@ const Transfers = () => {
             ) : (
               <>
                 <p className="text-3xl font-bold text-primary mb-1">
-                  {preapprovalsData?.metadata?.entry_count?.toLocaleString() || 0}
+                  {preapprovalsData?.totalContracts?.toLocaleString() || 0}
                 </p>
                 <p className="text-xs text-muted-foreground">Active preapprovals</p>
               </>
@@ -129,7 +129,7 @@ const Transfers = () => {
             ) : (
               <>
                 <p className="text-3xl font-bold text-chart-2 mb-1">
-                  {commandsData?.metadata?.entry_count?.toLocaleString() || 0}
+                  {commandsData?.totalContracts?.toLocaleString() || 0}
                 </p>
                 <p className="text-xs text-muted-foreground">External commands</p>
               </>
@@ -146,7 +146,7 @@ const Transfers = () => {
             ) : (
               <>
                 <p className="text-3xl font-bold text-success mb-1">
-                  {instructionsData?.metadata?.entry_count?.toLocaleString() || 0}
+                  {instructionsData?.totalContracts?.toLocaleString() || 0}
                 </p>
                 <p className="text-xs text-muted-foreground">Pending instructions</p>
               </>

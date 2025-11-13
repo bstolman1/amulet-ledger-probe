@@ -7,7 +7,7 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useACSTemplateData } from "@/hooks/use-acs-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 
 const Governance = () => {
   const { data: dsoInfo } = useQuery({
@@ -19,17 +19,17 @@ const Governance = () => {
   // Get latest ACS snapshot
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Fetch DsoRules to get SV count and voting threshold
-  const { data: dsoRulesData } = useACSTemplateData<any>(
+  // Fetch DsoRules to get SV count and voting threshold - aggregated across all packages
+  const { data: dsoRulesData } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:DsoRules:DsoRules",
+    "Splice:DsoRules:DsoRules",
     !!latestSnapshot
   );
 
-  // Fetch vote requests
-  const { data: voteRequestsData, isLoading, isError } = useACSTemplateData<any>(
+  // Fetch vote requests - aggregated across all packages
+  const { data: voteRequestsData, isLoading, isError } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "6e9fc50fb94e56751b49f09ba2dc84da53a9d7cff08115ebb4f6b7a12d0c990c:Splice:DsoRules:VoteRequest",
+    "Splice:DsoRules:VoteRequest",
     !!latestSnapshot
   );
 
