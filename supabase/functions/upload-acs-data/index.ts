@@ -58,24 +58,10 @@ interface ProgressRequest {
     processed_events: number;
     elapsed_time_ms: number;
     pages_per_minute: number;
-    cursor_after?: number;
   };
 }
 
-interface AppendDeltaRequest {
-  mode: 'append-delta';
-  snapshot_id: string;
-  templates: Array<{
-    template_id: string;
-    creates: number;
-    archives: number;
-    created_contracts: any[];
-    archived_contracts: any[];
-  }>;
-  webhookSecret: string;
-}
-
-type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest | AppendDeltaRequest;
+type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -231,88 +217,32 @@ Deno.serve(async (req) => {
       const { snapshot_id, progress } = request;
       console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events`);
 
-      const updateData: any = {
-        processed_pages: progress.processed_pages,
-        processed_events: progress.processed_events,
-        elapsed_time_ms: progress.elapsed_time_ms,
-        pages_per_minute: progress.pages_per_minute,
-        last_progress_update: new Date().toISOString(),
-      };
-
-      if (progress.cursor_after !== undefined) {
-        updateData.cursor_after = progress.cursor_after;
-      }
-
       const { error: updateError } = await supabase
         .from('acs_snapshots')
-        .update(updateData)
+        .update({
+          processed_pages: progress.processed_pages,
+          processed_events: progress.processed_events,
+          elapsed_time_ms: progress.elapsed_time_ms,
+          pages_per_minute: progress.pages_per_minute,
+          progress_percentage: 0, // Will be calculated based on events later
+        })
         .eq('id', snapshot_id);
 
       if (updateError) {
-        console.error('Progress update error:', updateError);
+        console.error('Failed to update snapshot progress:', updateError);
         throw updateError;
       }
 
       console.log('Progress updated successfully');
 
       return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (request.mode === 'append-delta') {
-      const { snapshot_id, templates } = request;
-      console.log(`Processing delta batch of ${templates.length} templates for snapshot ${snapshot_id}`);
-
-      // Process each template delta
-      for (const templateDelta of templates) {
-        const { template_id, creates, archives } = templateDelta;
-
-        // Fetch existing template stats
-        const { data: existingStats } = await supabase
-          .from('acs_template_stats')
-          .select('*')
-          .eq('snapshot_id', snapshot_id)
-          .eq('template_id', template_id)
-          .single();
-
-        if (existingStats) {
-          // Update existing stats
-          const newCount = existingStats.contract_count + creates - archives;
-          
-          const { error: updateError } = await supabase
-            .from('acs_template_stats')
-            .update({
-              contract_count: newCount,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingStats.id);
-
-          if (updateError) {
-            console.error(`Error updating template stats for ${template_id}:`, updateError);
-          }
-        } else {
-          // Create new stats
-          const { error: insertError } = await supabase
-            .from('acs_template_stats')
-            .insert({
-              snapshot_id,
-              template_id,
-              contract_count: creates - archives,
-            });
-
-          if (insertError) {
-            console.error(`Error inserting template stats for ${template_id}:`, insertError);
-          }
+        JSON.stringify({ 
+          success: true
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      }
-
-      console.log(`Processed ${templates.length} template deltas`);
-
-      return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

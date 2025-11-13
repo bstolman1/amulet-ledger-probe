@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
+
 interface Snapshot {
   id: string;
   status: string;
@@ -22,15 +24,8 @@ interface Snapshot {
   timestamp: string;
   elapsed_time_ms: number;
   pages_per_minute: number;
-  template_batch_updates?: number;
-  last_batch_info?: any;
-  is_delta: boolean | null;
-  previous_snapshot_id: string | null;
-  processing_mode: string | null;
-  entry_count: number;
-  amulet_total: number;
-  locked_total: number;
-  circulating_supply: number;
+  template_batch_updates: number;
+  last_batch_info: any;
 }
 
 interface TemplateStats {
@@ -39,7 +34,7 @@ interface TemplateStats {
   template_id: string;
   contract_count: number;
   created_at: string;
-  updated_at?: string;
+  updated_at: string;
 }
 
 const SnapshotProgress = () => {
@@ -215,10 +210,11 @@ const SnapshotProgress = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">ACS Snapshot Progress</h1>
-            <p className="text-muted-foreground">Automated snapshots run every 3 hours via GitHub Actions. First run performs a full snapshot, subsequent runs fetch only new transactions for speed.</p>
+            <h1 className="text-3xl font-bold mb-2">ACS Snapshot</h1>
+            <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
           </div>
           <div className="flex gap-2">
+            <TriggerACSSnapshotButton />
             <Button
               onClick={handlePurgeAll}
               disabled={isPurging}
