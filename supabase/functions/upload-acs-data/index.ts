@@ -132,6 +132,8 @@ Deno.serve(async (req) => {
 
       let processed = 0;
 
+      let totalContractsAdded = 0;
+
       for (const template of templates) {
         const storagePath = `${snapshot_id}/${template.filename}`;
         const fileContent = new TextEncoder().encode(template.content);
@@ -150,13 +152,15 @@ Deno.serve(async (req) => {
 
         const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
         const data = JSON.parse(template.content);
+        const contractCount = data.length;
+        totalContractsAdded += contractCount;
 
         const { error: statsError } = await supabase
           .from('acs_template_stats')
           .upsert({
             snapshot_id: snapshot_id,
             template_id: templateId,
-            contract_count: data.length,
+            contract_count: contractCount,
             storage_path: storagePath,
           }, {
             onConflict: 'snapshot_id,template_id'
@@ -170,7 +174,32 @@ Deno.serve(async (req) => {
         processed++;
       }
 
-      console.log(`Processed ${processed} templates`);
+      // Update template batch counter and last batch info
+      const { data: currentSnapshot, error: fetchError } = await supabase
+        .from('acs_snapshots')
+        .select('template_batch_updates')
+        .eq('id', snapshot_id)
+        .single();
+
+      if (!fetchError && currentSnapshot) {
+        const { error: batchUpdateError } = await supabase
+          .from('acs_snapshots')
+          .update({
+            template_batch_updates: (currentSnapshot.template_batch_updates || 0) + 1,
+            last_batch_info: {
+              templates_updated: processed,
+              contracts_added: totalContractsAdded,
+              timestamp: new Date().toISOString()
+            }
+          })
+          .eq('id', snapshot_id);
+
+        if (batchUpdateError) {
+          console.error('Failed to update batch counter:', batchUpdateError);
+        }
+      }
+
+      console.log(`Processed ${processed} templates, ${totalContractsAdded} contracts`);
 
       return new Response(
         JSON.stringify({ 

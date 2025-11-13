@@ -24,6 +24,8 @@ interface Snapshot {
   timestamp: string;
   elapsed_time_ms: number;
   pages_per_minute: number;
+  template_batch_updates: number;
+  last_batch_info: any;
 }
 
 interface TemplateStats {
@@ -32,6 +34,7 @@ interface TemplateStats {
   template_id: string;
   contract_count: number;
   created_at: string;
+  updated_at: string;
 }
 
 const SnapshotProgress = () => {
@@ -123,7 +126,7 @@ const SnapshotProgress = () => {
         .from('acs_template_stats')
         .select('*')
         .eq('snapshot_id', snapshotId)
-        .order('created_at', { ascending: true });
+        .order('updated_at', { ascending: false });
 
       if (error) throw error;
       if (data) {
@@ -241,14 +244,16 @@ const SnapshotProgress = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Progress Bar */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Overall Progress</span>
-                  <span className="font-medium">{snapshot.progress_percentage?.toFixed(1) || 0}%</span>
+              {/* Progress Bar - Only show for completed snapshots */}
+              {snapshot.status === 'completed' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Overall Progress</span>
+                    <span className="font-medium">100%</span>
+                  </div>
+                  <Progress value={100} className="h-2" />
                 </div>
-                <Progress value={snapshot.progress_percentage || 0} className="h-2" />
-              </div>
+              )}
 
               {/* Stats Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -285,17 +290,73 @@ const SnapshotProgress = () => {
                 </div>
               </div>
 
+              {/* New Activity Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-lg bg-primary/5 border border-primary/10">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Database className="w-4 h-4" />
+                    Total Contracts
+                  </div>
+                  <p className="text-2xl font-bold text-primary">
+                    {templateStats[snapshot.id]?.reduce((sum, stat) => sum + stat.contract_count, 0)?.toLocaleString() || 0}
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Activity className="w-4 h-4" />
+                    Template Updates
+                  </div>
+                  <p className="text-2xl font-bold text-primary">{snapshot.template_batch_updates || 0}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <FileText className="w-4 h-4" />
+                    Unique Templates
+                  </div>
+                  <p className="text-2xl font-bold text-primary">{templateStats[snapshot.id]?.length || 0}</p>
+                </div>
+              </div>
+
+              {/* Last Batch Info */}
+              {snapshot.last_batch_info && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-green-600 dark:text-green-400 font-medium">
+                      Last batch: {snapshot.last_batch_info.templates_updated} templates, +{snapshot.last_batch_info.contracts_added.toLocaleString()} contracts
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {formatDistanceToNow(new Date(snapshot.last_batch_info.timestamp), { addSuffix: true })}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Template Stats */}
               {templateStats[snapshot.id] && templateStats[snapshot.id].length > 0 && (
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Templates Processed ({templateStats[snapshot.id].length})</h4>
-                  <div className="max-h-48 overflow-y-auto space-y-2">
-                    {templateStats[snapshot.id].map((stat) => (
-                      <div key={stat.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50 text-sm">
-                        <span className="font-mono text-xs truncate flex-1">{stat.template_id}</span>
-                        <Badge variant="secondary">{stat.contract_count} contracts</Badge>
-                      </div>
-                    ))}
+                  <h4 className="text-sm font-medium">Template Activity</h4>
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {templateStats[snapshot.id].map((stat) => {
+                      const isRecent = new Date(stat.updated_at).getTime() > Date.now() - 5 * 60 * 1000;
+                      return (
+                        <div 
+                          key={stat.id} 
+                          className={`flex items-center justify-between p-2 rounded-lg text-sm ${
+                            isRecent ? 'bg-green-500/10 border border-green-500/20' : 'bg-muted/50'
+                          }`}
+                        >
+                          <span className="font-mono text-xs truncate flex-1">{stat.template_id}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">{stat.contract_count.toLocaleString()} contracts</Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(new Date(stat.updated_at), { addSuffix: true })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
