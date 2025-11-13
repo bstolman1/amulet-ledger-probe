@@ -215,8 +215,8 @@ const SnapshotProgress = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">ACS Snapshot</h1>
-            <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
+            <h1 className="text-3xl font-bold mb-2">ACS Snapshot Progress</h1>
+            <p className="text-muted-foreground">Automated snapshots run every 3 hours via GitHub Actions. First run performs a full snapshot, subsequent runs fetch only new transactions for speed.</p>
           </div>
           <div className="flex gap-2">
             <Button
