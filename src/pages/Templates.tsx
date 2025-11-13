@@ -8,6 +8,25 @@ import { supabase } from "@/integrations/supabase/client";
 import { FileJson, Database, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
+// Map template suffixes to pages that use them
+const getPagesThatUseTemplate = (templateId: string): string[] => {
+  const suffix = templateId.split(':').slice(-3).join(':');
+  const pageMap: Record<string, string[]> = {
+    'Splice:Amulet:Amulet': ['Supply', 'Balances'],
+    'Splice:Amulet:LockedAmulet': ['Supply', 'Balances'],
+    'Splice:Round:IssuingMiningRound': ['Supply', 'Mining Rounds'],
+    'Splice:Round:ClosedMiningRound': ['Supply', 'Mining Rounds'],
+    'Splice:Round:OpenMiningRound': ['Mining Rounds'],
+    'Splice:AmuletRules:TransferPreapproval': ['Transfers'],
+    'Splice:ExternalPartyAmuletRules:TransferCommand': ['Transfers'],
+    'Splice:AmuletTransferInstruction:AmuletTransferInstruction': ['Transfers'],
+    'Splice:DsoRules:DsoRules': ['Governance'],
+    'Splice:DsoRules:VoteRequest': ['Governance'],
+    'Splice:Amulet:ValidatorRight': ['SV Rewards'],
+  };
+  return pageMap[suffix] || [];
+};
+
 const Templates = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 
@@ -212,11 +231,15 @@ const Templates = () => {
                             {template.template_id}
                           </code>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground ml-10">
-                          <span>{template.contract_count.toLocaleString()} contracts</span>
-                          {template.storage_path && (
-                            <span className="text-xs font-mono">{template.storage_path}</span>
-                          )}
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground ml-10 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            {template.contract_count.toLocaleString()} contracts
+                          </Badge>
+                          {getPagesThatUseTemplate(template.template_id).map(page => (
+                            <Badge key={page} variant="secondary" className="text-xs">
+                              Used in: {page}
+                            </Badge>
+                          ))}
                         </div>
                       </div>
                       <Badge variant={selectedTemplate === template.template_id ? "default" : "outline"}>
