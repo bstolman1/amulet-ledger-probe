@@ -1,6 +1,7 @@
 /**
  * Fetch ACS data from Canton Network and upload in real-time
  * Runs in GitHub Actions with no IP restrictions
+ * Supports resuming interrupted snapshots
  */
 
 import axios from "axios";
@@ -8,6 +9,7 @@ import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import fs from "fs";
 import BigNumber from "bignumber.js";
+import { createClient } from "@supabase/supabase-js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -23,6 +25,14 @@ const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
 const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
 const UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
 const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || "500", 10);
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+// Initialize Supabase client if credentials are available
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
 
 function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
@@ -105,14 +115,48 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   return record_time;
 }
 
+async function checkForExistingSnapshot(migration_id) {
+  if (!supabase) {
+    console.log("⚠️ Supabase not configured, cannot check for existing snapshots");
+    return null;
+  }
 
-async function fetchAllACS(baseUrl, migration_id, record_time) {
+  console.log("🔍 Checking for existing in-progress snapshots...");
+  
+  const { data, error } = await supabase
+    .from('acs_snapshots')
+    .select('*')
+    .eq('migration_id', migration_id)
+    .eq('status', 'processing')
+    .order('started_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("❌ Error checking for existing snapshots:", error);
+    return null;
+  }
+
+  if (data && data.length > 0) {
+    const snapshot = data[0];
+    console.log(`✅ Found existing snapshot: ${snapshot.id}`);
+    console.log(`   - Started: ${snapshot.started_at}`);
+    console.log(`   - Processed pages: ${snapshot.processed_pages}`);
+    console.log(`   - Cursor: ${snapshot.cursor_after}`);
+    return snapshot;
+  }
+
+  console.log("ℹ️ No existing in-progress snapshots found");
+  return null;
+}
+
+
+async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot = null) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
   const allEvents = [];
-  let after = 0;
+  let after = existingSnapshot?.cursor_after || 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
-  let page = 1;
+  let page = existingSnapshot?.processed_pages || 1;
   const seen = new Set();
 
   let amuletTotal = new BigNumber(0);
@@ -125,15 +169,20 @@ async function fetchAllACS(baseUrl, migration_id, record_time) {
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-  // Start snapshot
-  let snapshotId = null;
-  let canonicalPkg = "unknown";
+  // Start or resume snapshot
+  let snapshotId = existingSnapshot?.id || null;
+  let canonicalPkg = existingSnapshot?.canonical_package || "unknown";
   const startTime = Date.now();
   let lastProgressUpdate = startTime;
-  let totalPages = 0;
+  let totalPages = page;
   
-  if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-    console.log("🚀 Creating snapshot in database...");
+  if (existingSnapshot) {
+    console.log(`🔄 Resuming snapshot ${snapshotId} from page ${page} (cursor: ${after})`);
+    // Restore totals from existing snapshot
+    amuletTotal = new BigNumber(existingSnapshot.amulet_total || 0);
+    lockedTotal = new BigNumber(existingSnapshot.locked_total || 0);
+  } else if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+    console.log("🚀 Creating new snapshot in database...");
     const startResult = await uploadToEdgeFunction("start", {
       mode: "start",
       webhookSecret: WEBHOOK_SECRET,
@@ -469,8 +518,18 @@ async function run() {
   try {
     const migration_id = await detectLatestMigration(BASE_URL);
     const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    
+    // Check for existing in-progress snapshot
+    const existingSnapshot = await checkForExistingSnapshot(migration_id);
+    
+    if (existingSnapshot) {
+      console.log("🔄 Resuming existing snapshot...");
+    } else {
+      console.log("🆕 Starting new snapshot...");
+    }
+    
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
-      await fetchAllACS(BASE_URL, migration_id, record_time);
+      await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
 
     console.log(`\n✅ Completed! Fetched ${allEvents.length.toLocaleString()} events from ${canonicalPkg}`);
   } catch (err) {
