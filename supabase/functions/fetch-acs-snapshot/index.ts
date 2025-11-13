@@ -343,6 +343,27 @@ Deno.serve(async (req) => {
       // Create new snapshot
       console.log('🆕 Creating new snapshot');
       const migration_id = await detectLatestMigration(BASE_URL);
+      
+      // Check if there's already a snapshot in progress for this migration
+      const { data: existingSnapshot } = await supabaseAdmin
+        .from('acs_snapshots')
+        .select('id, status, started_at')
+        .eq('migration_id', migration_id)
+        .eq('status', 'processing')
+        .maybeSingle();
+      
+      if (existingSnapshot) {
+        console.warn(`⚠️ Snapshot already in progress for migration ${migration_id}: ${existingSnapshot.id}`);
+        return new Response(
+          JSON.stringify({
+            message: 'Snapshot already in progress',
+            snapshot_id: existingSnapshot.id,
+            started_at: existingSnapshot.started_at
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 }
+        );
+      }
+      
       const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
       const { data, error } = await supabaseAdmin
