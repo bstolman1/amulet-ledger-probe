@@ -22,15 +22,15 @@ interface Snapshot {
   timestamp: string;
   elapsed_time_ms: number;
   pages_per_minute: number;
-  template_batch_updates: number;
-  last_batch_info: any;
+  template_batch_updates?: number;
+  last_batch_info?: any;
   is_delta: boolean | null;
   previous_snapshot_id: string | null;
   processing_mode: string | null;
   entry_count: number;
-  amulet_total: string;
-  locked_total: string;
-  circulating_supply: string;
+  amulet_total: number;
+  locked_total: number;
+  circulating_supply: number;
 }
 
 interface TemplateStats {
@@ -39,7 +39,7 @@ interface TemplateStats {
   template_id: string;
   contract_count: number;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 const SnapshotProgress = () => {
@@ -219,7 +219,6 @@ const SnapshotProgress = () => {
             <p className="text-muted-foreground">Monitor live ACS snapshot uploads and template processing</p>
           </div>
           <div className="flex gap-2">
-            <TriggerACSSnapshotButton />
             <Button
               onClick={handlePurgeAll}
               disabled={isPurging}
