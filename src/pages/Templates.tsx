@@ -2,11 +2,10 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useACSTemplateData, useACSTemplates } from "@/hooks/use-acs-template-data";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { FileJson, Database, Hash } from "lucide-react";
+import { FileJson, Database, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 const Templates = () => {
@@ -175,115 +174,91 @@ const Templates = () => {
           </Card>
         )}
 
-        <Tabs defaultValue="templates" className="w-full">
-          <TabsList>
-            <TabsTrigger value="templates">Available Templates</TabsTrigger>
-            {selectedTemplate && <TabsTrigger value="structure">Data Structure</TabsTrigger>}
-          </TabsList>
-
-          <TabsContent value="templates" className="space-y-4">
-            {templatesLoading ? (
-              <div className="grid gap-4">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-20 w-full" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {templates?.map((template) => (
+        <div className="space-y-4">
+          {templatesLoading ? (
+            <div className="grid gap-4">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {templates?.map((template) => (
+                <div key={template.template_id}>
                   <Card
-                    key={template.template_id}
                     className={`glass-card p-6 cursor-pointer transition-all hover:border-primary ${
                       selectedTemplate === template.template_id ? "border-primary" : ""
                     }`}
-                    onClick={() => setSelectedTemplate(template.template_id)}
+                    onClick={() => setSelectedTemplate(
+                      selectedTemplate === template.template_id ? null : template.template_id
+                    )}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
+                          {selectedTemplate === template.template_id ? (
+                            <ChevronDown className="h-5 w-5 text-primary" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                          )}
                           <FileJson className="h-5 w-5 text-primary" />
                           <code className="text-lg font-mono text-foreground">
                             {template.template_id}
                           </code>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Hash className="h-4 w-4" />
-                            <span>{template.contract_count.toLocaleString()} contracts</span>
-                          </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground ml-10">
+                          <span>{template.contract_count.toLocaleString()} contracts</span>
                           {template.storage_path && (
-                            <div className="flex items-center gap-2">
-                              <Database className="h-4 w-4" />
-                              <span className="text-xs font-mono">{template.storage_path}</span>
-                            </div>
+                            <span className="text-xs font-mono">{template.storage_path}</span>
                           )}
                         </div>
                       </div>
                       <Badge variant={selectedTemplate === template.template_id ? "default" : "outline"}>
-                        {selectedTemplate === template.template_id ? "Selected" : "Select"}
+                        {selectedTemplate === template.template_id ? "Expanded" : "Click to expand"}
                       </Badge>
                     </div>
                   </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
 
-          <TabsContent value="structure" className="space-y-4">
-            {dataLoading ? (
-              <Skeleton className="h-96 w-full" />
-            ) : templateData && structure ? (
-              <div className="space-y-4">
-                <Card className="glass-card p-6">
-                  <h3 className="text-xl font-bold mb-4">Template: {selectedTemplate}</h3>
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div>
-                      <span className="text-sm text-muted-foreground">Total Entries</span>
-                      <p className="text-2xl font-bold text-primary">
-                        {templateData.metadata.entry_count.toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-sm text-muted-foreground">Snapshot Time</span>
-                      <p className="text-sm font-mono">
-                        {new Date(templateData.metadata.snapshot_timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-sm text-muted-foreground">Loaded Entries</span>
-                      <p className="text-2xl font-bold text-chart-2">
-                        {templateData.data.length.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
+                  {selectedTemplate === template.template_id && (
+                    <div className="ml-6 mt-2 space-y-4">
+                      {dataLoading ? (
+                        <Skeleton className="h-96 w-full" />
+                      ) : templateData && structure ? (
+                        <>
+                          <Card className="glass-card p-6">
+                            <h3 className="text-xl font-bold mb-4">Data Structure</h3>
+                            <p className="text-sm text-muted-foreground mb-4">
+                              Analyzed from sample entry. Fields and types may vary across entries.
+                            </p>
+                            <div className="bg-muted/30 rounded-lg p-4 font-mono text-sm overflow-x-auto">
+                              {renderStructure(structure)}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-4">
+                              Based on {templateData.data.length} sample contract(s)
+                            </p>
+                          </Card>
 
-                <Card className="glass-card p-6">
-                  <h4 className="text-lg font-semibold mb-4">Data Structure</h4>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Analyzed from sample entry. Fields and types may vary across entries.
-                  </p>
-                  <div className="bg-muted/30 rounded-lg p-4 font-mono text-sm overflow-x-auto">
-                    {renderStructure(structure)}
-                  </div>
-                </Card>
-
-                <Card className="glass-card p-6">
-                  <h4 className="text-lg font-semibold mb-4">Sample Entry (First Record)</h4>
-                  <div className="bg-muted/30 rounded-lg p-4 overflow-x-auto">
-                    <pre className="text-xs font-mono">
-                      {JSON.stringify(templateData.data[0], null, 2)}
-                    </pre>
-                  </div>
-                </Card>
-              </div>
-            ) : (
-              <Card className="glass-card p-6">
-                <p className="text-muted-foreground">Select a template to view its data structure</p>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
+                          <Card className="glass-card p-6">
+                            <h4 className="text-lg font-semibold mb-4">Sample Entry (First Record)</h4>
+                            <div className="bg-muted/30 rounded-lg p-4 overflow-x-auto">
+                              <pre className="text-xs font-mono">
+                                {JSON.stringify(templateData.data[0], null, 2)}
+                              </pre>
+                            </div>
+                          </Card>
+                        </>
+                      ) : (
+                        <Card className="glass-card p-6">
+                          <p className="text-muted-foreground">No data available for this template.</p>
+                        </Card>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );
