@@ -146,8 +146,14 @@ const Templates = () => {
       <div className="space-y-6">
         <div>
           <h2 className="text-3xl font-bold mb-2">Template Data Explorer</h2>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-2">
             Explore available templates and their data structures from the latest ACS snapshot
+          </p>
+          <p className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg">
+            <strong>Template ID Format:</strong> <code className="bg-background px-1 rounded">package-hash:Module:Entity:Template</code>
+            <br />
+            The hash prefix identifies the package/version, while the suffix (e.g., "Splice:Amulet:Amulet") 
+            identifies the module, entity, and template name within Canton. Different packages may contain templates with the same names but different implementations.
           </p>
         </div>
 

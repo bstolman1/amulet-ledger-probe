@@ -48,11 +48,26 @@ export function useACSTemplateData<T = any>(
       if (downloadError) throw downloadError;
       if (!fileData) throw new Error("No data returned from storage");
 
-      // Parse the JSON
+      // Parse the JSON - storage files contain raw array of contracts
       const text = await fileData.text();
-      const parsed = JSON.parse(text);
+      const contractsArray = JSON.parse(text);
       
-      return parsed as TemplateDataResponse<T>;
+      // Get snapshot info for metadata
+      const { data: snapshot } = await supabase
+        .from("acs_snapshots")
+        .select("timestamp")
+        .eq("id", snapshotId)
+        .single();
+      
+      // Wrap in expected format with metadata
+      return {
+        metadata: {
+          template_id: templateId,
+          snapshot_timestamp: snapshot?.timestamp || new Date().toISOString(),
+          entry_count: Array.isArray(contractsArray) ? contractsArray.length : 0
+        },
+        data: Array.isArray(contractsArray) ? contractsArray : []
+      } as TemplateDataResponse<T>;
     },
     enabled: enabled && !!snapshotId && !!templateId,
     staleTime: 5 * 60 * 1000, // 5 minutes
