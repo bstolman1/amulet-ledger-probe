@@ -3,11 +3,12 @@ name: Fetch ACS Snapshot
 on:
   workflow_dispatch: # Manual trigger
   schedule:
-    - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00)
+    - cron: '0 */2 * * *' # Every 2 hours to allow resuming before 6-hour timeout
 
 jobs:
   fetch-and-upload:
     runs-on: self-hosted
+    timeout-minutes: 330 # 5.5 hours - leave buffer before 6-hour hard limit
     
     steps:
       - name: Checkout code
@@ -29,6 +30,8 @@ jobs:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
           EDGE_FUNCTION_URL: ${{ secrets.EDGE_FUNCTION_URL }}
           ACS_UPLOAD_WEBHOOK_SECRET: ${{ secrets.ACS_UPLOAD_WEBHOOK_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PAGE_SIZE: '500'
           UPLOAD_CHUNK_SIZE: '1'
           UPLOAD_DELAY_MS: '200'

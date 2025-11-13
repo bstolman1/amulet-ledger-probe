@@ -24,8 +24,8 @@ interface Snapshot {
   timestamp: string;
   elapsed_time_ms: number;
   pages_per_minute: number;
-  template_batch_updates: number;
-  last_batch_info: any;
+  template_batch_updates?: number;
+  last_batch_info?: any;
 }
 
 interface TemplateStats {
@@ -34,7 +34,7 @@ interface TemplateStats {
   template_id: string;
   contract_count: number;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 const SnapshotProgress = () => {
