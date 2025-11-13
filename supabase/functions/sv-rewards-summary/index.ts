@@ -90,7 +90,7 @@ async function fetchTransactions(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+  const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout
 
   try {
     const response = await fetch(`${scanUrl}/api/scan/v2/updates`, {
@@ -111,7 +111,7 @@ async function fetchTransactions(
   } catch (error) {
     clearTimeout(timeout);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: Scan API did not respond within 25 seconds');
+      throw new Error('Request timeout: Scan API did not respond within 60 seconds');
     }
     throw error;
   }
@@ -322,7 +322,8 @@ async function calculateRewardsSummary(
     claimedAmount: 0
   };
 
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 50; // Reduced for faster responses
+  const MAX_BATCHES = 100; // Prevent infinite loops
   let totalProcessed = 0;
   let batchCount = 0;
 
@@ -334,10 +335,12 @@ async function calculateRewardsSummary(
     last_record_time: beginRecordTime
   };
 
-  while (collectingRounds) {
+  while (collectingRounds && batchCount < MAX_BATCHES) {
+    console.log(`Fetching rounds batch ${batchCount + 1}...`);
     const batch = await fetchTransactions(scanUrl, roundsPaginationKey, PAGE_SIZE);
     
     if (batch.length === 0) break;
+    batchCount++;
 
     for (const tx of batch) {
       const recordTime = new Date(tx.record_time);
@@ -379,8 +382,10 @@ async function calculateRewardsSummary(
     last_record_time: beginRecordTime
   };
 
-  while (true) {
-    batchCount++;
+  let couponBatchCount = 0;
+  while (couponBatchCount < MAX_BATCHES) {
+    couponBatchCount++;
+    console.log(`Fetching coupons batch ${couponBatchCount}...`);
     const batch = await fetchTransactions(scanUrl, paginationKey, PAGE_SIZE);
     
     if (batch.length === 0) {
@@ -427,15 +432,20 @@ async function calculateRewardsSummary(
       break;
     }
 
-    // Log progress every 10 batches
-    if (batchCount % 10 === 0) {
-      console.log(`Progress: ${batchCount} batches, ${totalProcessed} transactions processed`);
+    // Log progress every 5 batches
+    if (couponBatchCount % 5 === 0) {
+      console.log(`Progress: ${couponBatchCount} batches, ${totalProcessed} transactions processed`);
+      console.log(`Active: ${state.activeRewards.size}, Claimed: ${state.claimedCount}, Expired: ${state.expiredCount}`);
     }
   }
 
-  console.log(`Processed ${totalProcessed} transactions in ${batchCount} batches`);
+  console.log(`Processed ${totalProcessed} transactions in ${couponBatchCount} coupon batches`);
   console.log(`Active rewards: ${state.activeRewards.size}`);
   console.log(`Claimed: ${state.claimedCount}, Expired: ${state.expiredCount}`);
+  
+  if (couponBatchCount >= MAX_BATCHES) {
+    console.warn(`Warning: Reached maximum batch limit (${MAX_BATCHES}). Results may be incomplete.`);
+  }
 
   return buildSummary(state, beginRecordTime, endRecordTime);
 }
