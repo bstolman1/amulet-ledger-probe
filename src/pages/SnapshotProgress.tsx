@@ -8,8 +8,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
-
 interface Snapshot {
   id: string;
   status: string;
@@ -26,6 +24,13 @@ interface Snapshot {
   pages_per_minute: number;
   template_batch_updates: number;
   last_batch_info: any;
+  is_delta: boolean | null;
+  previous_snapshot_id: string | null;
+  processing_mode: string | null;
+  entry_count: number;
+  amulet_total: string;
+  locked_total: string;
+  circulating_supply: string;
 }
 
 interface TemplateStats {
