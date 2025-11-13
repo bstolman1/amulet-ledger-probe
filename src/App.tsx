@@ -22,6 +22,8 @@ import Templates from "./pages/Templates";
 import MemberTraffic from "./pages/MemberTraffic";
 import Subscriptions from "./pages/Subscriptions";
 import DSOState from "./pages/DSOState";
+import ValidatorLicenses from "./pages/ValidatorLicenses";
+import ExternalPartySetup from "./pages/ExternalPartySetup";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -63,6 +65,8 @@ const App = () => (
           <Route path="/member-traffic" element={<MemberTraffic />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
           <Route path="/dso-state" element={<DSOState />} />
+          <Route path="/validator-licenses" element={<ValidatorLicenses />} />
+          <Route path="/external-party-setup" element={<ExternalPartySetup />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

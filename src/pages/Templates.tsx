@@ -30,15 +30,16 @@ const getPagesThatUseTemplate = (templateId: string): string[] => {
     'Splice:Amulet:FeaturedAppRight': ['Featured Apps'],
     'Splice:Ans:AnsEntry': ['ANS'],
     'Splice:Ans:AnsEntryContext': ['ANS'],
-    'Splice:ValidatorLicense:ValidatorLicense': ['Validators'],
-    'Splice:ValidatorLicense:ValidatorFaucetCoupon': ['Validators'],
-    'DSO:SvState:SvNodeState': ['DSO State', 'Validators'],
+    'Splice:ValidatorLicense:ValidatorLicense': ['Validator Licenses'],
+    'Splice:ValidatorLicense:ValidatorFaucetCoupon': ['Validator Licenses'],
+    'DSO:SvState:SvNodeState': ['DSO State'],
     'DSO:SvState:SvStatusReport': ['DSO State'],
     'DSO:SvState:SvRewardState': ['DSO State', 'SV Rewards'],
     'Splice:DecentralizedSynchronizer:MemberTraffic': ['Member Traffic'],
     'Wallet:Subscriptions:Subscription': ['Subscriptions'],
     'Wallet:Subscriptions:SubscriptionIdleState': ['Subscriptions'],
     'Wallet:Subscriptions:SubscriptionRequest': ['Subscriptions'],
+    'Splice:AmuletRules:ExternalPartySetupProposal': ['External Party'],
   };
   return pageMap[suffix] || [];
 };
