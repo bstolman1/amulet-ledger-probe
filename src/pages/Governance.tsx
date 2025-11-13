@@ -6,8 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const Governance = () => {
   const { data: dsoInfo } = useQuery({
@@ -16,8 +17,9 @@ const Governance = () => {
     retry: 1,
   });
 
-  // Get latest ACS snapshot
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
 
   // Fetch DsoRules to get SV count and voting threshold - aggregated across all packages
   const { data: dsoRulesData } = useAggregatedTemplateData(

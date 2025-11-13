@@ -66,6 +66,46 @@ export function useLatestACSSnapshot() {
   });
 }
 
+// Hook that returns the latest snapshot regardless of status (for pages that need data even from processing snapshots)
+export function useActiveSnapshot() {
+  return useQuery({
+    queryKey: ["activeAcsSnapshot"],
+    queryFn: async () => {
+      // First try to get latest completed snapshot
+      const { data: completed, error: completedError } = await supabase
+        .from("acs_snapshots")
+        .select("*")
+        .eq("status", "completed")
+        .order("timestamp", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (completedError) throw completedError;
+      
+      // If we have a completed snapshot, return it
+      if (completed) {
+        return { snapshot: completed as ACSSnapshot, isProcessing: false };
+      }
+
+      // Otherwise, fall back to most recent snapshot regardless of status
+      const { data: latest, error: latestError } = await supabase
+        .from("acs_snapshots")
+        .select("*")
+        .order("timestamp", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestError) throw latestError;
+      
+      return { 
+        snapshot: latest as ACSSnapshot | null, 
+        isProcessing: latest?.status === 'processing' 
+      };
+    },
+    staleTime: 30_000,
+  });
+}
+
 export function useTemplateStats(snapshotId: string | undefined) {
   return useQuery({
     queryKey: ["acsTemplateStats", snapshotId],

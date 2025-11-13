@@ -5,8 +5,9 @@ import { Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const MiningRounds = () => {
   const { data: latestRound, isLoading: latestLoading } = useQuery({
@@ -14,8 +15,9 @@ const MiningRounds = () => {
     queryFn: () => scanApi.fetchLatestRound(),
   });
 
-  // Get latest ACS snapshot
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
 
   // Fetch OpenMiningRound contracts - aggregated across all packages
   const { data: openRoundsData, isLoading: openLoading, isError: openError } = useAggregatedTemplateData(

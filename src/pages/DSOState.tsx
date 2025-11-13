@@ -5,11 +5,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Shield, CheckCircle, AlertCircle } from "lucide-react";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const DSOState = () => {
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
   
   const nodeStatesQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -194,9 +197,16 @@ const DSOState = () => {
             </TabsContent>
           </Tabs>
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={["DSO:SvState:SvNodeState", "DSO:SvState:SvStatusReport", "DSO:SvState:SvRewardState"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );
 };
 
 export default DSOState;
+

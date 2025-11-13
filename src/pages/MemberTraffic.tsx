@@ -4,13 +4,19 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Activity } from "lucide-react";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { PaginationControls } from "@/components/PaginationControls";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 
 const MemberTraffic = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 100;
 
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const { data: activeData } = useActiveSnapshot();
+  const latestSnapshot = activeData?.snapshot;
+  const isProcessing = activeData?.isProcessing || false;
   
   const trafficQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -23,14 +29,19 @@ const MemberTraffic = () => {
 
   const filteredTraffic = trafficData
     .filter((traffic: any) => {
+      if (!searchTerm) return true;
       const member = traffic.payload?.member || traffic.member || "";
       const migrationId = traffic.payload?.migrationId?.toString() || traffic.migrationId?.toString() || "";
       return (
         member.toLowerCase().includes(searchTerm.toLowerCase()) ||
         migrationId.includes(searchTerm)
       );
-    })
-    .slice(0, 100);
+    });
+
+  const paginatedData = filteredTraffic.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   const formatMember = (member: string) => {
     if (member.length > 30) {
@@ -103,58 +114,66 @@ const MemberTraffic = () => {
                 type="text"
                 placeholder="Search by member or migration ID..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="pl-10"
               />
             </div>
           </div>
 
           {isLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-24 w-full" />
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-20 w-full" />
               ))}
             </div>
           ) : filteredTraffic.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No traffic data found
-            </p>
+            <div className="text-center py-8 text-muted-foreground">
+              <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No traffic data found</p>
+            </div>
           ) : (
-            <div className="space-y-3">
-              {filteredTraffic.map((traffic: any, idx: number) => (
-                <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">
-                        Member: {formatMember(traffic.payload?.member || traffic.member || 'Unknown')}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Migration ID: {traffic.payload?.migrationId || traffic.migrationId || 'N/A'}
-                      </p>
+            <>
+              <div className="space-y-3">
+                {paginatedData.map((record: any, i: number) => (
+                  <Card key={i} className="p-4">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground mb-1">Member</p>
+                        <p className="font-mono text-sm">{formatMember(record.payload?.member || record.member)}</p>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground mb-1">Migration ID</p>
+                        <p className="font-mono text-sm">{record.payload?.migrationId || record.migrationId || "N/A"}</p>
+                      </div>
+                      <div className="flex-1 text-right">
+                        <p className="text-sm text-muted-foreground mb-1">Traffic</p>
+                        <p className="text-lg font-semibold text-primary">
+                          {formatBytes(record.payload?.totalTrafficBytes || record.totalTrafficBytes)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-primary">
-                        {formatBytes(traffic.payload?.totalTrafficBytes || traffic.totalTrafficBytes)}
-                      </p>
-                    </div>
-                  </div>
-                  {(traffic.payload?.lastUpdateTime || traffic.lastUpdateTime) && (
-                    <p className="text-xs text-muted-foreground">
-                      Last Update: {new Date(traffic.payload?.lastUpdateTime || traffic.lastUpdateTime).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                  </Card>
+                ))}
+              </div>
 
-          {!isLoading && latestSnapshot && (
-            <div className="mt-4 text-xs text-muted-foreground">
-              Showing {Math.min(filteredTraffic.length, 100)} of {filteredTraffic.length} results
-              {filteredTraffic.length > 100 && " (limited to 100)"}
-            </div>
+              <PaginationControls
+                currentPage={currentPage}
+                totalItems={filteredTraffic.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+              />
+            </>
           )}
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={["Splice:DecentralizedSynchronizer:MemberTraffic"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );
