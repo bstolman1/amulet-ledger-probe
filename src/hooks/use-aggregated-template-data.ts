@@ -24,8 +24,16 @@ export function useAggregatedTemplateData(
         .eq("snapshot_id", snapshotId)
         .like("template_id", `%:${templateSuffix}`);
 
+      console.log(`[useAggregatedTemplateData] Searching for suffix: ${templateSuffix}`, {
+        snapshotId,
+        foundTemplates: templateStats?.length || 0,
+        templateIds: templateStats?.map(t => t.template_id),
+        error: statsError
+      });
+
       if (statsError) throw statsError;
       if (!templateStats || templateStats.length === 0) {
+        console.warn(`[useAggregatedTemplateData] No templates found for suffix: ${templateSuffix}`);
         return { data: [], templateCount: 0, totalContracts: 0 };
       }
 
@@ -49,6 +57,7 @@ export function useAggregatedTemplateData(
             const contractsArray = JSON.parse(text);
             
             if (Array.isArray(contractsArray)) {
+              console.log(`[useAggregatedTemplateData] Loaded ${contractsArray.length} contracts from ${template.template_id}`);
               allData.push(...contractsArray);
               totalContracts += contractsArray.length;
             }
@@ -57,6 +66,12 @@ export function useAggregatedTemplateData(
           console.warn(`Error processing template ${template.template_id}:`, error);
         }
       }
+
+      console.log(`[useAggregatedTemplateData] Total aggregated for ${templateSuffix}:`, {
+        templateCount: templateStats.length,
+        totalContracts,
+        dataLength: allData.length
+      });
 
       return {
         data: allData,
