@@ -30,10 +30,10 @@ jobs:
           EDGE_FUNCTION_URL: ${{ secrets.EDGE_FUNCTION_URL }}
           ACS_UPLOAD_WEBHOOK_SECRET: ${{ secrets.ACS_UPLOAD_WEBHOOK_SECRET }}
           PAGE_SIZE: '500'
-          UPLOAD_CHUNK_SIZE: '5'
-          UPLOAD_DELAY_MS: '0'
+          UPLOAD_CHUNK_SIZE: '1'
+          UPLOAD_DELAY_MS: '200'
           RETRY_COOLDOWN_MS: '15000'
-          MAX_INFLIGHT_UPLOADS: '2'
+          MAX_INFLIGHT_UPLOADS: '1'
       
       - name: Upload artifacts (backup)
         uses: actions/upload-artifact@v4
