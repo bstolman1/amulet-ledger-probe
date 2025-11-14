@@ -27,6 +27,7 @@ let UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
 const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || "500", 10);
 const MIN_CHUNK_SIZE = 1; // Never go below 1 template per batch
 const MAX_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
+const ENTRIES_PER_CHUNK = parseInt(process.env.ENTRIES_PER_CHUNK || "5000", 10); // Split templates into chunks of this size
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
@@ -49,6 +50,7 @@ console.log(`   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? '✅ Configured' : '�
 console.log(`   - Supabase Client: ${supabase ? '✅ Initialized' : '❌ Not initialized'}`);
 console.log(`   - Page Size: ${parseInt(process.env.PAGE_SIZE || "500", 10)}`);
 console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE}) - adaptive`);
+console.log(`   - Entries Per Chunk: ${ENTRIES_PER_CHUNK} - templates split if larger`);
 console.log(`   - Upload Delay: ${UPLOAD_DELAY_MS}ms`);
 console.log(`   - Max In-Flight Uploads: ${parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10)}`);
 console.log("=".repeat(80) + "\n");
@@ -68,6 +70,22 @@ function sleep(ms) {
 
 function safeFileName(templateId) {
   return templateId.replace(/[:.]/g, "_");
+}
+
+/**
+ * Split template data into entry chunks to avoid memory limits
+ */
+function chunkTemplateEntries(templateId, entries) {
+  const chunks = [];
+  for (let i = 0; i < entries.length; i += ENTRIES_PER_CHUNK) {
+    chunks.push({
+      templateId,
+      chunkIndex: chunks.length,
+      totalChunks: Math.ceil(entries.length / ENTRIES_PER_CHUNK),
+      entries: entries.slice(i, i + ENTRIES_PER_CHUNK)
+    });
+  }
+  return chunks;
 }
 
 async function uploadToEdgeFunction(phase, data, retryCount = 0) {
@@ -367,13 +385,37 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           const allPendingKeys = Object.keys(pendingUploads);
           const batchKeys = allPendingKeys.slice(0, UPLOAD_CHUNK_SIZE);
           
-          console.log(`📤 Starting upload of ${batchKeys.length} templates (chunk size: ${UPLOAD_CHUNK_SIZE})...`);
+          // Split large templates into entry chunks
+          const chunkedTemplates = [];
+          for (const templateId of batchKeys) {
+            const entries = pendingUploads[templateId];
+            const entryCount = entries.length;
+            
+            if (entryCount > ENTRIES_PER_CHUNK) {
+              console.log(`📦 Splitting ${templateId} (${entryCount} entries) into chunks of ${ENTRIES_PER_CHUNK}...`);
+              const chunks = chunkTemplateEntries(templateId, entries);
+              chunkedTemplates.push(...chunks.map(chunk => ({
+                filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+                content: JSON.stringify(chunk.entries, null, 2),
+                templateId: chunk.templateId,
+                chunkIndex: chunk.chunkIndex,
+                totalChunks: chunk.totalChunks,
+                isChunked: true
+              })));
+            } else {
+              chunkedTemplates.push({
+                filename: `${safeFileName(templateId)}.json`,
+                content: JSON.stringify(entries, null, 2),
+                templateId: templateId,
+                chunkIndex: 0,
+                totalChunks: 1,
+                isChunked: false
+              });
+            }
+          }
           
-          const templates = batchKeys.map(templateId => ({
-            filename: `${safeFileName(templateId)}.json`,
-            content: JSON.stringify(pendingUploads[templateId], null, 2),
-          }));
-
+          console.log(`📤 Starting upload of ${chunkedTemplates.length} chunks from ${batchKeys.length} templates (chunk size: ${UPLOAD_CHUNK_SIZE})...`);
+          
           // Keep a snapshot for retry and remove from pending
           const uploadSnapshot = {};
           batchKeys.forEach(key => {
@@ -388,7 +430,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 mode: "append",
                 webhookSecret: WEBHOOK_SECRET,
                 snapshot_id: snapshotId,
-                templates,
+                templates: chunkedTemplates,
               });
               
               // Send progress update after upload
@@ -409,7 +451,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 },
               });
 
-              console.log(`✅ Batch uploaded successfully`);
+              console.log(`✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`);
             } catch (error) {
               console.error(`❌ Batch upload failed:`, error.message);
               // Put failed templates back into pending queue to retry
@@ -556,16 +598,39 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
   if (snapshotId && Object.keys(pendingUploads).length > 0) {
     console.log(`📤 Uploading final ${Object.keys(pendingUploads).length} templates...`);
     
-    const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
-      filename: `${safeFileName(templateId)}.json`,
-      content: JSON.stringify(contracts, null, 2),
-    }));
+    // Split large templates into chunks for final upload
+    const chunkedTemplates = [];
+    for (const [templateId, entries] of Object.entries(pendingUploads)) {
+      const entryCount = entries.length;
+      
+      if (entryCount > ENTRIES_PER_CHUNK) {
+        console.log(`📦 Splitting ${templateId} (${entryCount} entries) into chunks of ${ENTRIES_PER_CHUNK}...`);
+        const chunks = chunkTemplateEntries(templateId, entries);
+        chunkedTemplates.push(...chunks.map(chunk => ({
+          filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+          content: JSON.stringify(chunk.entries, null, 2),
+          templateId: chunk.templateId,
+          chunkIndex: chunk.chunkIndex,
+          totalChunks: chunk.totalChunks,
+          isChunked: true
+        })));
+      } else {
+        chunkedTemplates.push({
+          filename: `${safeFileName(templateId)}.json`,
+          content: JSON.stringify(entries, null, 2),
+          templateId: templateId,
+          chunkIndex: 0,
+          totalChunks: 1,
+          isChunked: false
+        });
+      }
+    }
 
     await uploadToEdgeFunction("append", {
       mode: "append",
       webhookSecret: WEBHOOK_SECRET,
       snapshot_id: snapshotId,
-      templates,
+      templates: chunkedTemplates,
     });
   }
 
