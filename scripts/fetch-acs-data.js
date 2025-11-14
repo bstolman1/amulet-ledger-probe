@@ -226,14 +226,19 @@ async function checkForExistingSnapshot(migration_id) {
     const startedAt = new Date(inProgress.started_at);
     const now = new Date();
     const runtimeMinutes = ((now - startedAt) / 1000 / 60).toFixed(1);
+    const isIncremental = inProgress.snapshot_type === 'incremental' || inProgress.is_delta === true;
     
     console.log("✅ FOUND EXISTING IN-PROGRESS SNAPSHOT - WILL RESUME");
     console.log(`   - Snapshot ID: ${inProgress.id}`);
     console.log(`   - Migration ID: ${inProgress.migration_id}`);
+    console.log(`   - Type: ${isIncremental ? 'INCREMENTAL' : 'FULL'}`);
     console.log(`   - Started: ${inProgress.started_at} (${runtimeMinutes} minutes ago)`);
     console.log(`   - Processed Pages: ${inProgress.processed_pages || 0}`);
     console.log(`   - Processed Events: ${inProgress.processed_events || 0}`);
     console.log(`   - Cursor Position: ${inProgress.cursor_after || 0}`);
+    if (isIncremental) {
+      console.log(`   - Last Record Time: ${inProgress.record_time || 'unknown'}`);
+    }
     console.log("   ⚡ This cron job will continue from where the previous job left off");
   } else {
     console.log("ℹ️  No in-progress snapshots found");
@@ -710,20 +715,33 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
   return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
 }
 
-async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSnapshot) {
-  console.log("🔄 Fetching INCREMENTAL (delta) snapshot using v2/updates...");
-  console.log(`   - Baseline snapshot: ${lastCompletedSnapshot.id}`);
-  console.log(`   - Baseline record_time: ${lastCompletedSnapshot.record_time}`);
-  console.log(`   - New record_time: ${record_time}`);
+async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapshot) {
+  // baselineSnapshot can be either:
+  // - A completed snapshot (for starting a new incremental)
+  // - An in-progress incremental snapshot (for resuming)
+  const isResuming = baselineSnapshot.status === 'processing';
+  
+  if (isResuming) {
+    console.log("🔄 Resuming INCREMENTAL (delta) snapshot...");
+    console.log(`   - Resuming snapshot: ${baselineSnapshot.id}`);
+    console.log(`   - Last record_time: ${baselineSnapshot.record_time}`);
+    console.log(`   - Processed events so far: ${baselineSnapshot.processed_events || 0}`);
+    console.log(`   - Target record_time: ${record_time}`);
+  } else {
+    console.log("🔄 Fetching INCREMENTAL (delta) snapshot using v2/updates...");
+    console.log(`   - Baseline snapshot: ${baselineSnapshot.id}`);
+    console.log(`   - Baseline record_time: ${baselineSnapshot.record_time}`);
+    console.log(`   - New record_time: ${record_time}`);
+  }
 
   const allEvents = [];
   let after = 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
-  let page = 1;
+  let page = isResuming ? (baselineSnapshot.processed_pages || 1) : 1;
   const seen = new Set();
 
-  let amuletTotal = new BigNumber(lastCompletedSnapshot.amulet_total || 0);
-  let lockedTotal = new BigNumber(lastCompletedSnapshot.locked_total || 0);
+  let amuletTotal = new BigNumber(baselineSnapshot.amulet_total || 0);
+  let lockedTotal = new BigNumber(baselineSnapshot.locked_total || 0);
   const perPackage = {};
   const templatesByPackage = {};
   const templatesData = {};
@@ -732,13 +750,13 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-  // Start incremental snapshot
-  let snapshotId = null;
-  let canonicalPkg = lastCompletedSnapshot.canonical_package || "unknown";
+  // Start or resume incremental snapshot
+  let snapshotId = isResuming ? baselineSnapshot.id : null;
+  let canonicalPkg = baselineSnapshot.canonical_package || "unknown";
   const startTime = Date.now();
   let lastProgressUpdate = startTime;
 
-  if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+  if (!isResuming && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
     console.log("\n" + "🔄".repeat(40));
     console.log("🔄 CREATING INCREMENTAL SNAPSHOT");
     console.log("🔄".repeat(40));
@@ -760,11 +778,18 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
         is_delta: true,
         snapshot_type: 'incremental',
         processing_mode: 'delta',
-        previous_snapshot_id: lastCompletedSnapshot.id,
+        previous_snapshot_id: baselineSnapshot.id,
       },
     });
     snapshotId = startResult?.snapshot_id;
     console.log(`   ✅ Incremental Snapshot Created: ${snapshotId}`);
+    console.log("🔄".repeat(40) + "\n");
+  } else if (isResuming) {
+    console.log("\n" + "🔄".repeat(40));
+    console.log("🔄 RESUMING EXISTING INCREMENTAL SNAPSHOT");
+    console.log("🔄".repeat(40));
+    console.log(`   - Snapshot ID: ${snapshotId}`);
+    console.log(`   - Starting from page: ${page}`);
     console.log("🔄".repeat(40) + "\n");
   }
 
@@ -776,7 +801,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
   const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
   const inflightUploads = [];
 
-  let lastSeenRecordTime = lastCompletedSnapshot.record_time;
+  let lastSeenRecordTime = baselineSnapshot.record_time;
 
   while (true) {
     let retryCount = 0;
@@ -791,7 +816,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
         const url = `${baseUrl}/v2/updates`;
         const requestBody = {
           after: {
-            after_migration_id: lastCompletedSnapshot.migration_id || migration_id,
+            after_migration_id: baselineSnapshot.migration_id || migration_id,
             after_record_time: lastSeenRecordTime,
           },
           page_size: pageSize,
@@ -1002,18 +1027,55 @@ async function run() {
     let startTime;
     
     if (inProgress) {
-      console.log("🔄 DECISION: RESUMING IN-PROGRESS SNAPSHOT");
-      console.log("=".repeat(80));
-      console.log("   Continuing a previous in-progress snapshot.");
-      console.log(`   - Snapshot ID: ${inProgress.id}`);
-      console.log(`   - Will resume from page: ${inProgress.processed_pages || 1}`);
-      console.log(`   - Will resume from cursor: ${inProgress.cursor_after || 0}`);
-      console.log("=".repeat(80) + "\n");
+      const isIncremental = inProgress.snapshot_type === 'incremental' || inProgress.is_delta === true;
       
-      startTime = Date.now();
-      result = await fetchAllACS(BASE_URL, migration_id, record_time, inProgress);
+      if (isIncremental) {
+        console.log("🔄 DECISION: RESUMING IN-PROGRESS INCREMENTAL SNAPSHOT");
+        console.log("=".repeat(80));
+        console.log("   Continuing a previous in-progress incremental snapshot.");
+        console.log(`   - Snapshot ID: ${inProgress.id}`);
+        console.log(`   - Will resume from record_time: ${inProgress.record_time || record_time}`);
+        console.log(`   - Processed Events: ${inProgress.processed_events || 0}`);
+        console.log("=".repeat(80) + "\n");
+        
+        startTime = Date.now();
+        // Resume incremental snapshot using fetchDeltaACS with the last record_time
+        result = await fetchDeltaACS(BASE_URL, migration_id, record_time, inProgress);
+      } else {
+        console.log("🔄 DECISION: RESUMING IN-PROGRESS FULL SNAPSHOT");
+        console.log("=".repeat(80));
+        console.log("   Continuing a previous in-progress full snapshot.");
+        console.log(`   - Snapshot ID: ${inProgress.id}`);
+        console.log(`   - Will resume from page: ${inProgress.processed_pages || 1}`);
+        console.log(`   - Will resume from cursor: ${inProgress.cursor_after || 0}`);
+        console.log("=".repeat(80) + "\n");
+        
+        startTime = Date.now();
+        result = await fetchAllACS(BASE_URL, migration_id, record_time, inProgress);
+      }
       
     } else if (lastCompleted) {
+      // Safety check: verify no incremental snapshot is already processing
+      if (supabase) {
+        const { data: processingIncremental } = await supabase
+          .from('acs_snapshots')
+          .select('id, started_at, snapshot_type')
+          .eq('migration_id', migration_id)
+          .eq('status', 'processing')
+          .eq('snapshot_type', 'incremental')
+          .maybeSingle();
+        
+        if (processingIncremental) {
+          console.log("⚠️  WARNING: Another incremental snapshot is already processing");
+          console.log(`   - Snapshot ID: ${processingIncremental.id}`);
+          console.log(`   - Started: ${processingIncremental.started_at}`);
+          console.log("   - Skipping new incremental creation to avoid overlap");
+          console.log("   - The next cron run will resume the existing one");
+          console.log("=".repeat(80) + "\n");
+          return; // Exit early to prevent duplicate processing
+        }
+      }
+      
       console.log("🔄 DECISION: CREATING INCREMENTAL (DELTA) SNAPSHOT");
       console.log("=".repeat(80));
       console.log("   A completed snapshot exists - fetching only changes since then.");
