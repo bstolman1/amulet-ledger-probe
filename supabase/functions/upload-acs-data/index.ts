@@ -27,6 +27,8 @@ interface StartRequest {
       circulating: string;
     };
     entry_count: number;
+    snapshot_type?: string;
+    previous_snapshot_id?: string;
   };
   webhookSecret: string;
 }
@@ -34,6 +36,14 @@ interface StartRequest {
 interface AppendRequest {
   mode: 'append';
   snapshot_id: string;
+  templates: TemplateFile[];
+  webhookSecret: string;
+}
+
+interface AppendIncrementalRequest {
+  mode: 'append_incremental';
+  snapshot_id: string;
+  baseline_snapshot_id: string;
   templates: TemplateFile[];
   webhookSecret: string;
 }
@@ -65,7 +75,7 @@ interface ProgressRequest {
   };
 }
 
-type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
+type UploadRequest = StartRequest | AppendRequest | AppendIncrementalRequest | CompleteRequest | ProgressRequest;
 
 /**
  * Process a single template chunk with memory optimization and error handling
@@ -222,6 +232,8 @@ Deno.serve(async (req) => {
           circulating_supply: request.summary.totals.circulating,
           entry_count: request.summary.entry_count,
           status: 'processing',
+          snapshot_type: request.summary.snapshot_type || 'full',
+          previous_snapshot_id: request.summary.previous_snapshot_id || null,
         })
         .select()
         .single();
@@ -245,16 +257,77 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (request.mode === 'append') {
+    if (request.mode === 'append' || request.mode === 'append_incremental') {
       const { snapshot_id, templates } = request;
-      console.log(`Processing batch of ${templates.length} templates for snapshot ${snapshot_id}`);
+      const isIncremental = request.mode === 'append_incremental';
+      console.log(`Processing ${isIncremental ? 'incremental' : 'full'} batch of ${templates.length} templates for snapshot ${snapshot_id}`);
 
       let processed = 0;
       let totalContractsAdded = 0;
       const errors = [];
 
-      // Process templates sequentially with memory optimization
-      for (let i = 0; i < templates.length; i++) {
+      // For incremental mode, we store deltas rather than full data
+      if (isIncremental && 'baseline_snapshot_id' in request) {
+        const baselineSnapshotId = request.baseline_snapshot_id;
+        
+        for (const template of templates) {
+          try {
+            // Store incremental update file
+            const storagePath = `${snapshot_id}/incremental/${template.filename}`;
+            const fileContent = new TextEncoder().encode(template.content);
+            
+            const { error: uploadError } = await supabase.storage
+              .from('acs-data')
+              .upload(storagePath, fileContent, {
+                contentType: 'application/json',
+                upsert: true,
+              });
+
+            if (uploadError) {
+              console.error(`Failed to upload ${template.filename}:`, uploadError);
+              errors.push({ filename: template.filename, error: uploadError.message });
+              continue;
+            }
+
+            // Parse to count new and archived contracts
+            const updateData = JSON.parse(template.content);
+            const createdCount = updateData.created?.length || 0;
+            const archivedCount = updateData.archived?.length || 0;
+            
+            // Get baseline count
+            const { data: baselineStats } = await supabase
+              .from('acs_template_stats')
+              .select('contract_count')
+              .eq('snapshot_id', baselineSnapshotId)
+              .eq('template_id', template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':'))
+              .maybeSingle();
+
+            const baselineCount = baselineStats?.contract_count || 0;
+            const newCount = baselineCount + createdCount - archivedCount;
+
+            // Upsert stats with reference to incremental data
+            await supabase
+              .from('acs_template_stats')
+              .upsert({
+                snapshot_id,
+                template_id: template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':'),
+                contract_count: newCount,
+                storage_path: storagePath,
+              }, {
+                onConflict: 'snapshot_id,template_id'
+              });
+
+            processed++;
+            totalContractsAdded += newCount;
+            console.log(`  ${template.filename}: +${createdCount} -${archivedCount} = ${newCount} total`);
+          } catch (error) {
+            console.error(`Error processing ${template.filename}:`, error);
+            errors.push({ filename: template.filename, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      } else {
+        // Process templates sequentially with memory optimization
+        for (let i = 0; i < templates.length; i++) {
         const template = templates[i];
         console.log(`Processing template ${i + 1}/${templates.length}: ${template.filename}`);
         
@@ -278,8 +351,9 @@ Deno.serve(async (req) => {
           });
         }
         
-        // Explicit cleanup - allow GC to collect template data
-        templates[i] = null as any;
+          // Explicit cleanup - allow GC to collect template data
+          templates[i] = null as any;
+        }
       }
 
       // If we had any errors, return 546 with details
