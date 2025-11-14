@@ -2,12 +2,14 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Award, Users, TrendingUp, Search } from "lucide-react";
+import { Award, Users, TrendingUp, Search, Code } from "lucide-react";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Table,
   TableBody,
@@ -30,54 +32,55 @@ const UnclaimedSVRewards = () => {
   const snapshot = activeSnapshotData?.snapshot;
   const isProcessing = activeSnapshotData?.isProcessing || false;
 
-  // Fetch ValidatorRight contracts - shows which users have validator rights
-  const { data: validatorRightsData, isLoading: rightsLoading } = useAggregatedTemplateData(
+  // Fetch ValidatorRewardCoupon contracts - the actual unclaimed rewards
+  const { data: rewardCouponsData, isLoading: couponsLoading } = useAggregatedTemplateData(
     snapshot?.id,
-    "Splice:Amulet:ValidatorRight",
+    "Splice:Amulet:ValidatorRewardCoupon",
     !!snapshot
   );
 
-  // Fetch Amulet data to calculate potential rewards
-  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
-    snapshot?.id,
-    "Splice:Amulet:Amulet",
-    !!snapshot
-  );
+  const isLoading = couponsLoading;
+  const rewardCoupons = rewardCouponsData?.data || [];
 
-  const isLoading = rightsLoading || amuletLoading;
+  // Debug logging
+  console.log("🔍 DEBUG UnclaimedSVRewards: Total reward coupons:", rewardCoupons.length);
+  console.log("🔍 DEBUG UnclaimedSVRewards: First 3 coupons:", rewardCoupons.slice(0, 3));
+  if (rewardCoupons.length > 0) {
+    console.log("🔍 DEBUG UnclaimedSVRewards: First coupon structure:", JSON.stringify(rewardCoupons[0], null, 2));
+  }
 
-  // Aggregate validator rights by validator
-  const validatorStats = (() => {
-    const validatorMap = new Map<string, ValidatorInfo>();
+  // Aggregate reward coupons by user
+  const aggregatedRewards = (() => {
+    const userMap = new Map<string, { user: string; totalAmount: number; coupons: any[] }>();
 
-    (validatorRightsData?.data || []).forEach((right: any) => {
-      const validator = right.validator;
-      const user = right.user;
+    rewardCoupons.forEach((coupon: any) => {
+      const user = coupon.user || coupon.payload?.user || "Unknown";
       
-      if (!validatorMap.has(validator)) {
-        validatorMap.set(validator, { 
-          validator, 
-          user: user || "Unknown",
-          count: 0 
+      if (!userMap.has(user)) {
+        userMap.set(user, { 
+          user, 
+          totalAmount: 0,
+          coupons: []
         });
       }
-      const info = validatorMap.get(validator)!;
-      info.count += 1;
+      const info = userMap.get(user)!;
+      const amount = parseFloat(coupon.amount || coupon.payload?.amount || "0");
+      info.totalAmount += amount;
+      info.coupons.push(coupon);
     });
 
-    return Array.from(validatorMap.values())
-      .sort((a, b) => b.count - a.count)
+    return Array.from(userMap.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount)
       .filter((v) => {
         if (!searchTerm) return true;
-        return v.validator.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               v.user.toLowerCase().includes(searchTerm.toLowerCase());
+        return v.user.toLowerCase().includes(searchTerm.toLowerCase());
       });
   })();
 
-  // Calculate total validator rights
-  const totalValidatorRights = validatorRightsData?.totalContracts || 0;
-  const uniqueValidators = validatorStats.length;
-  const totalAmulets = amuletData?.totalContracts || 0;
+  // Calculate totals
+  const totalCoupons = rewardCoupons.length;
+  const uniqueUsers = aggregatedRewards.length;
+  const totalRewardAmount = aggregatedRewards.reduce((sum, r) => sum + r.totalAmount, 0);
 
   const formatParty = (party: string) => {
     if (!party) return "Unknown";
@@ -92,9 +95,9 @@ const UnclaimedSVRewards = () => {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold mb-2">Super Validator (SV) Rights</h2>
+          <h2 className="text-3xl font-bold mb-2">Unclaimed SV Rewards</h2>
           <p className="text-muted-foreground">
-            Validator rights and delegation data from the latest ACS snapshot
+            Validator reward coupons awaiting collection from the latest ACS snapshot
           </p>
         </div>
 
@@ -104,7 +107,7 @@ const UnclaimedSVRewards = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Award className="h-4 w-4" />
-                Total Validator Rights
+                Total Reward Coupons
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -113,10 +116,10 @@ const UnclaimedSVRewards = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-primary">
-                    {totalValidatorRights.toLocaleString()}
+                    {totalCoupons.toLocaleString()}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Active validator delegations
+                    Unclaimed reward coupons
                   </p>
                 </>
               )}
@@ -136,10 +139,10 @@ const UnclaimedSVRewards = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-chart-2">
-                    {uniqueValidators.toLocaleString()}
+                    {uniqueUsers}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Super validators in network
+                    Validators with rewards
                   </p>
                 </>
               )}
@@ -150,7 +153,7 @@ const UnclaimedSVRewards = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
-                Total Amulets
+                Total Reward Amount
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -159,10 +162,10 @@ const UnclaimedSVRewards = () => {
               ) : (
                 <>
                   <p className="text-3xl font-bold text-success">
-                    {totalAmulets.toLocaleString()}
+                    {totalRewardAmount.toFixed(4)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Active amulet contracts
+                    Total unclaimed CC
                   </p>
                 </>
               )}
@@ -170,20 +173,20 @@ const UnclaimedSVRewards = () => {
           </Card>
         </div>
 
-        {/* Validator Rights Table */}
+        {/* Reward Coupons */}
         <Card className="glass-card">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Validator Rights</CardTitle>
+                <CardTitle>Unclaimed Reward Coupons</CardTitle>
                 <CardDescription className="mt-1">
-                  Super validators and their delegated rights
+                  Validator reward coupons awaiting collection
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Search className="h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search validators..."
+                  placeholder="Search by validator..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-64"
@@ -194,61 +197,76 @@ const UnclaimedSVRewards = () => {
           <CardContent>
             {isLoading ? (
               <div className="space-y-3">
-                {[...Array(10)].map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-24 w-full" />
                 ))}
               </div>
-            ) : validatorStats.length === 0 ? (
+            ) : aggregatedRewards.length === 0 ? (
               <div className="text-center py-12">
+                <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p className="text-muted-foreground">
-                  {searchTerm ? "No validators found matching your search" : "No validator rights data available"}
+                  {searchTerm ? "No rewards found matching your search" : "No unclaimed rewards found"}
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">#</TableHead>
-                      <TableHead>Validator</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead className="text-right">Rights Count</TableHead>
-                      <TableHead className="text-right">% of Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {validatorStats.map((validator, index) => {
-                      const percentage = (validator.count / totalValidatorRights) * 100;
-                      return (
-                        <TableRow key={validator.validator}>
-                          <TableCell className="font-medium">{index + 1}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <code className="text-xs bg-muted px-2 py-1 rounded">
-                                {formatParty(validator.validator)}
-                              </code>
+              <div className="space-y-4">
+                {aggregatedRewards.map((reward, i) => (
+                  <Card key={i} className="p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <p className="text-xs text-muted-foreground">Validator User</p>
+                        <p className="font-mono text-sm break-all">{formatParty(reward.user)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Total Reward</p>
+                        <p className="text-xl font-bold text-primary">{reward.totalAmount.toFixed(4)} CC</p>
+                      </div>
+                    </div>
+                    
+                    <div className="mb-2">
+                      <Badge variant="secondary">{reward.coupons.length} Coupons</Badge>
+                    </div>
+
+                    {/* Individual Coupons */}
+                    <div className="space-y-2 mt-3 pt-3 border-t">
+                      {reward.coupons.map((coupon: any, idx: number) => (
+                        <div key={idx} className="bg-muted/30 p-3 rounded space-y-2">
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Amount</p>
+                              <p className="font-semibold">{parseFloat(coupon.amount || coupon.payload?.amount || "0").toFixed(4)} CC</p>
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <code className="text-xs text-muted-foreground">
-                              {formatParty(validator.user)}
-                            </code>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Badge variant="outline">
-                              {validator.count.toLocaleString()}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className="text-sm font-medium text-primary">
-                              {percentage.toFixed(2)}%
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Round</p>
+                              <p className="font-mono">{coupon.round?.number || coupon.payload?.round?.number || "N/A"}</p>
+                            </div>
+                          </div>
+                          
+                          {coupon.dso && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">DSO</p>
+                              <p className="font-mono text-xs break-all">{coupon.dso}</p>
+                            </div>
+                          )}
+
+                          <Collapsible>
+                            <CollapsibleTrigger asChild>
+                              <Button variant="ghost" size="sm" className="w-full justify-start">
+                                <Code className="h-4 w-4 mr-2" />
+                                Show Raw JSON
+                              </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2">
+                              <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                {JSON.stringify(coupon, null, 2)}
+                              </pre>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                ))}
               </div>
             )}
           </CardContent>
@@ -256,7 +274,7 @@ const UnclaimedSVRewards = () => {
 
         <DataSourcesFooter
           snapshotId={snapshot?.id}
-          templateSuffixes={["Splice:Amulet:ValidatorRight", "Splice:Amulet:Amulet"]}
+          templateSuffixes={["Splice:Amulet:ValidatorRewardCoupon"]}
           isProcessing={isProcessing}
         />
       </div>

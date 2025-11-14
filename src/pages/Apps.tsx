@@ -1,11 +1,13 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Star } from "lucide-react";
+import { Package, Star, Code } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const Apps = () => {
   const { data: activeData } = useActiveSnapshot();
@@ -15,11 +17,14 @@ const Apps = () => {
   const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
 
   const isLoading = appsQuery.isLoading;
-  const apps = (appsQuery.data?.data || []).map((app: any) => ({
-    name: app.payload?.appName || app.appName || 'Unknown App',
-    provider: app.payload?.provider || app.provider || 'Unknown',
-    isFeatured: true,
-  }));
+  const apps = appsQuery.data?.data || [];
+
+  // Debug logging
+  console.log("🔍 DEBUG Apps: Total apps:", apps.length);
+  console.log("🔍 DEBUG Apps: First 3 apps:", apps.slice(0, 3));
+  if (apps.length > 0) {
+    console.log("🔍 DEBUG Apps: First app structure:", JSON.stringify(apps[0], null, 2));
+  }
 
   const formatPartyId = (id: string) => id.split("::")[0] || id;
 
@@ -45,13 +50,38 @@ const Apps = () => {
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {apps.map((app: any, i: number) => (
-                  <Card key={i} className="p-6">
+                  <Card key={i} className="p-6 space-y-3">
                     <div className="flex items-center gap-2 mb-2">
                       <Package className="h-5 w-5 text-primary" />
-                      <h3 className="font-semibold text-lg">{app.name}</h3>
+                      <h3 className="font-semibold text-lg">{app.payload?.appName || app.appName || 'Unknown App'}</h3>
                     </div>
-                    <p className="text-sm text-muted-foreground mb-3">Provider: <span className="font-mono text-xs">{formatPartyId(app.provider)}</span></p>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Provider</p>
+                        <p className="font-mono text-xs break-all">{formatPartyId(app.payload?.provider || app.provider || 'Unknown')}</p>
+                      </div>
+                      {app.payload?.dso && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">DSO</p>
+                          <p className="font-mono text-xs break-all">{app.payload.dso}</p>
+                        </div>
+                      )}
+                    </div>
                     <Badge className="gradient-primary"><Star className="h-3 w-3 mr-1" />Featured</Badge>
+                    
+                    <Collapsible className="pt-2 border-t">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full justify-start">
+                          <Code className="h-4 w-4 mr-2" />
+                          Show Raw JSON
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-2">
+                        <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                          {JSON.stringify(app, null, 2)}
+                        </pre>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </Card>
                 ))}
               </div>

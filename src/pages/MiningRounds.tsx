@@ -1,13 +1,15 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Clock, CheckCircle, AlertCircle, Code } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const MiningRounds = () => {
   const { data: latestRound, isLoading: latestLoading } = useQuery({
@@ -43,29 +45,22 @@ const MiningRounds = () => {
   const roundsLoading = openLoading || issuingLoading || closedLoading;
   const roundsError = openError || issuingError || closedError;
 
-  // Process open rounds from ACS data
-  const openRounds = (openRoundsData?.data || []).map((round: any, index: number) => ({
-    id: `open-${index}`,
-    contractId: round.round?.number || index,
-    roundNumber: round.round?.number || "N/A",
-    opensAt: round.opensAt,
-    targetClosesAt: round.targetClosesAt,
-  }));
+  // Debug logging
+  console.log("🔍 DEBUG MiningRounds: Open rounds:", openRoundsData?.data?.length || 0);
+  console.log("🔍 DEBUG MiningRounds: Issuing rounds:", issuingRoundsData?.data?.length || 0);
+  console.log("🔍 DEBUG MiningRounds: Closed rounds:", closedRoundsData?.data?.length || 0);
+  if (openRoundsData?.data?.length > 0) {
+    console.log("🔍 DEBUG MiningRounds: First open round:", JSON.stringify(openRoundsData.data[0], null, 2));
+  }
 
-  // Process issuing rounds
-  const issuingRounds = (issuingRoundsData?.data || []).map((round: any, index: number) => ({
-    id: `issuing-${index}`,
-    contractId: round.round?.number || index,
-    roundNumber: round.round?.number || "N/A",
-    opensAt: round.issuingAt,
-  }));
+  // Process open rounds - keep full data
+  const openRounds = openRoundsData?.data || [];
 
-  // Process closed rounds
-  const closedRounds = (closedRoundsData?.data || []).slice(0, 20).map((round: any, index: number) => ({
-    contractId: round.round?.number || index,
-    roundNumber: round.round?.number || "N/A",
-    createdAt: round.closedAt,
-  }));
+  // Process issuing rounds - keep full data
+  const issuingRounds = issuingRoundsData?.data || [];
+
+  // Process closed rounds - keep full data (limit to recent 20)
+  const closedRounds = (closedRoundsData?.data || []).slice(0, 20);
 
   return (
     <DashboardLayout>

@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Vote, CheckCircle, XCircle, Clock, Users } from "lucide-react";
+import { Vote, CheckCircle, XCircle, Clock, Users, Code, DollarSign } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const Governance = () => {
   const { data: dsoInfo } = useQuery({
@@ -34,6 +36,23 @@ const Governance = () => {
     "Splice:DsoRules:VoteRequest",
     !!latestSnapshot
   );
+
+  // Fetch Amulet Price Votes
+  const { data: priceVotesData, isLoading: priceVotesLoading } = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:DSO:AmuletPrice:AmuletPriceVote",
+    !!latestSnapshot
+  );
+
+  const priceVotes = priceVotesData?.data || [];
+  
+  // Debug logging
+  console.log("🔍 DEBUG Governance: Vote requests:", voteRequestsData?.data?.length || 0);
+  console.log("🔍 DEBUG Governance: Price votes:", priceVotes.length);
+  console.log("🔍 DEBUG Governance: First 3 price votes:", priceVotes.slice(0, 3));
+  if (priceVotes.length > 0) {
+    console.log("🔍 DEBUG Governance: First price vote structure:", JSON.stringify(priceVotes[0], null, 2));
+  }
 
   // Process proposals from ACS data
   const proposals = voteRequestsData?.data.map((voteRequest: any) => {
