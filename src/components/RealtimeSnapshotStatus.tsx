@@ -7,6 +7,7 @@ export const RealtimeSnapshotStatus = () => {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [nextUpdate, setNextUpdate] = useState<number>(120); // 2 minutes in seconds
   const [isActive, setIsActive] = useState(true);
+  const [nextUpdateTime, setNextUpdateTime] = useState<Date | null>(null);
 
   useEffect(() => {
     // Fetch the most recent snapshot
@@ -53,7 +54,11 @@ export const RealtimeSnapshotStatus = () => {
         const timeSince = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
         const timeUntilNext = Math.max(0, 120 - timeSince);
         setNextUpdate(timeUntilNext);
-        setIsActive(timeUntilNext > 0);
+        setIsActive(timeUntilNext > 0 || timeSince < 130); // Keep active for 10s grace period
+        
+        // Calculate the exact next update time
+        const nextTime = new Date(lastUpdate.getTime() + 120000); // Add 2 minutes
+        setNextUpdateTime(nextTime);
       }
     }, 1000);
 
@@ -74,6 +79,16 @@ export const RealtimeSnapshotStatus = () => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  };
+
+  const formatExactTime = (date: Date | null) => {
+    if (!date) return 'Calculating...';
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit',
+      hour12: false 
+    });
   };
 
   return (
@@ -104,16 +119,33 @@ export const RealtimeSnapshotStatus = () => {
               <div>
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  Next Update
+                  Next Update In
                 </p>
-                <p className="text-sm font-semibold">
+                <p className="text-lg font-bold text-primary">
                   {formatCountdown(nextUpdate)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  at {formatExactTime(nextUpdateTime)}
                 </p>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Updates run every 2 minutes • Daily full snapshot at 1:00 AM UTC
-            </p>
+            <div className="mt-3 pt-3 border-t border-border/50">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Cron Schedule</span>
+                <span className="font-mono">Every 2 minutes</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                <span>Daily Full Snapshot</span>
+                <span className="font-mono">1:00 AM UTC</span>
+              </div>
+            </div>
+            {nextUpdate <= 10 && nextUpdate > 0 && (
+              <div className="mt-3 p-2 bg-primary/10 rounded-lg border border-primary/20">
+                <p className="text-xs text-center text-primary font-medium animate-pulse">
+                  ⏰ Update starting in {nextUpdate}s...
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
