@@ -3,8 +3,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, Lock, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,20 +26,23 @@ interface HolderBalance {
 
 const Balances = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  
+  const { data: activeSnapshotData } = useActiveSnapshot();
+  const snapshot = activeSnapshotData?.snapshot;
+  const isProcessing = activeSnapshotData?.isProcessing || false;
 
   // Fetch Amulet contracts - aggregated across ALL packages
   const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+    snapshot?.id,
     "Splice:Amulet:Amulet",
-    !!latestSnapshot
+    !!snapshot
   );
 
   // Fetch LockedAmulet contracts - aggregated across ALL packages
   const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+    snapshot?.id,
     "Splice:Amulet:LockedAmulet",
-    !!latestSnapshot
+    !!snapshot
   );
 
   const isLoading = amuletLoading || lockedLoading;
@@ -225,6 +229,12 @@ const Balances = () => {
             )}
           </div>
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={snapshot?.id}
+          templateSuffixes={["Splice:Amulet:Amulet", "Splice:Amulet:LockedAmulet"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );

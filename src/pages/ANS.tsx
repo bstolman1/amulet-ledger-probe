@@ -4,15 +4,22 @@ import { Input } from "@/components/ui/input";
 import { Search, Globe } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { PaginationControls } from "@/components/PaginationControls";
 
 const ANS = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
   
-  const ansEntriesQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Ans:AnsEntry", !!latestSnapshot);
-  const ansContextsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Ans:AnsEntryContext", !!latestSnapshot);
+  const { data: activeSnapshotData } = useActiveSnapshot();
+  const snapshot = activeSnapshotData?.snapshot;
+  const isProcessing = activeSnapshotData?.isProcessing || false;
+  
+  const ansEntriesQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntry", !!snapshot);
+  const ansContextsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntryContext", !!snapshot);
 
   const isLoading = ansEntriesQuery.isLoading || ansContextsQuery.isLoading;
   const ansEntries = ansEntriesQuery.data?.data || [];
@@ -37,6 +44,11 @@ const ANS = () => {
     (entry.description?.toLowerCase() || "").includes(searchQuery.toLowerCase())
   );
 
+  const paginatedEntries = filteredEntries.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -58,18 +70,32 @@ const ANS = () => {
         {isLoading && <div className="space-y-4">{[1,2,3,4,5].map(i => <Card key={i} className="p-6"><Skeleton className="h-6 w-32 mb-2" /><Skeleton className="h-4 w-full" /></Card>)}</div>}
         {!isLoading && filteredEntries.length === 0 && searchQuery && <Card className="p-6"><p className="text-muted-foreground text-center">No ANS entries found</p></Card>}
         {!isLoading && filteredEntries.length > 0 && (
-          <div className="space-y-4">
-            {filteredEntries.map((entry: any, i: number) => (
-              <Card key={i} className="p-6">
-                <h3 className="text-xl font-semibold text-primary mb-2">{entry.name}</h3>
-                {entry.expiresAt && <p className="text-sm text-muted-foreground">Expires: {new Date(entry.expiresAt).toLocaleDateString()}</p>}
-                <p className="text-sm"><span className="text-muted-foreground">User:</span> <span className="font-mono text-xs">{entry.user}</span></p>
-                {entry.url && <p className="text-sm"><span className="text-muted-foreground">URL:</span> <a href={entry.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{entry.url}</a></p>}
-                {entry.description && <p className="text-sm text-muted-foreground">{entry.description}</p>}
-              </Card>
-            ))}
-          </div>
+          <>
+            <div className="space-y-4">
+              {paginatedEntries.map((entry: any, i: number) => (
+                <Card key={i} className="p-6">
+                  <h3 className="text-xl font-semibold text-primary mb-2">{entry.name}</h3>
+                  {entry.expiresAt && <p className="text-sm text-muted-foreground">Expires: {new Date(entry.expiresAt).toLocaleDateString()}</p>}
+                  <p className="text-sm"><span className="text-muted-foreground">User:</span> <span className="font-mono text-xs">{entry.user}</span></p>
+                  {entry.url && <p className="text-sm"><span className="text-muted-foreground">URL:</span> <a href={entry.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{entry.url}</a></p>}
+                  {entry.description && <p className="text-sm text-muted-foreground">{entry.description}</p>}
+                </Card>
+              ))}
+            </div>
+            <PaginationControls
+              currentPage={currentPage}
+              totalItems={filteredEntries.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
+          </>
         )}
+
+        <DataSourcesFooter
+          snapshotId={snapshot?.id}
+          templateSuffixes={["Splice:Ans:AnsEntry", "Splice:Ans:AnsEntryContext"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );
