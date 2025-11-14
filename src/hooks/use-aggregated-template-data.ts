@@ -144,7 +144,10 @@ export function useAggregatedTemplateData(
       for (const template of templateStats) {
         try {
           const contractsArray = await fetchTemplateData(template.storage_path);
-          allData.push(...contractsArray);
+          // Use loop instead of spread to avoid "Maximum call stack size exceeded"
+          for (const contract of contractsArray) {
+            allData.push(contract);
+          }
           totalContracts += contractsArray.length;
         } catch (error) {
           console.error(`Error loading template ${template.template_id}:`, error);
