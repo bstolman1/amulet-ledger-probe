@@ -43,38 +43,57 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
   const text = await fileData.text();
   const parsed = JSON.parse(text);
 
-  // Check if it's a manifest file
-  if (parsed.totalChunks && parsed.chunks && Array.isArray(parsed.chunks)) {
-    const manifest = parsed as ChunkManifest;
-    console.log(`[fetchTemplateData] Manifest detected: ${manifest.templateId}, ${manifest.totalChunks} chunks, ${manifest.totalEntries} entries`);
+  // Check if it's a manifest file (support both new and legacy shapes)
+  if (parsed && parsed.chunks && Array.isArray(parsed.chunks)) {
+    const totalChunks = parsed.totalChunks ?? parsed.total_chunks ?? parsed.chunks.length;
+    const totalEntries = parsed.totalEntries ?? parsed.total_entries ?? undefined;
+
+    // Normalize chunk objects: support {index,path,entryCount} and {chunkIndex,storagePath,contractCount}
+    const normalized = (parsed.chunks as any[])
+      .map((c) => ({
+        index: c.index ?? c.chunkIndex ?? 0,
+        path: c.path ?? c.storagePath ?? "",
+        entryCount: c.entryCount ?? c.contractCount ?? 0,
+      }))
+      .filter((c) => !!c.path);
+
+    // De-duplicate by path in case manifest contains repeated entries
+    const byPath = new Map<string, { index: number; path: string; entryCount: number }>();
+    for (const c of normalized) {
+      if (!byPath.has(c.path)) byPath.set(c.path, c);
+    }
+    const chunks = Array.from(byPath.values());
+
+    console.log(
+      `[fetchTemplateData] Manifest detected: ${chunks.length} unique chunks (declared: ${totalChunks}), expected entries: ${totalEntries ?? "unknown"}`
+    );
 
     // Download all chunks in parallel
-    const chunkPromises = manifest.chunks.map(async (chunk) => {
-      console.log(`[fetchTemplateData] Downloading chunk ${chunk.index + 1}/${manifest.totalChunks}: ${chunk.path}`);
-      
+    const chunkPromises = chunks.map(async (chunk) => {
+      console.log(`[fetchTemplateData] Downloading chunk ${chunk.index}: ${chunk.path}`);
       const { data: chunkData, error: chunkError } = await supabase.storage
         .from("acs-data")
         .download(chunk.path);
 
       if (chunkError) {
         console.warn(`[fetchTemplateData] Failed to download chunk ${chunk.index}:`, chunkError);
-        return [];
+        return [] as any[];
       }
 
-      if (!chunkData) return [];
+      if (!chunkData) return [] as any[];
 
       const chunkText = await chunkData.text();
       const chunkArray = JSON.parse(chunkText);
       const count = Array.isArray(chunkArray) ? chunkArray.length : 0;
-      console.log(`[fetchTemplateData] Chunk ${chunk.index} loaded: ${count} contracts`);
+      console.log(`[fetchTemplateData] Chunk ${chunk.index} loaded: ${count} contracts (manifest said: ${chunk.entryCount})`);
       return Array.isArray(chunkArray) ? chunkArray : [];
     });
 
-    // Wait for all chunks and concatenate
     const chunkArrays = await Promise.all(chunkPromises);
     const allData = chunkArrays.flat();
-    
-    console.log(`[fetchTemplateData] ✅ Total loaded from manifest: ${allData.length} entries (expected: ${manifest.totalEntries})`);
+    console.log(
+      `[fetchTemplateData] ✅ Total loaded from manifest: ${allData.length} entries (expected: ${totalEntries ?? "unknown"})`
+    );
     return allData;
   }
 
