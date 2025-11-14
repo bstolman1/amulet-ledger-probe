@@ -30,10 +30,10 @@ const Governance = () => {
     !!latestSnapshot
   );
 
-  // Fetch vote requests - aggregated across all packages
+  // Fetch election requests (formerly vote requests) - aggregated across all packages
   const { data: voteRequestsData, isLoading, isError } = useAggregatedTemplateData(
     latestSnapshot?.id,
-    "Splice:DsoRules:VoteRequest",
+    "Splice:DsoRules:ElectionRequest",
     !!latestSnapshot
   );
 
@@ -56,9 +56,11 @@ const Governance = () => {
   };
   
   // Debug logging
-  console.log("🔍 DEBUG Governance: Vote requests:", voteRequestsData?.data?.length || 0);
+  console.log("🔍 DEBUG Governance: Election requests:", voteRequestsData?.data?.length || 0);
   console.log("🔍 DEBUG Governance: Price votes:", priceVotes.length);
-  console.log("🔍 DEBUG Governance: First 3 price votes:", priceVotes.slice(0, 3));
+  if (voteRequestsData?.data?.length > 0) {
+    console.log("🔍 DEBUG Governance: First election request structure:", JSON.stringify(voteRequestsData.data[0], null, 2));
+  }
   if (priceVotes.length > 0) {
     console.log("🔍 DEBUG Governance: First price vote structure:", JSON.stringify(priceVotes[0], null, 2));
   }
