@@ -4,10 +4,12 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Shield, CheckCircle, AlertCircle } from "lucide-react";
+import { Shield, CheckCircle, AlertCircle, Code } from "lucide-react";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const DSOState = () => {
   const { data: activeData } = useActiveSnapshot();
@@ -36,6 +38,14 @@ const DSOState = () => {
   const statusReportsData = statusReportsQuery.data?.data || [];
   const rewardStatesData = rewardStatesQuery.data?.data || [];
   const isLoading = nodeStatesQuery.isLoading || statusReportsQuery.isLoading || rewardStatesQuery.isLoading;
+
+  // Debug logging
+  console.log("🔍 DEBUG DSOState: Node states count:", nodeStatesData.length);
+  console.log("🔍 DEBUG DSOState: Status reports count:", statusReportsData.length);
+  console.log("🔍 DEBUG DSOState: Reward states count:", rewardStatesData.length);
+  if (nodeStatesData.length > 0) {
+    console.log("🔍 DEBUG DSOState: First node state:", JSON.stringify(nodeStatesData[0], null, 2));
+  }
 
   const formatParty = (party: string) => {
     if (!party) return "Unknown";
@@ -118,32 +128,47 @@ const DSOState = () => {
                   const svParty = node.payload?.svParty || node.svParty;
                   const isActive = state === 'active';
                   
-                  // Extract simple values from potential objects
                   const stateValue = typeof state === 'object' ? JSON.stringify(state) : state;
                   const nameValue = typeof svName === 'object' ? JSON.stringify(svName) : svName;
                   const partyValue = typeof svParty === 'object' ? JSON.stringify(svParty) : svParty;
                   
                   return (
-                    <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                    <Card key={idx} className="p-4 space-y-3">
                       <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
                             {isActive ? (
                               <CheckCircle className="h-4 w-4 text-green-500" />
                             ) : (
                               <AlertCircle className="h-4 w-4 text-yellow-500" />
                             )}
-                            <p className="text-sm font-medium">{nameValue || 'Unknown SV'}</p>
+                            <p className="text-sm font-semibold">{nameValue || 'Unknown SV'}</p>
                           </div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            Party: {formatParty(partyValue || 'Unknown')}
-                          </p>
+                          
+                          <div>
+                            <p className="text-xs text-muted-foreground">Party ID</p>
+                            <p className="font-mono text-xs break-all">{partyValue || 'Unknown'}</p>
+                          </div>
+
+                          <Collapsible className="pt-2 border-t">
+                            <CollapsibleTrigger asChild>
+                              <Button variant="ghost" size="sm" className="w-full justify-start">
+                                <Code className="h-4 w-4 mr-2" />
+                                Show Raw JSON
+                              </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2">
+                              <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                {JSON.stringify(node, null, 2)}
+                              </pre>
+                            </CollapsibleContent>
+                          </Collapsible>
                         </div>
                         <Badge variant={isActive ? "default" : "secondary"}>
                           {stateValue || 'Unknown'}
                         </Badge>
                       </div>
-                    </div>
+                    </Card>
                   );
                 })
               )}
@@ -158,19 +183,38 @@ const DSOState = () => {
                 <p className="text-center text-muted-foreground py-8">No status reports found</p>
               ) : (
                 statusReportsData.map((report: any, idx: number) => (
-                  <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                  <Card key={idx} className="p-4 space-y-3">
                     <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">
-                          SV: {formatParty(report.payload?.svName || report.svName || 'Unknown')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Reported: {report.payload?.timestamp ? new Date(report.payload.timestamp).toLocaleString() : 'Unknown'}
-                        </p>
+                      <div className="flex-1 space-y-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground">SV Name</p>
+                          <p className="text-sm font-semibold">{formatParty(report.payload?.svName || report.svName || 'Unknown')}</p>
+                        </div>
+                        
+                        {(report.payload?.timestamp || report.timestamp) && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Reported At</p>
+                            <p className="text-sm">{new Date(report.payload?.timestamp || report.timestamp).toLocaleString()}</p>
+                          </div>
+                        )}
+
+                        <Collapsible className="pt-2 border-t">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-full justify-start">
+                              <Code className="h-4 w-4 mr-2" />
+                              Show Raw JSON
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2">
+                            <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                              {JSON.stringify(report, null, 2)}
+                            </pre>
+                          </CollapsibleContent>
+                        </Collapsible>
                       </div>
                       <Badge variant="outline">Report</Badge>
                     </div>
-                  </div>
+                  </Card>
                 ))
               )}
             </TabsContent>
@@ -187,21 +231,47 @@ const DSOState = () => {
                   const round = reward.payload?.round || reward.round;
                   const roundValue = typeof round === 'object' ? round?.number : round;
                   const svParty = reward.payload?.svParty || reward.svParty;
+                  const svRewardWeight = reward.payload?.svRewardWeight || reward.svRewardWeight;
                   
                   return (
-                    <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                    <Card key={idx} className="p-4 space-y-3">
                       <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">
-                            Round: {roundValue || 'Unknown'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            SV: {formatParty(svParty || 'Unknown')}
-                          </p>
+                        <div className="flex-1 space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Round</p>
+                              <p className="text-sm font-semibold">{roundValue || 'Unknown'}</p>
+                            </div>
+                            {svRewardWeight && (
+                              <div>
+                                <p className="text-xs text-muted-foreground">Reward Weight</p>
+                                <p className="text-sm">{svRewardWeight}</p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div>
+                            <p className="text-xs text-muted-foreground">SV Party</p>
+                            <p className="font-mono text-xs break-all">{svParty || 'Unknown'}</p>
+                          </div>
+
+                          <Collapsible className="pt-2 border-t">
+                            <CollapsibleTrigger asChild>
+                              <Button variant="ghost" size="sm" className="w-full justify-start">
+                                <Code className="h-4 w-4 mr-2" />
+                                Show Raw JSON
+                              </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2">
+                              <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                {JSON.stringify(reward, null, 2)}
+                              </pre>
+                            </CollapsibleContent>
+                          </Collapsible>
                         </div>
                         <Badge variant="default">Reward</Badge>
                       </div>
-                    </div>
+                    </Card>
                   );
                 })
               )}
