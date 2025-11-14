@@ -29,6 +29,8 @@ interface StartRequest {
     entry_count: number;
     snapshot_type?: string;
     previous_snapshot_id?: string;
+    is_delta?: boolean;
+    processing_mode?: string;
   };
   webhookSecret: string;
 }
@@ -70,8 +72,10 @@ interface ProgressRequest {
   progress: {
     processed_pages: number;
     processed_events: number;
-    elapsed_time_ms: number;
-    pages_per_minute: number;
+    elapsed_time_ms?: number;
+    pages_per_minute?: number;
+    record_time?: string; // optional latest record_time
+    last_record_time?: string; // backward compatible
   };
 }
 
@@ -234,6 +238,8 @@ Deno.serve(async (req) => {
           status: 'processing',
           snapshot_type: request.summary.snapshot_type || 'full',
           previous_snapshot_id: request.summary.previous_snapshot_id || null,
+          is_delta: request.summary.is_delta ?? (request.summary.snapshot_type === 'incremental'),
+          processing_mode: request.summary.processing_mode || null,
         })
         .select()
         .single();
@@ -416,17 +422,21 @@ Deno.serve(async (req) => {
 
     if (request.mode === 'progress') {
       const { snapshot_id, progress } = request;
-      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events`);
+      const latestRecordTime = progress.last_record_time || progress.record_time;
+      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events${latestRecordTime ? `, record_time=${latestRecordTime}` : ''}`);
+
+      const updatePayload: any = {
+        processed_pages: progress.processed_pages,
+        processed_events: progress.processed_events,
+        last_progress_update: new Date().toISOString(),
+      };
+      if (typeof progress.elapsed_time_ms !== 'undefined') updatePayload.elapsed_time_ms = progress.elapsed_time_ms;
+      if (typeof progress.pages_per_minute !== 'undefined') updatePayload.pages_per_minute = progress.pages_per_minute;
+      if (latestRecordTime) updatePayload.record_time = latestRecordTime;
 
       const { error: updateError } = await supabase
         .from('acs_snapshots')
-        .update({
-          processed_pages: progress.processed_pages,
-          processed_events: progress.processed_events,
-          elapsed_time_ms: progress.elapsed_time_ms,
-          pages_per_minute: progress.pages_per_minute,
-          progress_percentage: 0, // Will be calculated based on events later
-        })
+        .update(updatePayload)
         .eq('id', snapshot_id);
 
       if (updateError) {
