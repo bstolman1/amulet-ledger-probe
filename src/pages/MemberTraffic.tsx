@@ -36,11 +36,20 @@ const MemberTraffic = () => {
     console.log("🔍 DEBUG MemberTraffic: First record structure:", JSON.stringify(trafficData[0], null, 2));
   }
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   const filteredTraffic = trafficData
     .filter((traffic: any) => {
       if (!searchTerm) return true;
-      const member = traffic.payload?.member || traffic.member || "";
-      const migrationId = traffic.payload?.migrationId?.toString() || traffic.migrationId?.toString() || "";
+      const member = getField(traffic, 'member', 'memberId', 'synchronizerId') || "";
+      const migrationId = getField(traffic, 'migrationId')?.toString() || "";
       return (
         member.toLowerCase().includes(searchTerm.toLowerCase()) ||
         migrationId.includes(searchTerm)
@@ -68,11 +77,14 @@ const MemberTraffic = () => {
   };
 
   const totalTraffic = trafficData.reduce((sum: number, t: any) => {
-    const bytes = t.payload?.totalTrafficBytes || t.totalTrafficBytes || 0;
+    const bytes = getField(t, 'totalTrafficBytes', 'totalPurchased') || 0;
     return sum + (typeof bytes === "string" ? parseInt(bytes) : bytes);
   }, 0);
 
-  const uniqueMembers = new Set(trafficData.map((t: any) => t.payload?.member || t.member)).size;
+  const uniqueMembers = new Set(
+    trafficData.map((t: any) => getField(t, 'member', 'memberId', 'synchronizerId'))
+      .filter(Boolean)
+  ).size;
 
   return (
     <DashboardLayout>
@@ -147,26 +159,64 @@ const MemberTraffic = () => {
           ) : (
             <>
               <div className="space-y-3">
-                {paginatedData.map((record: any, i: number) => (
+                {paginatedData.map((record: any, i: number) => {
+                  // Extract all possible fields
+                  const member = getField(record, 'member', 'memberId', 'synchronizerId');
+                  const migrationId = getField(record, 'migrationId');
+                  const totalTrafficBytes = getField(record, 'totalTrafficBytes', 'totalPurchased');
+                  const dso = getField(record, 'dso');
+                  const numInputBatches = getField(record, 'numInputBatches');
+                  const runningTotal = getField(record, 'runningTotal');
+                  const subSequent = getField(record, 'subSequent');
+                  
+                  return (
                   <Card key={i} className="p-4 space-y-3">
                     <div className="flex justify-between items-start">
-                      <div className="flex-1 space-y-2">
+                      <div className="flex-1 space-y-3">
                         <div>
-                          <p className="text-xs text-muted-foreground">Member</p>
-                          <p className="font-mono text-sm break-all">{record.payload?.member || record.member || "N/A"}</p>
+                          <p className="text-xs text-muted-foreground">Member / Synchronizer</p>
+                          <p className="font-mono text-sm break-all">{member || "N/A"}</p>
                         </div>
                         
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <p className="text-xs text-muted-foreground">Migration ID</p>
-                            <p className="font-mono text-sm">{record.payload?.migrationId || record.migrationId || "N/A"}</p>
+                            <p className="font-mono text-sm">{migrationId || "N/A"}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Total Traffic</p>
                             <p className="text-lg font-semibold text-primary">
-                              {formatBytes(record.payload?.totalTrafficBytes || record.totalTrafficBytes)}
+                              {formatBytes(totalTrafficBytes)}
                             </p>
                           </div>
+                        </div>
+
+                        {/* Additional fields */}
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                          {numInputBatches !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Input Batches</p>
+                              <p className="font-mono text-sm">{numInputBatches}</p>
+                            </div>
+                          )}
+                          {runningTotal !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Running Total</p>
+                              <p className="font-mono text-sm">{formatBytes(runningTotal)}</p>
+                            </div>
+                          )}
+                          {subSequent !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">SubSequent</p>
+                              <p className="font-mono text-sm">{String(subSequent)}</p>
+                            </div>
+                          )}
+                          {dso && (
+                            <div className="col-span-2">
+                              <p className="text-xs text-muted-foreground">DSO</p>
+                              <p className="font-mono text-xs break-all">{dso}</p>
+                            </div>
+                          )}
                         </div>
 
                         <Collapsible className="pt-2 border-t">
@@ -185,7 +235,8 @@ const MemberTraffic = () => {
                       </div>
                     </div>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
 
               <PaginationControls
