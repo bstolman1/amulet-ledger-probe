@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.purge-acs-storage]
 verify_jwt = false
+
+[functions.aggregate-template-sum]
+verify_jwt = false
