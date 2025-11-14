@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Award, Users, TrendingUp, Search, Code } from "lucide-react";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
@@ -29,8 +29,7 @@ interface ValidatorInfo {
 const UnclaimedSVRewards = () => {
   const [searchTerm, setSearchTerm] = useState("");
   
-  const { data: activeSnapshotData } = useActiveSnapshot();
-  const snapshot = activeSnapshotData?.snapshot;
+  const { data: snapshot } = useLatestACSSnapshot();
   const isProcessing = activeSnapshotData?.isProcessing || false;
 
   // Fetch ValidatorRewardCoupon contracts - the actual unclaimed rewards

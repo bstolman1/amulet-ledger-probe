@@ -5,15 +5,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Shield, CheckCircle, AlertCircle, Code } from "lucide-react";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
 const DSOState = () => {
-  const { data: activeData } = useActiveSnapshot();
-  const latestSnapshot = activeData?.snapshot;
+  const { data: latestSnapshot } = useLatestACSSnapshot();
   const isProcessing = activeData?.isProcessing || false;
   
   const nodeStatesQuery = useAggregatedTemplateData(

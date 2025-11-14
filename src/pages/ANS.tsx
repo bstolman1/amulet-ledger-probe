@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Globe } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { PaginationControls } from "@/components/PaginationControls";
@@ -14,9 +14,7 @@ const ANS = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
   
-  const { data: activeSnapshotData } = useActiveSnapshot();
-  const snapshot = activeSnapshotData?.snapshot;
-  const isProcessing = activeSnapshotData?.isProcessing || false;
+  const { data: snapshot } = useLatestACSSnapshot();
   
   const ansEntriesQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntry", !!snapshot);
   const ansContextsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntryContext", !!snapshot);

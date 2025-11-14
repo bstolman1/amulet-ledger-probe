@@ -3,8 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useACSTemplateData, useACSTemplates } from "@/hooks/use-acs-template-data";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { FileJson, Database, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { getPagesThatUseTemplate } from "@/lib/template-page-map";
@@ -12,21 +11,8 @@ import { getPagesThatUseTemplate } from "@/lib/template-page-map";
 const Templates = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 
-  // Fetch latest snapshot
-  const { data: snapshots } = useQuery({
-    queryKey: ["acs-snapshots-latest"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("acs_snapshots")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data;
-    }
-  });
-
-  const latestSnapshot = snapshots?.[0];
+  // Fetch latest completed snapshot
+  const { data: latestSnapshot } = useLatestACSSnapshot();
 
   // Fetch all templates
   const { data: templates, isLoading: templatesLoading } = useACSTemplates(latestSnapshot?.id);

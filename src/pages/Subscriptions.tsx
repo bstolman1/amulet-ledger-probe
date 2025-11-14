@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Search, Package, Code } from "lucide-react";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
@@ -19,8 +19,7 @@ const Subscriptions = () => {
   const [expandedRequests, setExpandedRequests] = useState<Set<number>>(new Set());
   const pageSize = 100;
 
-  const { data: activeData } = useActiveSnapshot();
-  const latestSnapshot = activeData?.snapshot;
+  const { data: latestSnapshot } = useLatestACSSnapshot();
   const isProcessing = activeData?.isProcessing || false;
   
   const subscriptionsQuery = useAggregatedTemplateData(

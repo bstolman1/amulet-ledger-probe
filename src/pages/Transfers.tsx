@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRightLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { PaginationControls } from "@/components/PaginationControls";
@@ -18,8 +18,7 @@ const Transfers = () => {
   const [instructionsPage, setInstructionsPage] = useState(1);
   const pageSize = 50;
   
-  const { data: activeSnapshotData } = useActiveSnapshot();
-  const snapshot = activeSnapshotData?.snapshot;
+  const { data: snapshot } = useLatestACSSnapshot();
   const isProcessing = activeSnapshotData?.isProcessing || false;
 
   const preapprovalsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!snapshot);
