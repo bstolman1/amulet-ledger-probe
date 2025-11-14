@@ -50,22 +50,24 @@ export const TemplateActivitySection = () => {
 
   const fetchSnapshots = async () => {
     try {
-      // Fetch FIRST completed snapshot as baseline (the original full snapshot)
+      // Fetch latest completed full snapshot as baseline
       const { data: baseline, error: baselineError } = await supabase
         .from('acs_snapshots')
-        .select('id, record_time, timestamp, snapshot_type, status')
+        .select('id, record_time, timestamp, snapshot_type, status, is_delta')
         .eq('status', 'completed')
         .eq('snapshot_type', 'full')
-        .order('timestamp', { ascending: false })  // latest completed full snapshot
+        .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (baselineError) throw baselineError;
 
-      // Fetch the most recent snapshot (processing or completed) as current position
-      const { data: latest, error: latestError } = await supabase
+      // Fetch the most recent incremental/delta snapshot (processing or completed)
+      const { data: latestIncremental, error: latestError } = await supabase
         .from('acs_snapshots')
-        .select('id, record_time, timestamp, snapshot_type, status')
+        .select('id, record_time, timestamp, snapshot_type, status, is_delta')
+        .eq('is_delta', true)
+        .in('status', ['processing', 'completed'])
         .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -73,8 +75,7 @@ export const TemplateActivitySection = () => {
       if (latestError) throw latestError;
 
       setBaselineSnapshot(baseline);
-      // Use latest if it's different from baseline
-      setLatestIncremental(latest?.id !== baseline?.id ? latest : null);
+      setLatestIncremental(latestIncremental);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching snapshots:', error);

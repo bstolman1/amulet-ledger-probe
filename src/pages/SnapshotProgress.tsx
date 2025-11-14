@@ -29,6 +29,9 @@ interface Snapshot {
   pages_per_minute: number;
   template_batch_updates?: number;
   last_batch_info?: any;
+  is_delta?: boolean;
+  snapshot_type?: string;
+  previous_snapshot_id?: string;
 }
 
 interface TemplateStats {
@@ -256,6 +259,11 @@ const SnapshotProgress = () => {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  {snapshot.is_delta && (
+                    <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                      Incremental
+                    </Badge>
+                  )}
                   {getStatusBadge(snapshot.status)}
                   <Button
                     onClick={() => handleDeleteSnapshot(snapshot.id, snapshot.migration_id)}
