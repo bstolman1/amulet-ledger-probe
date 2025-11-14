@@ -63,6 +63,60 @@ interface ProgressRequest {
 
 type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
 
+/**
+ * Process a single template with memory optimization
+ * This function is isolated to allow garbage collection after each template
+ */
+async function processTemplateWithCleanup(
+  supabase: any,
+  snapshot_id: string,
+  template: TemplateFile
+): Promise<number> {
+  const storagePath = `${snapshot_id}/${template.filename}`;
+  
+  // Upload the file to storage
+  const fileContent = new TextEncoder().encode(template.content);
+  const { error: uploadError } = await supabase.storage
+    .from('acs-data')
+    .upload(storagePath, fileContent, {
+      contentType: 'application/json',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error(`Failed to upload ${template.filename}:`, uploadError);
+    throw uploadError;
+  }
+
+  // Parse JSON only to count contracts, then immediately release
+  let contractCount: number;
+  {
+    const data = JSON.parse(template.content);
+    contractCount = data.length;
+    // data goes out of scope here and can be garbage collected
+  }
+
+  // Store template stats
+  const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+  const { error: statsError } = await supabase
+    .from('acs_template_stats')
+    .upsert({
+      snapshot_id: snapshot_id,
+      template_id: templateId,
+      contract_count: contractCount,
+      storage_path: storagePath,
+    }, {
+      onConflict: 'snapshot_id,template_id'
+    });
+
+  if (statsError) {
+    console.error(`Failed to insert stats for ${template.filename}:`, statsError);
+    throw statsError;
+  }
+
+  return contractCount;
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -131,47 +185,32 @@ Deno.serve(async (req) => {
       console.log(`Processing batch of ${templates.length} templates for snapshot ${snapshot_id}`);
 
       let processed = 0;
-
       let totalContractsAdded = 0;
 
-      for (const template of templates) {
-        const storagePath = `${snapshot_id}/${template.filename}`;
-        const fileContent = new TextEncoder().encode(template.content);
-
-        const { error: uploadError } = await supabase.storage
-          .from('acs-data')
-          .upload(storagePath, fileContent, {
-            contentType: 'application/json',
-            upsert: true,
-          });
-
-        if (uploadError) {
-          console.error(`Failed to upload ${template.filename}:`, uploadError);
-          throw uploadError;
+      // Process templates sequentially with memory optimization
+      for (let i = 0; i < templates.length; i++) {
+        const template = templates[i];
+        console.log(`Processing template ${i + 1}/${templates.length}: ${template.filename}`);
+        
+        try {
+          // Process this template in isolation to allow garbage collection
+          const contractCount = await processTemplateWithCleanup(
+            supabase,
+            snapshot_id,
+            template
+          );
+          
+          totalContractsAdded += contractCount;
+          processed++;
+          
+          console.log(`Completed ${template.filename}: ${contractCount} contracts`);
+        } catch (error) {
+          console.error(`Failed to process ${template.filename}:`, error);
+          throw error;
         }
-
-        const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
-        const data = JSON.parse(template.content);
-        const contractCount = data.length;
-        totalContractsAdded += contractCount;
-
-        const { error: statsError } = await supabase
-          .from('acs_template_stats')
-          .upsert({
-            snapshot_id: snapshot_id,
-            template_id: templateId,
-            contract_count: contractCount,
-            storage_path: storagePath,
-          }, {
-            onConflict: 'snapshot_id,template_id'
-          });
-
-        if (statsError) {
-          console.error(`Failed to insert stats for ${template.filename}:`, statsError);
-          throw statsError;
-        }
-
-        processed++;
+        
+        // Explicit cleanup - allow GC to collect template data
+        templates[i] = null as any;
       }
 
       // Update template batch counter and last batch info
