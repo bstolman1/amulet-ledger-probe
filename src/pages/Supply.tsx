@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Flame, Coins, TrendingUp, TrendingDown, Package, RefreshCw } from "lucide-react";
+import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
 import { useAggregatedTemplateSum } from "@/hooks/use-aggregated-template-sum";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,23 +47,23 @@ const Supply = () => {
 
   const latestSnapshot = snapshots?.[0];
 
-  // Stream and sum circulating supply (Amulet contracts)
-  const circulatingData = useAggregatedTemplateSum(
+  // Server-side aggregate: circulating supply (Amulet)
+  const circulatingData = useTemplateSumServer(
     latestSnapshot?.id,
     "Splice:Amulet:Amulet",
-    pickAmount,
+    'circulating',
     !!latestSnapshot
   );
 
-  // Stream and sum locked supply (LockedAmulet contracts)
-  const lockedData = useAggregatedTemplateSum(
+  // Server-side aggregate: locked supply (LockedAmulet)
+  const lockedData = useTemplateSumServer(
     latestSnapshot?.id,
     "Splice:Amulet:LockedAmulet",
-    pickLockedAmount,
+    'locked',
     !!latestSnapshot
   );
 
-  // Stream and sum mining rounds for issuance stats
+  // Keep rounds via client-side streaming for counts only
   const issuingRounds = useAggregatedTemplateSum(
     latestSnapshot?.id,
     "Splice:Round:IssuingMiningRound",
