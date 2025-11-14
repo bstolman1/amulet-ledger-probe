@@ -259,8 +259,8 @@ const SnapshotProgress = () => {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  {snapshot.is_delta && (
-                    <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                  {(snapshot.snapshot_type === 'incremental' || snapshot.is_delta) && (
+                    <Badge variant="secondary">
                       Incremental
                     </Badge>
                   )}
