@@ -8,6 +8,10 @@ const corsHeaders = {
 interface TemplateFile {
   filename: string;
   content: string;
+  templateId?: string;
+  chunkIndex?: number;
+  totalChunks?: number;
+  isChunked?: boolean;
 }
 
 interface StartRequest {
@@ -64,15 +68,25 @@ interface ProgressRequest {
 type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
 
 /**
- * Process a single template with memory optimization and error handling
- * This function is isolated to allow garbage collection after each template
+ * Process a single template chunk with memory optimization and error handling
  */
-async function processTemplateWithCleanup(
+async function processTemplateChunk(
   supabase: any,
   snapshot_id: string,
   template: TemplateFile
 ): Promise<number> {
-  const storagePath = `${snapshot_id}/${template.filename}`;
+  const isChunked = template.isChunked || false;
+  const templateId = template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+  const chunkIndex = template.chunkIndex || 0;
+  const totalChunks = template.totalChunks || 1;
+  
+  // Determine storage path based on chunking
+  let storagePath: string;
+  if (isChunked) {
+    storagePath = `${snapshot_id}/chunks/${template.filename}`;
+  } else {
+    storagePath = `${snapshot_id}/templates/${template.filename}`;
+  }
   
   // Upload the file to storage
   const fileContent = new TextEncoder().encode(template.content);
@@ -96,22 +110,73 @@ async function processTemplateWithCleanup(
     // data goes out of scope here and can be garbage collected
   }
 
-  // Store template stats
-  const templateId = template.filename.replace(/\.json$/, '').replace(/_/g, ':');
-  const { error: statsError } = await supabase
-    .from('acs_template_stats')
-    .upsert({
-      snapshot_id: snapshot_id,
-      template_id: templateId,
-      contract_count: contractCount,
-      storage_path: storagePath,
-    }, {
-      onConflict: 'snapshot_id,template_id'
-    });
+  // Handle chunked vs non-chunked storage
+  if (isChunked) {
+    // For chunked uploads, accumulate stats
+    const { data: existingStats } = await supabase
+      .from('acs_template_stats')
+      .select('contract_count')
+      .eq('snapshot_id', snapshot_id)
+      .eq('template_id', templateId)
+      .maybeSingle();
 
-  if (statsError) {
-    console.error(`Failed to insert stats for ${template.filename}:`, statsError);
-    throw statsError;
+    const newContractCount = (existingStats?.contract_count || 0) + contractCount;
+    
+    // Update manifest with chunk info
+    const manifestPath = `${snapshot_id}/manifests/${templateId.replace(/:/g, '_')}_manifest.json`;
+    const { data: existingManifestFile } = await supabase.storage
+      .from('acs-data')
+      .download(manifestPath)
+      .catch(() => ({ data: null }));
+
+    interface ChunkManifest {
+      chunks: Array<{ chunkIndex: number; contractCount: number; storagePath: string }>;
+      totalEntries: number;
+      totalChunks: number;
+    }
+
+    let manifest: ChunkManifest = { chunks: [], totalEntries: 0, totalChunks };
+    if (existingManifestFile) {
+      const text = await existingManifestFile.text();
+      manifest = JSON.parse(text);
+    }
+    
+    manifest.chunks.push({ chunkIndex, contractCount, storagePath });
+    manifest.totalEntries += contractCount;
+
+    const manifestContent = new TextEncoder().encode(JSON.stringify(manifest, null, 2));
+    await supabase.storage
+      .from('acs-data')
+      .upload(manifestPath, manifestContent, { 
+        contentType: 'application/json', 
+        upsert: true 
+      });
+
+    // Update stats to point to manifest
+    await supabase
+      .from('acs_template_stats')
+      .upsert({
+        snapshot_id,
+        template_id: templateId,
+        contract_count: newContractCount,
+        storage_path: manifestPath,
+      }, {
+        onConflict: 'snapshot_id,template_id'
+      });
+      
+    console.log(`  Chunk ${chunkIndex + 1}/${totalChunks}: ${contractCount} contracts (total: ${newContractCount})`);
+  } else {
+    // For non-chunked uploads, simple insert/update
+    await supabase
+      .from('acs_template_stats')
+      .upsert({
+        snapshot_id,
+        template_id: templateId,
+        contract_count: contractCount,
+        storage_path: storagePath,
+      }, {
+        onConflict: 'snapshot_id,template_id'
+      });
   }
 
   return contractCount;
@@ -195,7 +260,7 @@ Deno.serve(async (req) => {
         
         try {
           // Process this template in isolation to allow garbage collection
-          const contractCount = await processTemplateWithCleanup(
+          const contractCount = await processTemplateChunk(
             supabase,
             snapshot_id,
             template
