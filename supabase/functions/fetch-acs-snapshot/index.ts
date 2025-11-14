@@ -7,6 +7,39 @@ const corsHeaders = {
 
 const PAGES_PER_BATCH = 40; // Process 40 pages per invocation
 const PAGE_SIZE = 500;
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
+/**
+ * Retry a function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  operationName: string,
+  maxRetries: number = MAX_RETRIES
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      if (attempt < maxRetries) {
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+        console.warn(
+          `⚠️ ${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. ` +
+          `Retrying in ${delay}ms...`
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  console.error(`❌ ${operationName} failed after ${maxRetries + 1} attempts`);
+  throw lastError;
+}
 
 // Decimal arithmetic helpers (10 decimal precision)
 class Decimal {
@@ -228,7 +261,7 @@ async function processBatch(
     }
   }
 
-  // Upload template data to storage
+  // Upload template data to storage with retry logic
   for (const [templateId, data] of Object.entries(templatesData)) {
     const fileName = templateId.replace(/[:.]/g, '_');
     const filePath = `${snapshot.id}/${fileName}.json`;
@@ -244,18 +277,24 @@ async function processBatch(
       data,
     }, null, 2);
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('acs-data')
-      .upload(filePath, new Blob([fileContent], { type: 'application/json' }), {
-        contentType: 'application/json',
-        upsert: true,
-      });
+    // Retry storage upload with exponential backoff
+    await retryWithBackoff(
+      async () => {
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from('acs-data')
+          .upload(filePath, new Blob([fileContent], { type: 'application/json' }), {
+            contentType: 'application/json',
+            upsert: true,
+          });
 
-    if (uploadError) {
-      console.error(`Failed to upload ${filePath}:`, uploadError);
-    }
+        if (uploadError) {
+          throw new Error(`Storage upload failed: ${uploadError.message}`);
+        }
+      },
+      `Upload ${fileName}`
+    );
 
-    // Store or update template stats
+    // Store or update template stats with retry logic
     const fieldSums: Record<string, string> = {};
     if (templateStats[templateId].fields) {
       for (const [fname, fBN] of Object.entries(templateStats[templateId].fields)) {
@@ -263,17 +302,26 @@ async function processBatch(
       }
     }
 
-    await supabaseAdmin.from('acs_template_stats').upsert({
-      snapshot_id: snapshot.id,
-      template_id: templateId,
-      contract_count: templateStats[templateId].count,
-      field_sums: fieldSums,
-      status_tallies: templateStats[templateId].status || null,
-      storage_path: filePath,
-    }, { onConflict: 'snapshot_id,template_id' });
+    await retryWithBackoff(
+      async () => {
+        const { error: statsError } = await supabaseAdmin.from('acs_template_stats').upsert({
+          snapshot_id: snapshot.id,
+          template_id: templateId,
+          contract_count: templateStats[templateId].count,
+          field_sums: fieldSums,
+          status_tallies: templateStats[templateId].status || null,
+          storage_path: filePath,
+        }, { onConflict: 'snapshot_id,template_id' });
+
+        if (statsError) {
+          throw new Error(`Stats upsert failed: ${statsError.message}`);
+        }
+      },
+      `Stats update ${fileName}`
+    );
   }
 
-  // Update snapshot progress
+  // Update snapshot progress with retry logic
   const circulating = amuletTotal.minus(lockedTotal);
   const totalProcessedPages = (snapshot.processed_pages || 0) + pagesProcessed;
   const totalProcessedEvents = (snapshot.processed_events || 0) + seen.size;
@@ -281,22 +329,31 @@ async function processBatch(
   const elapsedMs = Math.max(0, Date.now() - startedAtMs);
   const pagesPerMinute = elapsedMs > 0 ? totalProcessedPages / (elapsedMs / 60000) : 0;
 
-  await supabaseAdmin
-    .from('acs_snapshots')
-    .update({
-      cursor_after: after,
-      amulet_total: amuletTotal.toString(),
-      locked_total: lockedTotal.toString(),
-      circulating_supply: circulating.toString(),
-      entry_count: snapshot.entry_count + seen.size,
-      iteration_count: (snapshot.iteration_count || 0) + 1,
-      processed_pages: totalProcessedPages,
-      processed_events: totalProcessedEvents,
-      elapsed_time_ms: elapsedMs,
-      pages_per_minute: pagesPerMinute,
-      last_progress_update: new Date().toISOString(),
-    })
-    .eq('id', snapshot.id);
+  await retryWithBackoff(
+    async () => {
+      const { error: updateError } = await supabaseAdmin
+        .from('acs_snapshots')
+        .update({
+          cursor_after: after,
+          amulet_total: amuletTotal.toString(),
+          locked_total: lockedTotal.toString(),
+          circulating_supply: circulating.toString(),
+          entry_count: snapshot.entry_count + seen.size,
+          iteration_count: (snapshot.iteration_count || 0) + 1,
+          processed_pages: totalProcessedPages,
+          processed_events: totalProcessedEvents,
+          elapsed_time_ms: elapsedMs,
+          pages_per_minute: pagesPerMinute,
+          last_progress_update: new Date().toISOString(),
+        })
+        .eq('id', snapshot.id);
+
+      if (updateError) {
+        throw new Error(`Snapshot progress update failed: ${updateError.message}`);
+      }
+    },
+    `Snapshot progress update`
+  );
 
   console.log(`✅ Batch complete. Next cursor: ${after}`);
   return { isComplete: false, nextCursor: after };
