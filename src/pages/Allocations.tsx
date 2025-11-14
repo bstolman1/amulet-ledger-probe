@@ -41,13 +41,52 @@ const Allocations = () => {
 
   const getField = (obj: any, fieldNames: string[]) => {
     for (const name of fieldNames) {
+      // Try direct property access
       if (obj?.[name] !== undefined && obj?.[name] !== null) return obj[name];
+      
+      // Try nested path traversal (e.g., "allocation.settlement.executor")
+      if (name.includes('.')) {
+        const parts = name.split('.');
+        let current = obj;
+        for (const part of parts) {
+          if (current?.[part] !== undefined && current?.[part] !== null) {
+            current = current[part];
+          } else {
+            current = null;
+            break;
+          }
+        }
+        if (current !== null) return current;
+      }
+      
+      // Try payload access
       if (obj?.payload?.[name] !== undefined && obj?.payload?.[name] !== null) return obj.payload[name];
+      
+      // Try nested path in payload
+      if (name.includes('.') && obj?.payload) {
+        const parts = name.split('.');
+        let current = obj.payload;
+        for (const part of parts) {
+          if (current?.[part] !== undefined && current?.[part] !== null) {
+            current = current[part];
+          } else {
+            current = null;
+            break;
+          }
+        }
+        if (current !== null) return current;
+      }
     }
     return null;
   };
 
   const allocations = allocationsQuery.data?.data || [];
+  
+  // Debug logging to inspect the actual structure
+  if (allocations.length > 0) {
+    console.log("🔍 DEBUG Allocations: First allocation structure:", JSON.stringify(allocations[0], null, 2));
+    console.log("🔍 DEBUG Allocations: Total count:", allocations.length);
+  }
 
   const filteredAllocations = allocations.filter((allocation: any) => {
     if (!searchTerm) return true;
