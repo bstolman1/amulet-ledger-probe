@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 
 const DSOState = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
   
   const nodeStatesQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -290,7 +289,7 @@ const DSOState = () => {
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
           templateSuffixes={["DSO:SvState:SvNodeState", "DSO:SvState:SvStatusReport", "DSO:SvState:SvRewardState"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

@@ -17,7 +17,6 @@ const MemberTraffic = () => {
   const pageSize = 100;
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
   
   const trafficQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -251,7 +250,7 @@ const MemberTraffic = () => {
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
           templateSuffixes={["Splice:DecentralizedSynchronizer:MemberTraffic"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

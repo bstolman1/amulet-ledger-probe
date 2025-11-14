@@ -28,7 +28,6 @@ const Balances = () => {
   const [searchTerm, setSearchTerm] = useState("");
   
   const { data: snapshot } = useLatestACSSnapshot();
-  const isProcessing = activeSnapshotData?.isProcessing || false;
 
   // Fetch Amulet contracts - aggregated across ALL packages
   const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
@@ -232,7 +231,7 @@ const Balances = () => {
         <DataSourcesFooter
           snapshotId={snapshot?.id}
           templateSuffixes={["Splice:Amulet:Amulet", "Splice:Amulet:LockedAmulet"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

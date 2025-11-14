@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 
 const Apps = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
 
   const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
 
@@ -106,7 +105,7 @@ const Apps = () => {
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
           templateSuffixes={["Splice:Amulet:FeaturedAppRight"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

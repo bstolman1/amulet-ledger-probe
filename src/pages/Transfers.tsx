@@ -19,7 +19,6 @@ const Transfers = () => {
   const pageSize = 50;
   
   const { data: snapshot } = useLatestACSSnapshot();
-  const isProcessing = activeSnapshotData?.isProcessing || false;
 
   const preapprovalsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!snapshot);
   const commandsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:ExternalPartyAmuletRules:TransferCommand", !!snapshot);
@@ -193,7 +192,7 @@ const Transfers = () => {
             "Splice:ExternalPartyAmuletRules:TransferCommand",
             "Splice:AmuletTransferInstruction:AmuletTransferInstruction"
           ]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

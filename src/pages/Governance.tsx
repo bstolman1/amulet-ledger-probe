@@ -20,7 +20,6 @@ const Governance = () => {
   });
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
 
   // Fetch DsoRules to get SV count and voting threshold - aggregated across all packages
   const { data: dsoRulesData } = useAggregatedTemplateData(

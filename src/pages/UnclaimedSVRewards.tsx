@@ -30,7 +30,6 @@ const UnclaimedSVRewards = () => {
   const [searchTerm, setSearchTerm] = useState("");
   
   const { data: snapshot } = useLatestACSSnapshot();
-  const isProcessing = activeSnapshotData?.isProcessing || false;
 
   // Fetch ValidatorRewardCoupon contracts - the actual unclaimed rewards
   const { data: rewardCouponsData, isLoading: couponsLoading } = useAggregatedTemplateData(
@@ -342,7 +341,7 @@ const UnclaimedSVRewards = () => {
         <DataSourcesFooter 
           snapshotId={snapshot?.id}
           templateSuffixes={["ValidatorRewardCoupon"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

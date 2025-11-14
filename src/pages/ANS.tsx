@@ -92,7 +92,7 @@ const ANS = () => {
         <DataSourcesFooter
           snapshotId={snapshot?.id}
           templateSuffixes={["Splice:Ans:AnsEntry", "Splice:Ans:AnsEntryContext"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

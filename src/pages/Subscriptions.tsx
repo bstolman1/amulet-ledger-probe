@@ -20,7 +20,6 @@ const Subscriptions = () => {
   const pageSize = 100;
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
   
   const subscriptionsQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -367,7 +366,7 @@ const Subscriptions = () => {
             "Wallet:Subscriptions:SubscriptionIdleState",
             "Wallet:Subscriptions:SubscriptionRequest"
           ]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>
