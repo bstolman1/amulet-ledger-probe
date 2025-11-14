@@ -15,6 +15,7 @@ import { PaginationControls } from "@/components/PaginationControls";
 const Elections = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
   const itemsPerPage = 20;
 
   const { data: snapshots } = useQuery({
@@ -122,15 +123,18 @@ const Elections = () => {
         ) : (
           <div className="space-y-4">
             {paginatedData.map((election: any, index: number) => {
-              const [open, setOpen] = useState(false);
+              const itemKey = (currentPage - 1) * itemsPerPage + index;
 
               return (
                 <Card key={index}>
-                  <Collapsible open={open} onOpenChange={setOpen}>
+                  <Collapsible 
+                    open={openItems[itemKey] || false} 
+                    onOpenChange={(isOpen) => setOpenItems(prev => ({ ...prev, [itemKey]: isOpen }))}
+                  >
                     <CollapsibleTrigger className="w-full">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <div className="flex items-center gap-2">
-                          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          {openItems[itemKey] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <CardTitle className="text-base font-medium">
                             Election Request {(currentPage - 1) * itemsPerPage + index + 1}
                           </CardTitle>
