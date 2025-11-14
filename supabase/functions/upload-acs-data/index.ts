@@ -64,7 +64,7 @@ interface ProgressRequest {
 type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
 
 /**
- * Process a single template with memory optimization
+ * Process a single template with memory optimization and error handling
  * This function is isolated to allow garbage collection after each template
  */
 async function processTemplateWithCleanup(
@@ -186,6 +186,7 @@ Deno.serve(async (req) => {
 
       let processed = 0;
       let totalContractsAdded = 0;
+      const errors = [];
 
       // Process templates sequentially with memory optimization
       for (let i = 0; i < templates.length; i++) {
@@ -206,11 +207,32 @@ Deno.serve(async (req) => {
           console.log(`Completed ${template.filename}: ${contractCount} contracts`);
         } catch (error) {
           console.error(`Failed to process ${template.filename}:`, error);
-          throw error;
+          errors.push({ 
+            filename: template.filename, 
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
         
         // Explicit cleanup - allow GC to collect template data
         templates[i] = null as any;
+      }
+
+      // If we had any errors, return 546 with details
+      if (errors.length > 0) {
+        console.error(`Batch completed with ${errors.length}/${templates.length} errors`);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Partial upload failure',
+            processed,
+            failed: errors.length,
+            total: templates.length,
+            errors: errors.slice(0, 5), // Return first 5 errors for debugging
+          }),
+          { 
+            status: 546, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
       }
 
       // Update template batch counter and last batch info
@@ -243,7 +265,8 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: true, 
-          processed: processed
+          processed: processed,
+          contracts_added: totalContractsAdded
         }),
         { 
           status: 200, 
