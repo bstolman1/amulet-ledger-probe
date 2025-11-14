@@ -69,8 +69,17 @@ const Subscriptions = () => {
 
   const filteredRequests = requestsData.filter((req: any) => {
     if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    const sender = req.payload?.subscriptionData?.sender || req.subscriptionData?.sender || "";
+    const receiver = req.payload?.subscriptionData?.receiver || req.subscriptionData?.receiver || "";
+    const description = req.payload?.subscriptionData?.description || req.subscriptionData?.description || "";
     const reference = req.payload?.subscription?.reference || req.subscription?.reference || req.reference || "";
-    return reference.toLowerCase().includes(searchTerm.toLowerCase());
+    return (
+      sender.toLowerCase().includes(search) ||
+      receiver.toLowerCase().includes(search) ||
+      description.toLowerCase().includes(search) ||
+      reference.toLowerCase().includes(search)
+    );
   });
 
   const paginateData = (data: any[]) => {
@@ -234,17 +243,67 @@ const Subscriptions = () => {
               ) : (
                 <>
                   <div className="space-y-3">
-                    {paginateData(filteredRequests).map((req: any, i: number) => (
-                      <Card key={i} className="p-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-sm text-muted-foreground">Reference</p>
-                            <p className="font-mono text-sm">{formatParty(req.payload?.subscription?.reference || req.subscription?.reference || req.reference)}</p>
+                    {paginateData(filteredRequests).map((req: any, i: number) => {
+                      const subData = req.payload?.subscriptionData || req.subscriptionData || {};
+                      const payData = req.payload?.payData || req.payData || {};
+                      const paymentAmount = payData.paymentAmount?.amount || "N/A";
+                      const paymentUnit = payData.paymentAmount?.unit || "";
+                      const paymentInterval = payData.paymentInterval?.microseconds 
+                        ? (parseInt(payData.paymentInterval.microseconds) / 1000000 / 60 / 60 / 24).toFixed(0) + " days"
+                        : "N/A";
+                      const paymentDuration = payData.paymentDuration?.microseconds
+                        ? (parseInt(payData.paymentDuration.microseconds) / 1000000 / 60 / 60 / 24).toFixed(0) + " days"
+                        : "N/A";
+                      
+                      return (
+                        <Card key={i} className="p-4 space-y-3">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 space-y-2">
+                              {subData.description && (
+                                <div>
+                                  <p className="text-sm font-semibold text-primary">{subData.description}</p>
+                                </div>
+                              )}
+                              
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Sender</p>
+                                  <p className="font-mono text-xs break-all">{formatParty(subData.sender || "Unknown")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Receiver</p>
+                                  <p className="font-mono text-xs break-all">{formatParty(subData.receiver || "Unknown")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Provider</p>
+                                  <p className="font-mono text-xs break-all">{formatParty(subData.provider || "Unknown")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">DSO</p>
+                                  <p className="font-mono text-xs break-all">{formatParty(subData.dso || "Unknown")}</p>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-3 pt-2 border-t">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Payment Amount</p>
+                                  <p className="text-sm font-semibold">{paymentAmount} {paymentUnit}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Interval</p>
+                                  <p className="text-sm">{paymentInterval}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Duration</p>
+                                  <p className="text-sm">{paymentDuration}</p>
+                                </div>
+                              </div>
+                            </div>
+                            <Badge variant="outline" className="ml-3">Pending</Badge>
                           </div>
-                          <Badge variant="outline">Pending</Badge>
-                        </div>
-                      </Card>
-                    ))}
+                        </Card>
+                      );
+                    })}
                   </div>
                   <PaginationControls
                     currentPage={currentPage}
