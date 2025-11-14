@@ -37,6 +37,15 @@ const DSOState = () => {
   const nodeStatesData = nodeStatesQuery.data?.data || [];
   const statusReportsData = statusReportsQuery.data?.data || [];
   const rewardStatesData = rewardStatesQuery.data?.data || [];
+
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
   const isLoading = nodeStatesQuery.isLoading || statusReportsQuery.isLoading || rewardStatesQuery.isLoading;
 
   // Debug logging

@@ -45,6 +45,15 @@ const MiningRounds = () => {
   const roundsLoading = openLoading || issuingLoading || closedLoading;
   const roundsError = openError || issuingError || closedError;
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   // Debug logging
   console.log("🔍 DEBUG MiningRounds: Open rounds:", openRoundsData?.data?.length || 0);
   console.log("🔍 DEBUG MiningRounds: Issuing rounds:", issuingRoundsData?.data?.length || 0);

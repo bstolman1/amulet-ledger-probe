@@ -19,6 +19,15 @@ const Apps = () => {
   const isLoading = appsQuery.isLoading;
   const apps = appsQuery.data?.data || [];
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   // Debug logging
   console.log("🔍 DEBUG Apps: Total apps:", apps.length);
   console.log("🔍 DEBUG Apps: First 3 apps:", apps.slice(0, 3));
@@ -49,21 +58,26 @@ const Apps = () => {
                 <Badge variant="secondary">{apps.length} Apps</Badge>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {apps.map((app: any, i: number) => (
+                {apps.map((app: any, i: number) => {
+                  const appName = getField(app, 'appName', 'name', 'applicationName');
+                  const provider = getField(app, 'provider', 'providerId', 'providerParty');
+                  const dso = getField(app, 'dso');
+                  
+                  return (
                   <Card key={i} className="p-6 space-y-3">
                     <div className="flex items-center gap-2 mb-2">
                       <Package className="h-5 w-5 text-primary" />
-                      <h3 className="font-semibold text-lg">{app.payload?.appName || app.appName || 'Unknown App'}</h3>
+                      <h3 className="font-semibold text-lg">{appName || 'Unknown App'}</h3>
                     </div>
                     <div className="space-y-2">
                       <div>
                         <p className="text-xs text-muted-foreground">Provider</p>
-                        <p className="font-mono text-xs break-all">{formatPartyId(app.payload?.provider || app.provider || 'Unknown')}</p>
+                        <p className="font-mono text-xs break-all">{formatPartyId(provider || 'Unknown')}</p>
                       </div>
-                      {app.payload?.dso && (
+                      {dso && (
                         <div>
                           <p className="text-xs text-muted-foreground">DSO</p>
-                          <p className="font-mono text-xs break-all">{app.payload.dso}</p>
+                          <p className="font-mono text-xs break-all">{dso}</p>
                         </div>
                       )}
                     </div>
@@ -83,7 +97,8 @@ const Apps = () => {
                       </CollapsibleContent>
                     </Collapsible>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </>

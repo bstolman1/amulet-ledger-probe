@@ -38,6 +38,15 @@ const ValidatorLicenses = () => {
   const couponsData = couponsQuery.data?.data || [];
   const isLoading = licensesQuery.isLoading || couponsQuery.isLoading;
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   // Debug logging for licenses data
   console.log("🔍 DEBUG ValidatorLicenses: Total licenses count:", licensesData.length);
   console.log("🔍 DEBUG ValidatorLicenses: First 3 licenses raw data:", licensesData.slice(0, 3));
@@ -52,16 +61,16 @@ const ValidatorLicenses = () => {
 
   const filteredLicenses = licensesData.filter((lic: any) => {
     if (!searchTerm) return true;
-    const validator = lic.payload?.validator || lic.validator || "";
-    const sponsor = lic.payload?.sponsor || lic.sponsor || "";
-    return validator.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           sponsor.toLowerCase().includes(searchTerm.toLowerCase());
+    const validator = getField(lic, 'validator', 'validatorId');
+    const sponsor = getField(lic, 'sponsor', 'sponsorId');
+    return (validator?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+           (sponsor?.toLowerCase() || "").includes(searchTerm.toLowerCase());
   });
 
   const filteredCoupons = couponsData.filter((coupon: any) => {
     if (!searchTerm) return true;
-    const validator = coupon.payload?.validator || coupon.validator || "";
-    return validator.toLowerCase().includes(searchTerm.toLowerCase());
+    const validator = getField(coupon, 'validator', 'validatorId');
+    return (validator?.toLowerCase() || "").includes(searchTerm.toLowerCase());
   });
 
   const paginateData = (data: any[]) => {

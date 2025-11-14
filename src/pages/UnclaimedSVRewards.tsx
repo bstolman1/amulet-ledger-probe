@@ -42,6 +42,15 @@ const UnclaimedSVRewards = () => {
   const isLoading = couponsLoading;
   const rewardCoupons = rewardCouponsData?.data || [];
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   // Debug logging
   console.log("🔍 DEBUG UnclaimedSVRewards: Total reward coupons:", rewardCoupons.length);
   console.log("🔍 DEBUG UnclaimedSVRewards: First 3 coupons:", rewardCoupons.slice(0, 3));
@@ -54,7 +63,9 @@ const UnclaimedSVRewards = () => {
     const userMap = new Map<string, { user: string; totalAmount: number; coupons: any[] }>();
 
     rewardCoupons.forEach((coupon: any) => {
-      const user = coupon.user || coupon.payload?.user || "Unknown";
+      const user = getField(coupon, 'user', 'validator', 'validatorUser');
+      
+      if (!user) return; // Skip if no user identifier found
       
       if (!userMap.has(user)) {
         userMap.set(user, { 
@@ -64,7 +75,7 @@ const UnclaimedSVRewards = () => {
         });
       }
       const info = userMap.get(user)!;
-      const amount = parseFloat(coupon.amount || coupon.payload?.amount || "0");
+      const amount = parseFloat(getField(coupon, 'amount', 'rewardAmount') || "0");
       info.totalAmount += amount;
       info.coupons.push(coupon);
     });
@@ -229,23 +240,28 @@ const UnclaimedSVRewards = () => {
 
                     {/* Individual Coupons */}
                     <div className="space-y-2 mt-3 pt-3 border-t">
-                      {reward.coupons.map((coupon: any, idx: number) => (
+                      {reward.coupons.map((coupon: any, idx: number) => {
+                        const amount = getField(coupon, 'amount', 'rewardAmount');
+                        const roundNum = getField(coupon, 'round')?.number;
+                        const dso = getField(coupon, 'dso');
+                        
+                        return (
                         <div key={idx} className="bg-muted/30 p-3 rounded space-y-2">
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             <div>
                               <p className="text-xs text-muted-foreground">Amount</p>
-                              <p className="font-semibold">{parseFloat(coupon.amount || coupon.payload?.amount || "0").toFixed(4)} CC</p>
+                              <p className="font-semibold">{parseFloat(amount || "0").toFixed(4)} CC</p>
                             </div>
                             <div>
                               <p className="text-xs text-muted-foreground">Round</p>
-                              <p className="font-mono">{coupon.round?.number || coupon.payload?.round?.number || "N/A"}</p>
+                              <p className="font-mono">{roundNum || "N/A"}</p>
                             </div>
                           </div>
                           
-                          {coupon.dso && (
+                          {dso && (
                             <div>
                               <p className="text-xs text-muted-foreground">DSO</p>
-                              <p className="font-mono text-xs break-all">{coupon.dso}</p>
+                              <p className="font-mono text-xs break-all">{dso}</p>
                             </div>
                           )}
 
@@ -263,7 +279,8 @@ const UnclaimedSVRewards = () => {
                             </CollapsibleContent>
                           </Collapsible>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </Card>
                 ))}

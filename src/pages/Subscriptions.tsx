@@ -46,6 +46,15 @@ const Subscriptions = () => {
   const requestsData = requestsQuery.data?.data || [];
   const isLoading = subscriptionsQuery.isLoading || idleStatesQuery.isLoading || requestsQuery.isLoading;
 
+  // Helper to safely extract field values from nested structure
+  const getField = (record: any, ...fieldNames: string[]) => {
+    for (const field of fieldNames) {
+      if (record[field] !== undefined && record[field] !== null) return record[field];
+      if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+    }
+    return undefined;
+  };
+
   // Debug logging for requests data
   console.log("🔍 DEBUG: Total requestsData count:", requestsData.length);
   console.log("🔍 DEBUG: First 3 requests raw data:", requestsData.slice(0, 3));
@@ -63,32 +72,34 @@ const Subscriptions = () => {
 
   const filteredSubscriptions = subscriptionsData.filter((sub: any) => {
     if (!searchTerm) return true;
-    const reference = sub.payload?.subscription?.reference || sub.subscription?.reference || sub.reference || "";
-    const subscriber = sub.payload?.subscription?.subscriber || sub.subscription?.subscriber || sub.subscriber || "";
+    const reference = getField(sub, 'subscription')?.reference || getField(sub, 'reference');
+    const subscriber = getField(sub, 'subscription')?.subscriber || getField(sub, 'subscriber');
     return (
-      reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      subscriber.toLowerCase().includes(searchTerm.toLowerCase())
+      (reference?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (subscriber?.toLowerCase() || "").includes(searchTerm.toLowerCase())
     );
   });
 
   const filteredIdleStates = idleStatesData.filter((state: any) => {
     if (!searchTerm) return true;
-    const reference = state.payload?.subscriptionReference || state.subscriptionReference || "";
-    return reference.toLowerCase().includes(searchTerm.toLowerCase());
+    const reference = getField(state, 'subscriptionReference', 'reference');
+    return (reference?.toLowerCase() || "").includes(searchTerm.toLowerCase());
   });
 
   const filteredRequests = requestsData.filter((req: any) => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
-    const sender = req.payload?.subscriptionData?.sender || req.subscriptionData?.sender || "";
-    const receiver = req.payload?.subscriptionData?.receiver || req.subscriptionData?.receiver || "";
-    const description = req.payload?.subscriptionData?.description || req.subscriptionData?.description || "";
-    const reference = req.payload?.subscription?.reference || req.subscription?.reference || req.reference || "";
+    const subscriptionData = getField(req, 'subscriptionData');
+    const sender = subscriptionData?.sender || getField(req, 'sender');
+    const receiver = subscriptionData?.receiver || getField(req, 'receiver');
+    const description = subscriptionData?.description || getField(req, 'description');
+    const subscription = getField(req, 'subscription');
+    const reference = subscription?.reference || getField(req, 'reference');
     return (
-      sender.toLowerCase().includes(search) ||
-      receiver.toLowerCase().includes(search) ||
-      description.toLowerCase().includes(search) ||
-      reference.toLowerCase().includes(search)
+      (sender?.toLowerCase() || "").includes(search) ||
+      (receiver?.toLowerCase() || "").includes(search) ||
+      (description?.toLowerCase() || "").includes(search) ||
+      (reference?.toLowerCase() || "").includes(search)
     );
   });
 
