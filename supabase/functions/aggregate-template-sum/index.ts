@@ -5,12 +5,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface AggregateRequest {
-  snapshot_id: string;
-  template_suffix: string;
-  mode?: "circulating" | "locked";
-}
-
+// ------------------------------
+// Value pickers
+// ------------------------------
 function pickAmount(obj: any): number {
   if (!obj) return 0;
   const candidates = [
@@ -22,10 +19,8 @@ function pickAmount(obj: any): number {
     obj?.amount,
   ];
   for (const v of candidates) {
-    if (v !== undefined && v !== null) {
-      const n = typeof v === "string" ? parseFloat(v) : Number(v);
-      if (!isNaN(n)) return n;
-    }
+    const n = typeof v === "string" ? parseFloat(v) : Number(v);
+    if (!isNaN(n)) return n;
   }
   return 0;
 }
@@ -39,6 +34,9 @@ function pickLockedAmount(obj: any): number {
   return pickAmount(obj);
 }
 
+// ------------------------------
+// Concurrency limiter
+// ------------------------------
 async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
   const results: T[] = [];
   const executing: Promise<void>[] = [];
@@ -54,13 +52,16 @@ async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): 
   return results;
 }
 
+// ------------------------------
+// Main server function
+// ------------------------------
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { snapshot_id, template_suffix, mode = "circulating" } = (await req.json()) as AggregateRequest;
+    const { snapshot_id, template_suffix, mode = "circulating" } = await req.json();
 
     if (!snapshot_id || !template_suffix) {
       return new Response(JSON.stringify({ error: "snapshot_id and template_suffix are required" }), {
@@ -69,128 +70,101 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Normalize suffix for "." vs ":" module naming
-    const suffixA = template_suffix; // e.g. "Splice:Amulet:Amulet"
-    const suffixB = template_suffix.replace(/:/g, "."); // e.g. "Splice.Amulet.Amulet"
-
     const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
-    //
-    // ✅ FIX: Find ALL matching templates (works for dot + colon versions)
-    //
-    const { data: templates, error: tErr } = await supabase
+    // ---------------------------
+    // Fetch template stats
+    // ---------------------------
+    const { data: templates, error: tsErr } = await supabase
       .from("acs_template_stats")
       .select("template_id, storage_path")
       .eq("snapshot_id", snapshot_id)
-      .or(
-        `
-        template_id.ilike.%:${suffixA},
-        template_id.ilike.%${suffixA},
-        template_id.ilike.%:${suffixB},
-        template_id.ilike.%${suffixB}
-      `,
-      );
+      .like("template_id", `%${template_suffix}`);
 
-    if (tErr) throw tErr;
+    if (tsErr) throw tsErr;
 
     let totalSum = 0;
     let totalCount = 0;
+
     const picker = mode === "locked" ? pickLockedAmount : pickAmount;
 
+    // ---------------------------
+    // Process templates
+    // ---------------------------
     for (const t of templates ?? []) {
       if (!t.storage_path) continue;
 
-      const { data: manifestFile, error: dErr } = await supabase.storage.from("acs-data").download(t.storage_path);
-      if (dErr || !manifestFile) continue;
+      const { data: manifestFile, error: mErr } = await supabase.storage.from("acs-data").download(t.storage_path);
 
-      const text = await manifestFile.text();
+      if (mErr || !manifestFile) continue;
+
+      const manifestText = await manifestFile.text();
       let parsed: any;
       try {
-        parsed = JSON.parse(text);
+        parsed = JSON.parse(manifestText);
       } catch {
-        parsed = null;
+        continue;
       }
 
-      //
-      // ─────────────────────────────
-      //   Manifest with chunk list
-      // ─────────────────────────────
-      //
-      if (parsed && Array.isArray(parsed.chunks)) {
-        let chunkPaths: string[] = parsed.chunks.map((c: any) => c.path || c.storagePath).filter((p: string) => !!p);
+      let chunkPaths: string[] = [];
 
-        // normalize relative paths
-        chunkPaths = chunkPaths.map((p: string) => (p.includes("/") ? p : `${snapshot_id}/chunks/${p}`));
+      // ----------------------------------------------
+      // Manifest Type 1 — parsed.chunks: [{ path }]
+      // ----------------------------------------------
+      if (parsed?.chunks && Array.isArray(parsed.chunks)) {
+        chunkPaths = parsed.chunks.map((c: any) => c.path || c.storagePath).filter((p: string) => !!p);
+      }
 
-        const tasks = chunkPaths.map((p) => async () => {
-          try {
-            const { data: cf } = await supabase.storage.from("acs-data").download(p);
-            if (!cf) return { sum: 0, count: 0 };
+      // ----------------------------------------------
+      // Manifest Type 2 — parsed.chunk_paths: ["..."]
+      // ----------------------------------------------
+      if (parsed?.chunk_paths) {
+        chunkPaths.push(...parsed.chunk_paths);
+      }
 
-            const arrText = await cf.text();
-            const arr = JSON.parse(arrText);
-            if (!Array.isArray(arr)) return { sum: 0, count: 0 };
+      // ----------------------------------------------
+      // Normalize relative paths
+      // ----------------------------------------------
+      const manifestDir = t.storage_path.substring(0, t.storage_path.lastIndexOf("/") + 1);
+      chunkPaths = chunkPaths.map((p) => (p.includes("/") ? p : manifestDir + p));
 
-            const sum = arr.reduce((acc: number, it: any) => acc + picker(it), 0);
-            return { sum, count: arr.length };
-          } catch {
-            return { sum: 0, count: 0 };
-          }
-        });
+      // ----------------------------------------------
+      // 🔥 DEDUPLICATE HERE — MOST IMPORTANT FIX
+      // ----------------------------------------------
+      chunkPaths = [...new Set(chunkPaths)];
 
-        const results = await limitConcurrency(tasks, 6);
-        for (const r of results) {
-          totalSum += r.sum;
-          totalCount += r.count;
+      console.log(`Template ${t.template_id}: ${chunkPaths.length} unique chunk files.`);
+
+      // ----------------------------------------------
+      // Chunk processing tasks
+      // ----------------------------------------------
+      const tasks = chunkPaths.map((path) => async () => {
+        try {
+          const { data: chunkFile } = await supabase.storage.from("acs-data").download(path);
+
+          if (!chunkFile) return { sum: 0, count: 0 };
+
+          const text = await chunkFile.text();
+          const arr = JSON.parse(text);
+
+          if (!Array.isArray(arr)) return { sum: 0, count: 0 };
+
+          const sum = arr.reduce((a, it) => a + picker(it), 0);
+          return { sum, count: arr.length };
+        } catch (err) {
+          console.error(`Error loading chunk ${path}:`, err);
+          return { sum: 0, count: 0 };
         }
+      });
 
-        continue;
-      }
+      // ----------------------------------------------
+      // Process with concurrency limit
+      // ----------------------------------------------
+      const results = await limitConcurrency(tasks, 6);
 
-      //
-      // ─────────────────────────────
-      // Direct JSON
-      // ─────────────────────────────
-      //
-      if (parsed && Array.isArray(parsed)) {
-        const sum = parsed.reduce((acc: number, it: any) => acc + picker(it), 0);
-        totalSum += sum;
-        totalCount += parsed.length;
-        continue;
-      }
-
-      //
-      // ─────────────────────────────
-      // Manifest with chunk_paths array
-      // ─────────────────────────────
-      //
-      if (typeof parsed === "object" && parsed?.chunk_paths) {
-        let chunkPaths: string[] = parsed.chunk_paths;
-        chunkPaths = chunkPaths.map((p: string) => (p.includes("/") ? p : `${snapshot_id}/chunks/${p}`));
-
-        const tasks = chunkPaths.map((p) => async () => {
-          try {
-            const { data: cf } = await supabase.storage.from("acs-data").download(p);
-            if (!cf) return { sum: 0, count: 0 };
-
-            const arrText = await cf.text();
-            const arr = JSON.parse(arrText);
-            if (!Array.isArray(arr)) return { sum: 0, count: 0 };
-
-            const sum = arr.reduce((acc: number, it: any) => acc + picker(it), 0);
-            return { sum, count: arr.length };
-          } catch {
-            return { sum: 0, count: 0 };
-          }
-        });
-
-        const results = await limitConcurrency(tasks, 6);
-        for (const r of results) {
-          totalSum += r.sum;
-          totalCount += r.count;
-        }
-
-        continue;
+      for (const r of results) {
+        totalSum += r.sum;
+        totalCount += r.count;
       }
     }
 
@@ -202,9 +176,9 @@ Deno.serve(async (req) => {
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
-  } catch (e: any) {
+  } catch (e) {
     console.error("aggregate-template-sum error", e);
-    return new Response(JSON.stringify({ error: e?.message || "Internal error" }), {
+    return new Response(JSON.stringify({ error: e?.message ?? "Internal server error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
