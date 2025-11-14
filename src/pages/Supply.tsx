@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState } from "react";
+import { pickAmount, pickLockedAmount, logSampleStructure } from "@/lib/amount-utils";
 
 const Supply = () => {
   const queryClient = useQueryClient();
@@ -72,18 +73,24 @@ const Supply = () => {
     !!latestSnapshot
   );
 
-  // Calculate supply metrics from actual JSON data
+  // Calculate supply metrics using safe amount picker
   const circulatingSupply = amuletData?.data?.reduce((sum, contract: any) => {
-    // Parse the actual structure: contract has amount.initialAmount
-    const amount = parseFloat(contract.amount?.initialAmount || "0");
-    return sum + amount;
+    return sum + pickAmount(contract);
   }, 0) || 0;
 
   const lockedSupply = lockedData?.data?.reduce((sum, contract: any) => {
-    // Parse locked amulet structure: contract.amulet.amount.initialAmount
-    const amount = parseFloat(contract.amulet?.amount?.initialAmount || "0");
-    return sum + amount;
+    return sum + pickLockedAmount(contract);
   }, 0) || 0;
+
+  // Debug logging
+  if (amuletData?.data) {
+    console.log(`[Supply] Circulating: ${amuletData.data.length} contracts, first 5 amounts:`, 
+      amuletData.data.slice(0, 5).map(pickAmount));
+  }
+  if (lockedData?.data) {
+    console.log(`[Supply] Locked: ${lockedData.data.length} contracts, first 5 amounts:`, 
+      lockedData.data.slice(0, 5).map(pickLockedAmount));
+  }
 
   const totalSupply = circulatingSupply + lockedSupply;
 
@@ -94,6 +101,19 @@ const Supply = () => {
   }, 0) || 0;
 
   const isLoading = amuletLoading || lockedLoading || issuingLoading || closedLoading;
+
+  // Debug info
+  const totalTemplates = 
+    (amuletData?.templateCount || 0) + 
+    (lockedData?.templateCount || 0) + 
+    (issuingRounds?.templateCount || 0) + 
+    (closedRounds?.templateCount || 0);
+  
+  const totalEntries = 
+    (amuletData?.data?.length || 0) + 
+    (lockedData?.data?.length || 0) + 
+    (issuingRounds?.data?.length || 0) + 
+    (closedRounds?.data?.length || 0);
 
   return (
     <DashboardLayout>
@@ -116,6 +136,23 @@ const Supply = () => {
             {isRefreshing ? 'Refreshing...' : 'Force Refresh'}
           </Button>
         </div>
+
+        {/* Debug Banner */}
+        <Card className="p-4 bg-muted/50 border-dashed">
+          <div className="text-xs space-y-1 font-mono">
+            <div className="flex gap-4">
+              <span>📊 Aggregated: <strong>{totalEntries.toLocaleString()}</strong> entries</span>
+              <span>📦 Templates: <strong>{totalTemplates}</strong></span>
+              <span>🕒 Last refresh: <strong>{new Date().toLocaleTimeString()}</strong></span>
+            </div>
+            <div className="flex gap-4 text-muted-foreground">
+              <span>Amulet: {amuletData?.data?.length || 0}</span>
+              <span>Locked: {lockedData?.data?.length || 0}</span>
+              <span>Issuing: {issuingRounds?.data?.length || 0}</span>
+              <span>Closed: {closedRounds?.data?.length || 0}</span>
+            </div>
+          </div>
+        </Card>
 
         {/* Supply Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
