@@ -72,26 +72,9 @@ export const TemplateActivitySection = () => {
 
       if (laterError) throw laterError;
 
-      // If no newer snapshots, just show baseline with no deltas
+      // If no newer snapshots, show "waiting for updates" message
       if (!laterSnapshots) {
-        const { data: baselineStats, error: statsError } = await supabase
-          .from('acs_template_stats')
-          .select('*')
-          .eq('snapshot_id', baselineData.id)
-          .order('contract_count', { ascending: false })
-          .limit(10);
-
-        if (statsError) throw statsError;
-
-        const deltas: TemplateDelta[] = (baselineStats || []).map(stat => ({
-          template_id: formatTemplateId(stat.template_id),
-          baseline_count: stat.contract_count,
-          current_count: stat.contract_count,
-          delta: 0,
-          percentage_change: 0
-        }));
-
-        setTemplateDeltas(deltas);
+        setTemplateDeltas([]);
         setLatestSnapshot(null);
         setLoading(false);
         return;
