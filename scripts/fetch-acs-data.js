@@ -1013,11 +1013,13 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     await uploadToEdgeFunction("complete", {
       mode: "complete",
       webhookSecret: WEBHOOK_SECRET,
-      snapshotId,
+      snapshot_id: snapshotId,
       summary: {
-        amulet_total: amuletTotal.toFixed(),
-        locked_total: lockedTotal.toFixed(),
-        circulating_supply: amuletTotal.minus(lockedTotal).toFixed(),
+        totals: {
+          amulet: amuletTotal.toFixed(),
+          locked: lockedTotal.toFixed(),
+          circulating: amuletTotal.minus(lockedTotal).toFixed(),
+        },
         entry_count: allEvents.length,
         canonical_package: canonicalPkg,
       },

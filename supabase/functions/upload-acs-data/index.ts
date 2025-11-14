@@ -467,7 +467,7 @@ Deno.serve(async (req) => {
       };
 
       // Update with final totals if summary is provided
-      if (summary) {
+      if (summary?.totals) {
         updateData.amulet_total = summary.totals.amulet;
         updateData.locked_total = summary.totals.locked;
         updateData.circulating_supply = summary.totals.circulating;
