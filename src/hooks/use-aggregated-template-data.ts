@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { logSampleStructure } from "@/lib/amount-utils";
 
 interface ChunkManifest {
   templateId: string;
@@ -188,6 +189,10 @@ export function useAggregatedTemplateData(
           
           if (contractsArray.length > 0) {
             console.log(`[useAggregatedTemplateData] Loaded ${contractsArray.length} contracts from ${template.template_id}`);
+            
+            // Diagnostic logging
+            logSampleStructure(`Template ${template.template_id}`, contractsArray, 2);
+            
             allData.push(...contractsArray);
             totalContracts += contractsArray.length;
           }
@@ -210,6 +215,6 @@ export function useAggregatedTemplateData(
       };
     },
     enabled: enabled && !!snapshotId && !!templateSuffix,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 0, // Temporarily set to 0 for debugging - forces fresh fetch
   });
 }
