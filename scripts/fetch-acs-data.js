@@ -776,6 +776,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
   const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
   const inflightUploads = [];
 
+  let lastSeenRecordTime = lastCompletedSnapshot.record_time;
+
   while (true) {
     let retryCount = 0;
     let cooldowns = 0;
@@ -783,68 +785,87 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
     
     while (retryCount < MAX_RETRIES && !success) {
       try {
-        console.log(`\n📄 Page ${page} (after=${after}, pageSize=${pageSize})`);
+        console.log(`\n📄 Page ${page} (lastSeenRecordTime=${lastSeenRecordTime}, pageSize=${pageSize})`);
         
-        // Use v2/updates endpoint with the baseline record_time
+        // Use POST v2/updates endpoint with proper body format
         const url = `${baseUrl}/v2/updates`;
-        const params = {
-          after_record_time: lastCompletedSnapshot.record_time,
+        const requestBody = {
+          after: {
+            after_migration_id: lastCompletedSnapshot.migration_id || migration_id,
+            after_record_time: lastSeenRecordTime,
+          },
           page_size: pageSize,
-          after: after,
+          daml_value_encoding: "compact_json",
         };
         
-        const response = await cantonClient.get(url, { params });
-        const page_events = response.data || [];
+        // Log first page payload for debugging
+        if (page === 1) {
+          console.log(`   📋 Request body:`, JSON.stringify(requestBody, null, 2));
+        }
         
-        console.log(`   ✅ Fetched ${page_events.length} update events`);
+        const response = await cantonClient.post(url, requestBody);
+        const transactions = response.data?.transactions ?? [];
         
-        if (page_events.length === 0) {
+        console.log(`   ✅ Fetched ${transactions.length} transactions`);
+        
+        if (transactions.length === 0) {
           console.log("   ℹ️  No more delta updates - incremental sync complete!");
           success = true;
           break;
         }
 
-        // Process events
-        for (const event of page_events) {
-          if (!event.template_id) continue;
+        // Process transactions and their events
+        for (const tx of transactions) {
+          const events = Object.values(tx.events_by_id || {});
           
-          const tid = event.template_id;
-          if (!templatesData[tid]) {
-            templatesData[tid] = [];
-          }
-          templatesData[tid].push(event);
-
-          // Handle created vs archived events
-          if (event.event_type === 'created' || !event.event_type) {
-            // Count as active contract
-            if (isTemplate(event, "splice-amulet", "Amulet")) {
-              const amt = event.create_arguments?.amount?.initialAmount || "0";
-              amuletTotal = amuletTotal.plus(new BigNumber(amt));
-            } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
-              const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
-              lockedTotal = lockedTotal.plus(new BigNumber(amt));
+          for (const event of events) {
+            if (!event.template_id) continue;
+            
+            const tid = event.template_id;
+            if (!templatesData[tid]) {
+              templatesData[tid] = [];
             }
-          } else if (event.event_type === 'archived') {
-            // Subtract from totals
-            if (isTemplate(event, "splice-amulet", "Amulet")) {
-              const amt = event.create_arguments?.amount?.initialAmount || "0";
-              amuletTotal = amuletTotal.minus(new BigNumber(amt));
-            } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
-              const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
-              lockedTotal = lockedTotal.minus(new BigNumber(amt));
-            }
-          }
+            templatesData[tid].push(event);
 
-          allEvents.push(event);
-          seen.add(event.contract_id);
+            // Handle created vs archived events
+            if (event.created_event) {
+              // Count as active contract (created)
+              if (isTemplate(event, "splice-amulet", "Amulet")) {
+                const amt = event.create_arguments?.amount?.initialAmount || "0";
+                amuletTotal = amuletTotal.plus(new BigNumber(amt));
+              } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
+                const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
+                lockedTotal = lockedTotal.plus(new BigNumber(amt));
+              }
+            } else if (event.archived_event) {
+              // Subtract from totals (archived)
+              if (isTemplate(event, "splice-amulet", "Amulet")) {
+                const amt = event.create_arguments?.amount?.initialAmount || "0";
+                amuletTotal = amuletTotal.minus(new BigNumber(amt));
+              } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
+                const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
+                lockedTotal = lockedTotal.minus(new BigNumber(amt));
+              }
+            }
+
+            allEvents.push(event);
+            seen.add(event.contract_id);
+          }
         }
 
-        after = Math.max(...page_events.map((e) => e.row_index || 0));
+        // Update lastSeenRecordTime for next page
+        if (transactions.length > 0) {
+          const lastTx = transactions[transactions.length - 1];
+          const newRecordTime = lastTx.record_time;
+          if (newRecordTime && newRecordTime > lastSeenRecordTime) {
+            lastSeenRecordTime = newRecordTime;
+          }
+        }
         
         // Upload data in chunks (similar to fetchAllACS)
         const uploadPromises = [];
         for (const [templateId, entries] of Object.entries(templatesData)) {
-          if (entries.length >= ENTRIES_PER_CHUNK || page_events.length === 0) {
+          if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
             const chunks = chunkTemplateEntries(templateId, entries);
             for (const chunk of chunks) {
               const uploadKey = `${templateId}_${chunk.chunkIndex}`;
@@ -885,7 +906,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
             progress: {
               processed_pages: page,
               processed_events: allEvents.length,
-              cursor_after: after,
+              last_record_time: lastSeenRecordTime,
               amulet_total: amuletTotal.toFixed(),
               locked_total: lockedTotal.toFixed(),
             },
@@ -912,7 +933,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, lastCompletedSn
       }
     }
 
-    if (page_events && page_events.length === 0) {
+    // Check if we're done (no more transactions)
+    if (success) {
       break;
     }
   }
