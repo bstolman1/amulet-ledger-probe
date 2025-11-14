@@ -44,32 +44,3 @@ export function pickLockedAmount(obj: any): number {
   return pickAmount(obj);
 }
 
-/**
- * Samples the first N objects and logs their structure for debugging
- */
-export function logSampleStructure(label: string, data: any[], sampleSize = 3) {
-  if (!data || data.length === 0) {
-    console.log(`[${label}] No data to sample`);
-    return;
-  }
-
-  console.log(`[${label}] Total entries: ${data.length}`);
-  
-  const samples = data.slice(0, Math.min(sampleSize, data.length));
-  samples.forEach((obj, idx) => {
-    console.log(`[${label}] Sample ${idx + 1} keys:`, Object.keys(obj));
-    
-    // Log nested structure for common amount paths
-    if (obj.amount) console.log(`  - amount keys:`, Object.keys(obj.amount));
-    if (obj.amulet) {
-      console.log(`  - amulet keys:`, Object.keys(obj.amulet));
-      if (obj.amulet.amount) console.log(`    - amulet.amount keys:`, Object.keys(obj.amulet.amount));
-    }
-    if (obj.state) console.log(`  - state keys:`, Object.keys(obj.state));
-    if (obj.create_arguments) console.log(`  - create_arguments keys:`, Object.keys(obj.create_arguments));
-  });
-
-  // Log first 5 resolved amounts
-  const amounts = data.slice(0, 5).map(obj => pickAmount(obj));
-  console.log(`[${label}] First 5 resolved amounts:`, amounts);
-}

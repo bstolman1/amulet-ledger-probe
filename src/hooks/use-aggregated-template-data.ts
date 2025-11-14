@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { logSampleStructure } from "@/lib/amount-utils";
 
 interface ChunkManifest {
   templateId: string;
@@ -17,16 +16,11 @@ interface ChunkManifest {
  * Helper function to fetch template data, handling both chunked and direct formats
  */
 async function fetchTemplateData(storagePath: string): Promise<any[]> {
-  console.log(`[fetchTemplateData] Loading from: ${storagePath}`);
-  
   const { data: fileData, error: downloadError } = await supabase.storage
     .from("acs-data")
     .download(storagePath);
 
-  if (downloadError) {
-    console.error(`[fetchTemplateData] Download error:`, downloadError);
-    throw downloadError;
-  }
+  if (downloadError) throw downloadError;
   if (!fileData) throw new Error("No data returned from storage");
 
   const text = await fileData.text();
@@ -53,10 +47,6 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
     }
     const chunks = Array.from(byPath.values());
 
-    console.log(
-      `[fetchTemplateData] Manifest detected: ${chunks.length} unique chunks (declared: ${totalChunks}), expected entries: ${totalEntries ?? "unknown"}`
-    );
-
     // Fallback: auto-discover additional chunks in the same folder when manifest looks incomplete
     let discoveredChunkPaths: string[] = [];
     try {
@@ -72,24 +62,17 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
             .from("acs-data")
             .list(dir, { limit: 1000, search: basePrefix });
 
-          if (listError) {
-            console.warn("[fetchTemplateData] Chunk list failed:", listError);
-          } else if (Array.isArray(listed) && listed.length > 0) {
+          if (!listError && Array.isArray(listed) && listed.length > 0) {
             const names = listed
               .filter((it) => it.name.startsWith(basePrefix) && it.name.endsWith(".json"))
               .map((it) => `${dir}/${it.name}`);
             const existing = new Set(chunks.map((c) => c.path));
             for (const p of names) if (!existing.has(p)) discoveredChunkPaths.push(p);
-            if (discoveredChunkPaths.length > 0) {
-              console.log(
-                `[fetchTemplateData] 🔎 Discovered ${discoveredChunkPaths.length} additional chunks via prefix listing`
-              );
-            }
           }
         }
       }
     } catch (e) {
-      console.warn("[fetchTemplateData] Fallback discovery errored:", e);
+      // Fallback discovery failed, continue with manifest chunks only
     }
 
     const allChunkDescriptors = [
@@ -99,38 +82,22 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
 
     // Download all chunks in parallel
     const chunkPromises = allChunkDescriptors.map(async (chunk) => {
-      console.log(`[fetchTemplateData] Downloading chunk ${chunk.index}: ${chunk.path}`);
       const { data: chunkData, error: chunkError } = await supabase.storage
         .from("acs-data")
         .download(chunk.path);
 
-      if (chunkError) {
-        console.warn(`[fetchTemplateData] Failed to download chunk ${chunk.index}:`, chunkError);
-        return [] as any[];
-      }
-
-      if (!chunkData) return [] as any[];
+      if (chunkError || !chunkData) return [] as any[];
 
       const chunkText = await chunkData.text();
       const chunkArray = JSON.parse(chunkText);
-      const count = Array.isArray(chunkArray) ? chunkArray.length : 0;
-      console.log(
-        `[fetchTemplateData] Chunk ${chunk.index} loaded: ${count} contracts (manifest said: ${chunk.entryCount})`
-      );
       return Array.isArray(chunkArray) ? chunkArray : [];
     });
 
     const chunkArrays = await Promise.all(chunkPromises);
-    const allData = chunkArrays.flat();
-    console.log(
-      `[fetchTemplateData] ✅ Total loaded from manifest: ${allData.length} entries (expected: ${totalEntries ?? "unknown"})`
-    );
-    return allData;
+    return chunkArrays.flat();
   }
 
   // Direct file format (backward compatibility)
-  const directCount = Array.isArray(parsed) ? parsed.length : 0;
-  console.log(`[fetchTemplateData] Direct file loaded: ${directCount} contracts`);
   return Array.isArray(parsed) ? parsed : [];
 }
 
@@ -165,16 +132,8 @@ export function useAggregatedTemplateData(
           `template_id.like.%:${templateSuffix},template_id.like.%:${dotVariant}`
         );
 
-      console.log(`[useAggregatedTemplateData] Searching for suffix: ${templateSuffix}`, {
-        snapshotId,
-        foundTemplates: templateStats?.length || 0,
-        templateIds: templateStats?.map(t => t.template_id),
-        error: statsError
-      });
-
       if (statsError) throw statsError;
       if (!templateStats || templateStats.length === 0) {
-        console.warn(`[useAggregatedTemplateData] No templates found for suffix: ${templateSuffix}`);
         return { data: [], templateCount: 0, totalContracts: 0 };
       }
 
@@ -184,28 +143,13 @@ export function useAggregatedTemplateData(
 
       for (const template of templateStats) {
         try {
-          // Fetch template data (handles both chunked and direct formats)
           const contractsArray = await fetchTemplateData(template.storage_path);
-          
-          if (contractsArray.length > 0) {
-            console.log(`[useAggregatedTemplateData] Loaded ${contractsArray.length} contracts from ${template.template_id}`);
-            
-            // Diagnostic logging
-            logSampleStructure(`Template ${template.template_id}`, contractsArray, 2);
-            
-            allData.push(...contractsArray);
-            totalContracts += contractsArray.length;
-          }
+          allData.push(...contractsArray);
+          totalContracts += contractsArray.length;
         } catch (error) {
-          console.warn(`Error processing template ${template.template_id}:`, error);
+          console.error(`Error loading template ${template.template_id}:`, error);
         }
       }
-
-      console.log(`[useAggregatedTemplateData] Total aggregated for ${templateSuffix}:`, {
-        templateCount: templateStats.length,
-        totalContracts,
-        dataLength: allData.length
-      });
 
       return {
         data: allData,
@@ -215,6 +159,6 @@ export function useAggregatedTemplateData(
       };
     },
     enabled: enabled && !!snapshotId && !!templateSuffix,
-    staleTime: 0, // Temporarily set to 0 for debugging - forces fresh fetch
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
