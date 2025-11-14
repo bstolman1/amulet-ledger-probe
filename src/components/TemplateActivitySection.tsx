@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Clock, Activity } from "lucide-react";
 
 interface SnapshotData {
+  id: string;
   record_time: string;
   timestamp: string;
   snapshot_type: string;
@@ -52,7 +53,7 @@ export const TemplateActivitySection = () => {
       // Fetch last completed full snapshot (baseline)
       const { data: baseline, error: baselineError } = await supabase
         .from('acs_snapshots')
-        .select('record_time, timestamp, snapshot_type')
+        .select('id, record_time, timestamp, snapshot_type, status')
         .eq('status', 'completed')
         .eq('snapshot_type', 'full')
         .order('timestamp', { ascending: false })
@@ -61,19 +62,19 @@ export const TemplateActivitySection = () => {
 
       if (baselineError) throw baselineError;
 
-      // Fetch latest incremental snapshot (including processing ones)
-      const { data: incremental, error: incrementalError } = await supabase
+      // Fetch latest snapshot (any type, including processing) to track current position
+      const { data: latest, error: latestError } = await supabase
         .from('acs_snapshots')
-        .select('record_time, timestamp, snapshot_type, status')
-        .eq('snapshot_type', 'incremental')
+        .select('id, record_time, timestamp, snapshot_type, status')
         .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (incrementalError) throw incrementalError;
+      if (latestError) throw latestError;
 
       setBaselineSnapshot(baseline);
-      setLatestIncremental(incremental);
+      // Only use latest if it's different from baseline
+      setLatestIncremental(latest?.id !== baseline?.id ? latest : null);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching snapshots:', error);
@@ -208,7 +209,7 @@ export const TemplateActivitySection = () => {
               </div>
               <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">
-                  Latest {latestIncremental ? 'Incremental' : 'Position'}
+                  Latest Snapshot
                   {latestIncremental?.status === 'processing' && (
                     <span className="ml-2 text-blue-500">(Processing)</span>
                   )}
@@ -241,7 +242,7 @@ export const TemplateActivitySection = () => {
               <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                 <Activity className="h-4 w-4 text-amber-500" />
                 <span className="text-sm text-amber-600 dark:text-amber-400">
-                  No incremental snapshots found - waiting for delta sync to begin
+                  No progress yet - baseline snapshot only
                 </span>
               </div>
             )}
