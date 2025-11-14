@@ -128,6 +128,7 @@ const ValidatorLicenses = () => {
                     const validator = license.payload?.validator || license.validator;
                     const sponsor = license.payload?.sponsor || license.sponsor;
                     const lastActiveRound = license.payload?.lastActiveRound || license.lastActiveRound;
+                    const roundNumber = typeof lastActiveRound === 'object' ? lastActiveRound?.number : lastActiveRound;
                     
                     return (
                       <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
@@ -138,9 +139,9 @@ const ValidatorLicenses = () => {
                           </div>
                           <Badge variant="default">Active</Badge>
                         </div>
-                        {lastActiveRound && (
+                        {roundNumber && (
                           <p className="text-xs text-muted-foreground">
-                            Last Active Round: {lastActiveRound}
+                            Last Active Round: {roundNumber}
                           </p>
                         )}
                       </div>
@@ -168,6 +169,7 @@ const ValidatorLicenses = () => {
                   {paginateData(filteredCoupons).map((coupon: any, idx: number) => {
                     const validator = coupon.payload?.validator || coupon.validator;
                     const round = coupon.payload?.round || coupon.round;
+                    const roundNumber = typeof round === 'object' ? round?.number : round;
                     
                     return (
                       <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
@@ -177,8 +179,8 @@ const ValidatorLicenses = () => {
                               <Ticket className="h-4 w-4 text-primary" />
                               <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
                             </div>
-                            {round && (
-                              <p className="text-xs text-muted-foreground">Round: {round}</p>
+                            {roundNumber && (
+                              <p className="text-xs text-muted-foreground">Round: {roundNumber}</p>
                             )}
                           </div>
                           <Badge variant="secondary">Coupon</Badge>
