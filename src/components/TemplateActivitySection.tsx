@@ -50,19 +50,18 @@ export const TemplateActivitySection = () => {
 
   const fetchSnapshots = async () => {
     try {
-      // Fetch last completed full snapshot (baseline)
+      // Fetch FIRST completed snapshot as baseline (the original full snapshot)
       const { data: baseline, error: baselineError } = await supabase
         .from('acs_snapshots')
         .select('id, record_time, timestamp, snapshot_type, status')
         .eq('status', 'completed')
-        .eq('snapshot_type', 'full')
-        .order('timestamp', { ascending: false })
+        .order('timestamp', { ascending: true })  // Get the FIRST one
         .limit(1)
         .maybeSingle();
 
       if (baselineError) throw baselineError;
 
-      // Fetch latest snapshot (any type, including processing) to track current position
+      // Fetch the most recent snapshot (processing or completed) as current position
       const { data: latest, error: latestError } = await supabase
         .from('acs_snapshots')
         .select('id, record_time, timestamp, snapshot_type, status')
@@ -73,7 +72,7 @@ export const TemplateActivitySection = () => {
       if (latestError) throw latestError;
 
       setBaselineSnapshot(baseline);
-      // Only use latest if it's different from baseline
+      // Use latest if it's different from baseline
       setLatestIncremental(latest?.id !== baseline?.id ? latest : null);
       setLoading(false);
     } catch (error) {
