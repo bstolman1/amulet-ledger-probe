@@ -312,7 +312,7 @@ const UnclaimedSVRewards = () => {
                   <div className="text-center space-y-2">
                     <Award className="h-12 w-12 mx-auto opacity-50" />
                     <p className="font-medium">Claimed rewards data will be available here</p>
-                    <p className="text-sm">This requires querying historical transaction data via the sv-rewards-summary edge function</p>
+                    <p className="text-sm">This requires querying historical transaction data</p>
                   </div>
                 </div>
               </CardContent>
@@ -332,7 +332,7 @@ const UnclaimedSVRewards = () => {
                   <div className="text-center space-y-2">
                     <Award className="h-12 w-12 mx-auto opacity-50" />
                     <p className="font-medium">Expired rewards data will be available here</p>
-                    <p className="text-sm">This requires querying historical transaction data via the sv-rewards-summary edge function</p>
+                    <p className="text-sm">This requires querying historical transaction data</p>
                   </div>
                 </div>
               </CardContent>
