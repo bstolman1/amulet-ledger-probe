@@ -374,6 +374,45 @@ Deno.serve(async (req) => {
     
     const body = await req.json().catch(() => ({}));
     const snapshotId = body?.snapshot_id;
+    const isCronCall = body?.cron === true;
+
+    // Debouncing: Skip if called too frequently from cron
+    if (isCronCall && !snapshotId) {
+      const { data: recentSnapshots } = await supabaseAdmin
+        .from('acs_snapshots')
+        .select('created_at, status')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (recentSnapshots && recentSnapshots.length > 0) {
+        const timeSinceLastRun = Date.now() - new Date(recentSnapshots[0].created_at).getTime();
+        
+        // If last snapshot was created less than 30 seconds ago, skip
+        if (timeSinceLastRun < 30000) {
+          console.log(`⏭️ Skipping - last snapshot was ${Math.floor(timeSinceLastRun / 1000)}s ago (< 30s)`);
+          return new Response(
+            JSON.stringify({ 
+              message: 'Skipped - too soon since last update',
+              lastRun: recentSnapshots[0].created_at,
+              timeSinceLastMs: timeSinceLastRun
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        // If there's already one processing, skip
+        if (recentSnapshots[0].status === 'processing') {
+          console.log('⏭️ Skipping - snapshot already in progress');
+          return new Response(
+            JSON.stringify({ 
+              message: 'Skipped - snapshot already in progress',
+              processingSnapshot: recentSnapshots[0]
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+    }
 
     let snapshot: any;
 
