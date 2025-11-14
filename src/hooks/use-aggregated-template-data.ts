@@ -56,8 +56,48 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
       `[fetchTemplateData] Manifest detected: ${chunks.length} unique chunks (declared: ${totalChunks}), expected entries: ${totalEntries ?? "unknown"}`
     );
 
+    // Fallback: auto-discover additional chunks in the same folder when manifest looks incomplete
+    let discoveredChunkPaths: string[] = [];
+    try {
+      const sample = chunks[0];
+      if (sample?.path?.includes("/_") || sample?.path?.includes("/")) {
+        const lastSlash = sample.path.lastIndexOf("/");
+        const dir = sample.path.substring(0, lastSlash);
+        const file = sample.path.substring(lastSlash + 1);
+        const basePrefix = file.split("_chunk_")[0] + "_chunk_"; // e.g. <hash>_Splice_Amulet_Amulet_chunk_
+
+        if (basePrefix.includes("_chunk_")) {
+          const { data: listed, error: listError } = await supabase.storage
+            .from("acs-data")
+            .list(dir, { limit: 1000, search: basePrefix });
+
+          if (listError) {
+            console.warn("[fetchTemplateData] Chunk list failed:", listError);
+          } else if (Array.isArray(listed) && listed.length > 0) {
+            const names = listed
+              .filter((it) => it.name.startsWith(basePrefix) && it.name.endsWith(".json"))
+              .map((it) => `${dir}/${it.name}`);
+            const existing = new Set(chunks.map((c) => c.path));
+            for (const p of names) if (!existing.has(p)) discoveredChunkPaths.push(p);
+            if (discoveredChunkPaths.length > 0) {
+              console.log(
+                `[fetchTemplateData] 🔎 Discovered ${discoveredChunkPaths.length} additional chunks via prefix listing`
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[fetchTemplateData] Fallback discovery errored:", e);
+    }
+
+    const allChunkDescriptors = [
+      ...chunks,
+      ...discoveredChunkPaths.map((p, i) => ({ index: chunks.length + i, path: p, entryCount: 0 })),
+    ];
+
     // Download all chunks in parallel
-    const chunkPromises = chunks.map(async (chunk) => {
+    const chunkPromises = allChunkDescriptors.map(async (chunk) => {
       console.log(`[fetchTemplateData] Downloading chunk ${chunk.index}: ${chunk.path}`);
       const { data: chunkData, error: chunkError } = await supabase.storage
         .from("acs-data")
@@ -73,7 +113,9 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
       const chunkText = await chunkData.text();
       const chunkArray = JSON.parse(chunkText);
       const count = Array.isArray(chunkArray) ? chunkArray.length : 0;
-      console.log(`[fetchTemplateData] Chunk ${chunk.index} loaded: ${count} contracts (manifest said: ${chunk.entryCount})`);
+      console.log(
+        `[fetchTemplateData] Chunk ${chunk.index} loaded: ${count} contracts (manifest said: ${chunk.entryCount})`
+      );
       return Array.isArray(chunkArray) ? chunkArray : [];
     });
 
