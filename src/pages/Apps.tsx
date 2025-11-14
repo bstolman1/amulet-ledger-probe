@@ -3,15 +3,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Package, Star, Code } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
 const Apps = () => {
-  const { data: activeData } = useActiveSnapshot();
-  const latestSnapshot = activeData?.snapshot;
+  const { data: latestSnapshot } = useLatestACSSnapshot();
   const isProcessing = activeData?.isProcessing || false;
 
   const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);

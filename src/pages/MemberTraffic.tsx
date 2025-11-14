@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Activity, Code } from "lucide-react";
-import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
@@ -16,8 +16,7 @@ const MemberTraffic = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 100;
 
-  const { data: activeData } = useActiveSnapshot();
-  const latestSnapshot = activeData?.snapshot;
+  const { data: latestSnapshot } = useLatestACSSnapshot();
   const isProcessing = activeData?.isProcessing || false;
   
   const trafficQuery = useAggregatedTemplateData(
