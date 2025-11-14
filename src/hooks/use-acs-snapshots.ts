@@ -149,3 +149,27 @@ export function useTriggerACSSnapshot() {
     },
   });
 }
+
+export function useDeleteACSSnapshot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (snapshotId: string) => {
+      const { data, error } = await supabase.functions.invoke("delete-acs-snapshot", {
+        body: { snapshot_id: snapshotId }
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Snapshot deleted successfully");
+      queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Failed to delete snapshot", {
+        description: error.message,
+      });
+    },
+  });
+}
