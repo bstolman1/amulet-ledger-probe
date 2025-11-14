@@ -7,14 +7,26 @@ import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data"
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useState } from "react";
 
 const Supply = () => {
   const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleForceRefresh = async () => {
-    toast.info("Invalidating caches and refreshing data...");
-    await queryClient.invalidateQueries();
-    toast.success("All data refreshed!");
+    try {
+      setIsRefreshing(true);
+      toast.info("Refreshing data...");
+      await queryClient.cancelQueries({ predicate: () => true });
+      await queryClient.invalidateQueries({ predicate: () => true });
+      await queryClient.refetchQueries({ predicate: () => true, type: 'active' });
+      toast.success("All data refreshed!");
+    } catch (err) {
+      console.error('[ForceRefresh] error', err);
+      toast.error("Refresh failed. Check console logs.");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Fetch latest snapshot
@@ -98,9 +110,10 @@ const Supply = () => {
             variant="outline"
             size="sm"
             className="gap-2"
+            disabled={isRefreshing}
           >
-            <RefreshCw className="h-4 w-4" />
-            Force Refresh
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Force Refresh'}
           </Button>
         </div>
 
