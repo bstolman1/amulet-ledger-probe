@@ -7,62 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { FileJson, Database, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
-
-// Map template suffixes to pages that use them - VERIFIED ACCURATE
-const getPagesThatUseTemplate = (templateId: string): string[] => {
-  const suffix = templateId.split(':').slice(-3).join(':');
-  const pageMap: Record<string, string[]> = {
-    // Supply page
-    'Splice:Amulet:Amulet': ['Supply', 'Balances'],
-    'Splice:Amulet:LockedAmulet': ['Supply', 'Balances'],
-    'Splice:Round:IssuingMiningRound': ['Supply', 'Mining Rounds'],
-    'Splice:Round:ClosedMiningRound': ['Supply', 'Mining Rounds'],
-    
-    // Mining Rounds page
-    'Splice:Round:OpenMiningRound': ['Mining Rounds'],
-    
-    // Transfers page
-    'Splice:AmuletRules:TransferPreapproval': ['Transfers'],
-    'Splice:ExternalPartyAmuletRules:TransferCommand': ['Transfers'],
-    'Splice:AmuletTransferInstruction:AmuletTransferInstruction': ['Transfers'],
-    
-    // Governance page
-    'Splice:DsoRules:DsoRules': ['Governance'],
-    'Splice:DsoRules:VoteRequest': ['Governance'],
-    'Splice:DSO:AmuletPrice:AmuletPriceVote': ['Governance'],
-    
-    // Unclaimed SV Rewards page
-    'Splice:Amulet:ValidatorRewardCoupon': ['Unclaimed SV Rewards'],
-    
-    // Apps page
-    'Splice:Amulet:FeaturedAppRight': ['Apps'],
-    
-    // ANS page
-    'Splice:Ans:AnsEntry': ['ANS'],
-    'Splice:Ans:AnsEntryContext': ['ANS'],
-    
-    // Validator Licenses page
-    'Splice:ValidatorLicense:ValidatorLicense': ['Validator Licenses'],
-    'Splice:ValidatorLicense:ValidatorFaucetCoupon': ['Validator Licenses'],
-    
-    // DSO State page
-    'DSO:SvState:SvNodeState': ['DSO State'],
-    'DSO:SvState:SvStatusReport': ['DSO State'],
-    'DSO:SvState:SvRewardState': ['DSO State'],
-    
-    // Member Traffic page
-    'Splice:DecentralizedSynchronizer:MemberTraffic': ['Member Traffic'],
-    
-    // Subscriptions page
-    'Wallet:Subscriptions:Subscription': ['Subscriptions'],
-    'Wallet:Subscriptions:SubscriptionIdleState': ['Subscriptions'],
-    'Wallet:Subscriptions:SubscriptionRequest': ['Subscriptions'],
-    
-    // External Party Setup page
-    'Splice:AmuletRules:ExternalPartySetupProposal': ['External Party Setup'],
-  };
-  return pageMap[suffix] || [];
-};
+import { getPagesThatUseTemplate } from "@/lib/template-page-map";
 
 const Templates = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);

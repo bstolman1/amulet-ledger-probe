@@ -25,6 +25,10 @@ import Subscriptions from "./pages/Subscriptions";
 import DSOState from "./pages/DSOState";
 import ValidatorLicenses from "./pages/ValidatorLicenses";
 import ExternalPartySetup from "./pages/ExternalPartySetup";
+import Allocations from "./pages/Allocations";
+import Elections from "./pages/Elections";
+import TransferCounters from "./pages/TransferCounters";
+import ExternalPartyRules from "./pages/ExternalPartyRules";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -69,6 +73,10 @@ const App = () => (
           <Route path="/dso-state" element={<DSOState />} />
           <Route path="/validator-licenses" element={<ValidatorLicenses />} />
           <Route path="/external-party-setup" element={<ExternalPartySetup />} />
+          <Route path="/allocations" element={<Allocations />} />
+          <Route path="/elections" element={<Elections />} />
+          <Route path="/transfer-counters" element={<TransferCounters />} />
+          <Route path="/external-party-rules" element={<ExternalPartyRules />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

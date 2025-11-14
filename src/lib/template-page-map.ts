@@ -50,6 +50,18 @@ export const templatePageMap: Record<TemplateSuffix, string[]> = {
 
   // External Party Setup
   'Splice:AmuletRules:ExternalPartySetupProposal': ['External Party Setup'],
+
+  // Allocations
+  'Splice:AmuletAllocation:AmuletAllocation': ['Allocations'],
+
+  // Elections
+  'Splice:DsoRules:ElectionRequest': ['Elections'],
+
+  // Transfer Counters
+  'Splice:ExternalPartyAmuletRules:TransferCommandCounter': ['Transfer Counters'],
+
+  // External Party Rules
+  'Splice:ExternalPartyAmuletRules:ExternalPartyAmuletRules': ['External Party Rules'],
 };
 
 export const getPagesThatUseTemplate = (templateId: string): string[] => {
