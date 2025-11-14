@@ -460,6 +460,20 @@ Deno.serve(async (req) => {
         );
       }
       
+      // Determine if this should be an incremental (delta) snapshot
+      const { data: lastCompleted } = await supabaseAdmin
+        .from('acs_snapshots')
+        .select('id, status, snapshot_type, record_time')
+        .eq('migration_id', migration_id)
+        .eq('status', 'completed')
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const isDelta = !!lastCompleted;
+      const snapshotType = isDelta ? 'incremental' : 'full';
+      const processingMode = isDelta ? 'delta' : 'full';
+
       const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
       const { data, error } = await supabaseAdmin
@@ -475,6 +489,10 @@ Deno.serve(async (req) => {
           cursor_after: 0,
           iteration_count: 0,
           status: 'processing',
+          is_delta: isDelta,
+          snapshot_type: snapshotType,
+          processing_mode: processingMode,
+          previous_snapshot_id: lastCompleted?.id ?? null,
         })
         .select()
         .single();
