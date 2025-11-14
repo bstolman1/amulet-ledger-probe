@@ -1,267 +1,156 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
-import { TrendingUp, TrendingDown, Activity } from "lucide-react";
-
-interface TemplateDelta {
-  template_id: string;
-  baseline_count: number;
-  current_count: number;
-  delta: number;
-  percentage_change: number;
-}
+import { Clock, Activity } from "lucide-react";
 
 export const TemplateActivitySection = () => {
-  const [templateDeltas, setTemplateDeltas] = useState<TemplateDelta[]>([]);
+  const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [loading, setLoading] = useState(true);
-  const [baselineSnapshot, setBaselineSnapshot] = useState<any>(null);
-  const [latestSnapshot, setLatestSnapshot] = useState<any>(null);
+  
+  const UPDATE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
   useEffect(() => {
-    fetchTemplateActivity();
+    fetchLatestSnapshot();
 
-    // Subscribe to template stats changes
+    // Subscribe to snapshot changes
     const channel = supabase
-      .channel('template-activity')
+      .channel('snapshot-progress')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
-          table: 'acs_template_stats'
+          table: 'acs_snapshots'
         },
         () => {
-          fetchTemplateActivity();
+          fetchLatestSnapshot();
         }
       )
       .subscribe();
 
+    // Update current time every second
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(timer);
     };
   }, []);
 
-  const fetchTemplateActivity = async () => {
+  const fetchLatestSnapshot = async () => {
     try {
-      // Get the latest completed snapshot (baseline)
-      const { data: baselineData, error: baselineError } = await supabase
+      const { data, error } = await supabase
         .from('acs_snapshots')
-        .select('*')
-        .eq('status', 'completed')
+        .select('timestamp, completed_at')
         .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (baselineError) throw baselineError;
-      if (!baselineData) {
-        setLoading(false);
-        return;
+      if (error) throw error;
+      if (data) {
+        setLastSnapshotTime(new Date(data.timestamp));
       }
-
-      setBaselineSnapshot(baselineData);
-
-      // Get any snapshots after the baseline (incremental updates)
-      const { data: laterSnapshots, error: laterError } = await supabase
-        .from('acs_snapshots')
-        .select('*')
-        .gt('timestamp', baselineData.timestamp)
-        .order('timestamp', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (laterError) throw laterError;
-
-      // If no newer snapshots, show "waiting for updates" message
-      if (!laterSnapshots) {
-        setTemplateDeltas([]);
-        setLatestSnapshot(null);
-        setLoading(false);
-        return;
-      }
-
-      setLatestSnapshot(laterSnapshots);
-
-      // Get template stats for both snapshots
-      const [baselineStatsResponse, currentStatsResponse] = await Promise.all([
-        supabase
-          .from('acs_template_stats')
-          .select('*')
-          .eq('snapshot_id', baselineData.id),
-        supabase
-          .from('acs_template_stats')
-          .select('*')
-          .eq('snapshot_id', laterSnapshots.id)
-      ]);
-
-      if (baselineStatsResponse.error) throw baselineStatsResponse.error;
-      if (currentStatsResponse.error) throw currentStatsResponse.error;
-
-      const baselineStats = baselineStatsResponse.data || [];
-      const currentStats = currentStatsResponse.data || [];
-
-      // Calculate deltas
-      const templateMap = new Map<string, TemplateDelta>();
-
-      // Add baseline counts
-      baselineStats.forEach(stat => {
-        templateMap.set(stat.template_id, {
-          template_id: formatTemplateId(stat.template_id),
-          baseline_count: stat.contract_count,
-          current_count: stat.contract_count,
-          delta: 0,
-          percentage_change: 0
-        });
-      });
-
-      // Update with current counts and calculate deltas
-      currentStats.forEach(stat => {
-        const existing = templateMap.get(stat.template_id);
-        if (existing) {
-          existing.current_count = stat.contract_count;
-          existing.delta = stat.contract_count - existing.baseline_count;
-          existing.percentage_change = existing.baseline_count > 0 
-            ? ((existing.delta / existing.baseline_count) * 100)
-            : 0;
-        } else {
-          // New template not in baseline
-          templateMap.set(stat.template_id, {
-            template_id: formatTemplateId(stat.template_id),
-            baseline_count: 0,
-            current_count: stat.contract_count,
-            delta: stat.contract_count,
-            percentage_change: 100
-          });
-        }
-      });
-
-      const deltas = Array.from(templateMap.values())
-        .filter(d => Math.abs(d.delta) > 0) // Only show templates with changes
-        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-        .slice(0, 15); // Top 15 most changed templates
-
-      setTemplateDeltas(deltas);
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching template activity:', error);
-    } finally {
+      console.error('Error fetching latest snapshot:', error);
       setLoading(false);
     }
   };
 
-  const formatTemplateId = (templateId: string) => {
-    // Format: packageId_ModuleName_TemplateName -> ModuleName.TemplateName
-    const parts = templateId.split('_');
-    if (parts.length >= 3) {
-      return `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
-    }
-    return templateId;
+  const getTimeSinceLastSnapshot = () => {
+    if (!lastSnapshotTime) return 0;
+    return currentTime.getTime() - lastSnapshotTime.getTime();
   };
 
-  if (loading) {
-    return (
-      <Card className="glass-card">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-center py-8">
-            <Activity className="w-6 h-6 animate-spin text-primary" />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const getProgressPercentage = () => {
+    const timeSince = getTimeSinceLastSnapshot();
+    return Math.min((timeSince / UPDATE_INTERVAL_MS) * 100, 100);
+  };
 
-  if (!baselineSnapshot) {
-    return (
-      <Card className="glass-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="w-5 h-5" />
-            Template Activity
-          </CardTitle>
-          <CardDescription>Real-time delta tracking since last completed snapshot</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No completed snapshot available. Waiting for baseline data...
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const formatUTCTime = (date: Date) => {
+    return date.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  };
 
-  if (templateDeltas.length === 0) {
-    return (
-      <Card className="glass-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="w-5 h-5" />
-            Template Activity
-          </CardTitle>
-          <CardDescription>
-            {latestSnapshot 
-              ? 'No changes detected in incremental updates'
-              : 'Baseline established - waiting for incremental updates'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <p className="text-sm text-muted-foreground">
-              Baseline: Migration #{baselineSnapshot.migration_id} ({new Date(baselineSnapshot.timestamp).toLocaleString()})
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Changes will appear here as incremental updates are processed every 2 minutes
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const formatTimeDelta = (ms: number) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  const getStatusColor = () => {
+    const percentage = getProgressPercentage();
+    if (percentage < 50) return 'text-green-500';
+    if (percentage < 80) return 'text-yellow-500';
+    return 'text-red-500';
+  };
+
+  const timeSince = getTimeSinceLastSnapshot();
+  const progressPercentage = getProgressPercentage();
 
   return (
-    <Card className="glass-card">
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          Template Activity
+          <Clock className="h-5 w-5" />
+          Delta Sync Progress
         </CardTitle>
         <CardDescription>
-          Real-time delta: Migration #{baselineSnapshot.migration_id} 
-          {latestSnapshot && ` → Migration #${latestSnapshot.migration_id}`}
+          Time lag between last snapshot and current UTC time
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {templateDeltas.map((delta, index) => (
-            <div 
-              key={delta.template_id + index}
-              className="flex items-center justify-between p-3 rounded-lg bg-background/50 hover:bg-background/70 transition-colors"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{delta.template_id}</p>
-                <p className="text-xs text-muted-foreground">
-                  {delta.baseline_count.toLocaleString()} → {delta.current_count.toLocaleString()} contracts
-                </p>
+      <CardContent className="space-y-6">
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">
+            Loading snapshot status...
+          </div>
+        ) : !lastSnapshotTime ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            No snapshot data available
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Time Since Last Snapshot</span>
+                <span className={`font-mono font-semibold ${getStatusColor()}`}>
+                  {formatTimeDelta(timeSince)}
+                </span>
               </div>
-              <div className="flex items-center gap-2 ml-4">
-                {delta.delta > 0 ? (
-                  <Badge className="bg-green-500/10 text-green-500 flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" />
-                    +{delta.delta.toLocaleString()}
-                  </Badge>
-                ) : (
-                  <Badge className="bg-red-500/10 text-red-500 flex items-center gap-1">
-                    <TrendingDown className="w-3 h-3" />
-                    {delta.delta.toLocaleString()}
-                  </Badge>
-                )}
-                {Math.abs(delta.percentage_change) > 0.01 && (
-                  <span className="text-xs text-muted-foreground">
-                    {delta.percentage_change > 0 ? '+' : ''}{delta.percentage_change.toFixed(1)}%
-                  </span>
-                )}
+              <Progress value={progressPercentage} className="h-3" />
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>0m</span>
+                <span>Expected: 2m intervals</span>
+                <span>2m</span>
               </div>
             </div>
-          ))}
-        </div>
+
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Last Snapshot</div>
+                <div className="font-mono text-sm">{formatUTCTime(lastSnapshotTime)}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Current Time</div>
+                <div className="font-mono text-sm">{formatUTCTime(currentTime)}</div>
+              </div>
+            </div>
+
+            {progressPercentage >= 80 && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <Activity className="h-4 w-4 text-amber-500" />
+                <span className="text-sm text-amber-600 dark:text-amber-400">
+                  Snapshot overdue - next update expected soon
+                </span>
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );
