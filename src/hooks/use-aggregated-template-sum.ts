@@ -108,6 +108,33 @@ export function useAggregatedTemplateSum(
             path.startsWith(manifestDir) ? path : manifestDir + path
           );
 
+          // Best-effort: discover additional chunks if manifest appears incomplete
+          try {
+            const samplePath = chunkPaths[0];
+            if (samplePath) {
+              const lastSlash = samplePath.lastIndexOf("/");
+              const dir = samplePath.substring(0, lastSlash);
+              const file = samplePath.substring(lastSlash + 1);
+              const basePrefix = file.split("_chunk_")[0] + "_chunk_";
+
+              if (basePrefix.includes("_chunk_")) {
+                const { data: listed, error: listError } = await supabase.storage
+                  .from("acs-data")
+                  .list(dir, { limit: 1000, search: basePrefix });
+
+                if (!listError && Array.isArray(listed) && listed.length > 0) {
+                  const discovered = listed
+                    .filter((it) => it.name.startsWith(basePrefix) && it.name.endsWith(".json"))
+                    .map((it) => `${dir}/${it.name}`);
+                  const existing = new Set(chunkPaths);
+                  for (const p of discovered) if (!existing.has(p)) chunkPaths.push(p);
+                }
+              }
+            }
+          } catch (_) {
+            // ignore discovery errors and proceed with manifest chunks only
+          }
+
           // Process chunks with limited concurrency (4 at a time)
           const chunkTasks = chunkPaths.map((chunkPath) => async () => {
             try {
