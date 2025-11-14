@@ -888,30 +888,38 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
         
         // Upload data in chunks (similar to fetchAllACS)
-        const uploadPromises = [];
         for (const [templateId, entries] of Object.entries(templatesData)) {
           if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
             const chunks = chunkTemplateEntries(templateId, entries);
-            for (const chunk of chunks) {
-              const uploadKey = `${templateId}_${chunk.chunkIndex}`;
-              if (!pendingUploads[uploadKey]) {
-                pendingUploads[uploadKey] = true;
-                const uploadPromise = uploadTemplateChunk(
-                  chunk.templateId,
-                  chunk.entries,
-                  chunk.chunkIndex,
-                  chunk.totalChunks,
-                  snapshotId,
-                  outputDir
-                ).finally(() => {
-                  delete pendingUploads[uploadKey];
-                  const idx = inflightUploads.indexOf(uploadPromise);
-                  if (idx > -1) inflightUploads.splice(idx, 1);
-                });
-                uploadPromises.push(uploadPromise);
-                inflightUploads.push(uploadPromise);
-              }
+            const chunkedTemplates = chunks.map(chunk => ({
+              filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+              content: JSON.stringify(chunk.entries, null, 2),
+              templateId: chunk.templateId,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: chunk.totalChunks,
+              isChunked: true
+            }));
+            
+            // Upload this template's chunks
+            if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+              const uploadPromise = (async () => {
+                try {
+                  await uploadToEdgeFunction("append", {
+                    mode: "append",
+                    webhookSecret: WEBHOOK_SECRET,
+                    snapshot_id: snapshotId,
+                    templates: chunkedTemplates,
+                  });
+                  console.log(`✅ Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
+                } catch (error) {
+                  console.error(`❌ Upload failed for ${templateId}:`, error.message);
+                }
+                uploadPromise.settled = true;
+              })();
+              
+              inflightUploads.push(uploadPromise);
             }
+            
             delete templatesData[templateId];
           }
         }
@@ -919,6 +927,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         // Wait for uploads if we hit the concurrency limit
         if (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
           await Promise.race(inflightUploads);
+          inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
         }
 
         // Progress update
@@ -966,22 +975,36 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
   // Wait for all uploads to complete
   console.log("\n⏳ Waiting for all uploads to complete...");
-  await Promise.all(inflightUploads);
+  if (inflightUploads.length > 0) {
+    await Promise.all(inflightUploads);
+  }
 
   // Upload remaining templates
-  for (const [templateId, entries] of Object.entries(templatesData)) {
-    if (entries.length > 0) {
-      const chunks = chunkTemplateEntries(templateId, entries);
-      for (const chunk of chunks) {
-        await uploadTemplateChunk(
-          chunk.templateId,
-          chunk.entries,
-          chunk.chunkIndex,
-          chunk.totalChunks,
-          snapshotId,
-          outputDir
-        );
+  if (snapshotId && Object.keys(templatesData).length > 0) {
+    console.log(`📤 Uploading final ${Object.keys(templatesData).length} templates...`);
+    
+    const chunkedTemplates = [];
+    for (const [templateId, entries] of Object.entries(templatesData)) {
+      if (entries.length > 0) {
+        const chunks = chunkTemplateEntries(templateId, entries);
+        chunkedTemplates.push(...chunks.map(chunk => ({
+          filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+          content: JSON.stringify(chunk.entries, null, 2),
+          templateId: chunk.templateId,
+          chunkIndex: chunk.chunkIndex,
+          totalChunks: chunk.totalChunks,
+          isChunked: true
+        })));
       }
+    }
+
+    if (chunkedTemplates.length > 0) {
+      await uploadToEdgeFunction("append", {
+        mode: "append",
+        webhookSecret: WEBHOOK_SECRET,
+        snapshot_id: snapshotId,
+        templates: chunkedTemplates,
+      });
     }
   }
 
