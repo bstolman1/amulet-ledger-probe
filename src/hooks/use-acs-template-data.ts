@@ -12,6 +12,67 @@ interface TemplateDataResponse<T = any> {
   data: T[];
 }
 
+interface ChunkManifest {
+  templateId: string;
+  totalChunks: number;
+  totalEntries: number;
+  chunks: Array<{
+    index: number;
+    path: string;
+    entryCount: number;
+  }>;
+}
+
+/**
+ * Helper function to fetch template data, handling both chunked and direct formats
+ */
+async function fetchTemplateData(storagePath: string): Promise<any[]> {
+  // Download the file from storage
+  const { data: fileData, error: downloadError } = await supabase.storage
+    .from("acs-data")
+    .download(storagePath);
+
+  if (downloadError) throw downloadError;
+  if (!fileData) throw new Error("No data returned from storage");
+
+  const text = await fileData.text();
+  const parsed = JSON.parse(text);
+
+  // Check if it's a manifest file
+  if (parsed.totalChunks && parsed.chunks && Array.isArray(parsed.chunks)) {
+    const manifest = parsed as ChunkManifest;
+    console.log(`[fetchTemplateData] Detected manifest with ${manifest.totalChunks} chunks`);
+
+    // Download all chunks in parallel
+    const chunkPromises = manifest.chunks.map(async (chunk) => {
+      const { data: chunkData, error: chunkError } = await supabase.storage
+        .from("acs-data")
+        .download(chunk.path);
+
+      if (chunkError) {
+        console.warn(`Failed to download chunk ${chunk.index}:`, chunkError);
+        return [];
+      }
+
+      if (!chunkData) return [];
+
+      const chunkText = await chunkData.text();
+      const chunkArray = JSON.parse(chunkText);
+      return Array.isArray(chunkArray) ? chunkArray : [];
+    });
+
+    // Wait for all chunks and concatenate
+    const chunkArrays = await Promise.all(chunkPromises);
+    const allData = chunkArrays.flat();
+    
+    console.log(`[fetchTemplateData] Loaded ${allData.length} total entries from ${manifest.totalChunks} chunks`);
+    return allData;
+  }
+
+  // Direct file format (backward compatibility)
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 /**
  * Fetch template data from Supabase Storage for a given snapshot
  */
@@ -40,17 +101,8 @@ export function useACSTemplateData<T = any>(
         throw new Error(`No storage path found for template ${templateId}`);
       }
 
-      // Download the JSON file from storage
-      const { data: fileData, error: downloadError } = await supabase.storage
-        .from("acs-data")
-        .download(templateStats.storage_path);
-
-      if (downloadError) throw downloadError;
-      if (!fileData) throw new Error("No data returned from storage");
-
-      // Parse the JSON - storage files contain raw array of contracts
-      const text = await fileData.text();
-      const contractsArray = JSON.parse(text);
+      // Fetch template data (handles both chunked and direct formats)
+      const contractsArray = await fetchTemplateData(templateStats.storage_path);
       
       // Get snapshot info for metadata
       const { data: snapshot } = await supabase
