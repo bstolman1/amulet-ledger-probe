@@ -8,6 +8,7 @@ interface SnapshotData {
   record_time: string;
   timestamp: string;
   snapshot_type: string;
+  status?: string;
 }
 
 export const TemplateActivitySection = () => {
@@ -60,11 +61,10 @@ export const TemplateActivitySection = () => {
 
       if (baselineError) throw baselineError;
 
-      // Fetch latest incremental snapshot
+      // Fetch latest incremental snapshot (including processing ones)
       const { data: incremental, error: incrementalError } = await supabase
         .from('acs_snapshots')
-        .select('record_time, timestamp, snapshot_type')
-        .eq('status', 'completed')
+        .select('record_time, timestamp, snapshot_type, status')
         .eq('snapshot_type', 'incremental')
         .order('timestamp', { ascending: false })
         .limit(1)
@@ -209,6 +209,9 @@ export const TemplateActivitySection = () => {
               <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">
                   Latest {latestIncremental ? 'Incremental' : 'Position'}
+                  {latestIncremental?.status === 'processing' && (
+                    <span className="ml-2 text-blue-500">(Processing)</span>
+                  )}
                 </div>
                 <div className="font-mono text-sm">
                   {latestIncremental 
