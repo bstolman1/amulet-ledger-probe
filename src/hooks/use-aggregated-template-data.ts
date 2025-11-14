@@ -77,12 +77,20 @@ export function useAggregatedTemplateData(
         throw new Error("Missing snapshotId or templateSuffix");
       }
 
-      // Find all templates matching the suffix
+      // Support both legacy and new template id separators in module path (":" vs ".")
+      const firstColon = templateSuffix.indexOf(":");
+      const dotVariant = firstColon !== -1
+        ? templateSuffix.slice(0, firstColon) + "." + templateSuffix.slice(firstColon + 1)
+        : templateSuffix;
+
+      // Find all templates matching either suffix pattern
       const { data: templateStats, error: statsError } = await supabase
         .from("acs_template_stats")
         .select("template_id, storage_path, contract_count")
         .eq("snapshot_id", snapshotId)
-        .like("template_id", `%:${templateSuffix}`);
+        .or(
+          `template_id.like.%:${templateSuffix},template_id.like.%:${dotVariant}`
+        );
 
       console.log(`[useAggregatedTemplateData] Searching for suffix: ${templateSuffix}`, {
         snapshotId,
