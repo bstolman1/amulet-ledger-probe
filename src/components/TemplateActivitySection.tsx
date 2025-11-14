@@ -55,7 +55,8 @@ export const TemplateActivitySection = () => {
         .from('acs_snapshots')
         .select('id, record_time, timestamp, snapshot_type, status')
         .eq('status', 'completed')
-        .order('timestamp', { ascending: true })  // Get the FIRST one
+        .eq('snapshot_type', 'full')
+        .order('timestamp', { ascending: false })  // latest completed full snapshot
         .limit(1)
         .maybeSingle();
 
