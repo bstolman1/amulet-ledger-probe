@@ -43,7 +43,8 @@ const MemberTraffic = () => {
     currentPage * pageSize
   );
 
-  const formatMember = (member: string) => {
+  const formatMember = (member: string | undefined) => {
+    if (!member) return "N/A";
     if (member.length > 30) {
       return `${member.substring(0, 15)}...${member.substring(member.length - 12)}`;
     }
