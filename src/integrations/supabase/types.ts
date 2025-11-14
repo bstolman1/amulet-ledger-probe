@@ -116,6 +116,7 @@ export type Database = {
           id: string
           is_delta: boolean | null
           iteration_count: number | null
+          last_batch_info: Json | null
           last_error_message: string | null
           last_progress_update: string | null
           last_update_id: string | null
@@ -134,6 +135,7 @@ export type Database = {
           started_at: string | null
           status: string
           sv_url: string
+          template_batch_updates: number
           timestamp: string
           total_events: number | null
           updated_at: string
@@ -154,6 +156,7 @@ export type Database = {
           id?: string
           is_delta?: boolean | null
           iteration_count?: number | null
+          last_batch_info?: Json | null
           last_error_message?: string | null
           last_progress_update?: string | null
           last_update_id?: string | null
@@ -172,6 +175,7 @@ export type Database = {
           started_at?: string | null
           status?: string
           sv_url: string
+          template_batch_updates?: number
           timestamp?: string
           total_events?: number | null
           updated_at?: string
@@ -192,6 +196,7 @@ export type Database = {
           id?: string
           is_delta?: boolean | null
           iteration_count?: number | null
+          last_batch_info?: Json | null
           last_error_message?: string | null
           last_progress_update?: string | null
           last_update_id?: string | null
@@ -210,6 +215,7 @@ export type Database = {
           started_at?: string | null
           status?: string
           sv_url?: string
+          template_batch_updates?: number
           timestamp?: string
           total_events?: number | null
           updated_at?: string
@@ -235,6 +241,7 @@ export type Database = {
           status_tallies: Json | null
           storage_path: string | null
           template_id: string
+          updated_at: string
         }
         Insert: {
           contract_count: number
@@ -245,6 +252,7 @@ export type Database = {
           status_tallies?: Json | null
           storage_path?: string | null
           template_id: string
+          updated_at?: string
         }
         Update: {
           contract_count?: number
@@ -255,6 +263,7 @@ export type Database = {
           status_tallies?: Json | null
           storage_path?: string | null
           template_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
