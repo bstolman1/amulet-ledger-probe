@@ -3,8 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Award, Users, TrendingUp, Search } from "lucide-react";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,20 +25,23 @@ interface ValidatorInfo {
 
 const UnclaimedSVRewards = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  
+  const { data: activeSnapshotData } = useActiveSnapshot();
+  const snapshot = activeSnapshotData?.snapshot;
+  const isProcessing = activeSnapshotData?.isProcessing || false;
 
   // Fetch ValidatorRight contracts - shows which users have validator rights
   const { data: validatorRightsData, isLoading: rightsLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+    snapshot?.id,
     "Splice:Amulet:ValidatorRight",
-    !!latestSnapshot
+    !!snapshot
   );
 
   // Fetch Amulet data to calculate potential rewards
   const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+    snapshot?.id,
     "Splice:Amulet:Amulet",
-    !!latestSnapshot
+    !!snapshot
   );
 
   const isLoading = rightsLoading || amuletLoading;
@@ -250,20 +254,11 @@ const UnclaimedSVRewards = () => {
           </CardContent>
         </Card>
 
-        {latestSnapshot && (
-          <Card className="glass-card p-4 border-l-4 border-l-primary">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Award className="h-4 w-4" />
-              <span>
-                Data from snapshot: <code className="text-xs">{latestSnapshot.id.substring(0, 8)}...</code>
-              </span>
-              <span>•</span>
-              <span>
-                {new Date(latestSnapshot.created_at).toLocaleString()}
-              </span>
-            </div>
-          </Card>
-        )}
+        <DataSourcesFooter
+          snapshotId={snapshot?.id}
+          templateSuffixes={["Splice:Amulet:ValidatorRight", "Splice:Amulet:Amulet"]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );

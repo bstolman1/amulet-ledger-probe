@@ -3,19 +3,28 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRightLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { PaginationControls } from "@/components/PaginationControls";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 
 const Transfers = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: latestSnapshot } = useLatestACSSnapshot();
+  const [preapprovalsPage, setPreapprovalsPage] = useState(1);
+  const [commandsPage, setCommandsPage] = useState(1);
+  const [instructionsPage, setInstructionsPage] = useState(1);
+  const pageSize = 50;
+  
+  const { data: activeSnapshotData } = useActiveSnapshot();
+  const snapshot = activeSnapshotData?.snapshot;
+  const isProcessing = activeSnapshotData?.isProcessing || false;
 
-  const preapprovalsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!latestSnapshot);
-  const commandsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:ExternalPartyAmuletRules:TransferCommand", !!latestSnapshot);
-  const instructionsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:AmuletTransferInstruction:AmuletTransferInstruction", !!latestSnapshot);
+  const preapprovalsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!snapshot);
+  const commandsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:ExternalPartyAmuletRules:TransferCommand", !!snapshot);
+  const instructionsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletTransferInstruction:AmuletTransferInstruction", !!snapshot);
 
   const isLoading = preapprovalsQuery.isLoading || commandsQuery.isLoading || instructionsQuery.isLoading;
 
@@ -32,26 +41,41 @@ const Transfers = () => {
     return partyStr.length > 20 ? `${partyStr.substring(0, 10)}...${partyStr.substring(partyStr.length - 8)}` : partyStr;
   };
 
-  const preapprovalsData = (preapprovalsQuery.data?.data || []).filter((p: any) => {
+  const filteredPreapprovals = (preapprovalsQuery.data?.data || []).filter((p: any) => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return formatParty(p.payload?.provider || p.provider).toLowerCase().includes(search) || 
            formatParty(p.payload?.consumer || p.consumer).toLowerCase().includes(search);
-  }).slice(0, 100);
+  });
 
-  const commandsData = (commandsQuery.data?.data || []).filter((c: any) => {
+  const filteredCommands = (commandsQuery.data?.data || []).filter((c: any) => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return formatParty(c.payload?.sender || c.sender).toLowerCase().includes(search) || 
            formatParty(c.payload?.provider || c.provider).toLowerCase().includes(search);
-  }).slice(0, 100);
+  });
 
-  const instructionsData = (instructionsQuery.data?.data || []).filter((i: any) => {
+  const filteredInstructions = (instructionsQuery.data?.data || []).filter((i: any) => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return formatParty(i.payload?.transfer?.sender || i.transfer?.sender).toLowerCase().includes(search) || 
            formatParty(i.payload?.transfer?.receiver?.receiver || i.transfer?.receiver).toLowerCase().includes(search);
-  }).slice(0, 100);
+  });
+
+  const preapprovalsData = filteredPreapprovals.slice(
+    (preapprovalsPage - 1) * pageSize,
+    preapprovalsPage * pageSize
+  );
+
+  const commandsData = filteredCommands.slice(
+    (commandsPage - 1) * pageSize,
+    commandsPage * pageSize
+  );
+
+  const instructionsData = filteredInstructions.slice(
+    (instructionsPage - 1) * pageSize,
+    instructionsPage * pageSize
+  );
 
   return (
     <DashboardLayout>
@@ -94,47 +118,84 @@ const Transfers = () => {
             <TabsContent value="preapprovals" className="space-y-4 mt-4">
               {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> : 
                preapprovalsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No preapprovals found</p> :
-               preapprovalsData.map((p: any, i: number) => (
-                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Provider: {formatParty(p.payload?.provider || p.provider)}</span>
-                    <span className="text-sm text-muted-foreground">Amount: {formatAmount(p.payload?.amount || p.amount)}</span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Consumer: {formatParty(p.payload?.consumer || p.consumer)}</div>
-                </div>
-              ))}
+               <>
+                 {preapprovalsData.map((p: any, i: number) => (
+                   <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                     <div className="flex justify-between">
+                       <span className="text-sm font-medium">Provider: {formatParty(p.payload?.provider || p.provider)}</span>
+                       <span className="text-sm text-muted-foreground">Amount: {formatAmount(p.payload?.amount || p.amount)}</span>
+                     </div>
+                     <div className="text-sm text-muted-foreground">Consumer: {formatParty(p.payload?.consumer || p.consumer)}</div>
+                   </div>
+                 ))}
+                 <PaginationControls
+                   currentPage={preapprovalsPage}
+                   totalItems={filteredPreapprovals.length}
+                   pageSize={pageSize}
+                   onPageChange={setPreapprovalsPage}
+                 />
+               </>
+              }
             </TabsContent>
 
             <TabsContent value="commands" className="space-y-4 mt-4">
               {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> :
                commandsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No commands found</p> :
-               commandsData.map((c: any, i: number) => (
-                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Sender: {formatParty(c.payload?.sender || c.sender)}</span>
-                    <span className="text-sm text-muted-foreground">Nonce: {c.payload?.nonce || c.nonce || 'N/A'}</span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Provider: {formatParty(c.payload?.provider || c.provider)}</div>
-                </div>
-              ))}
+               <>
+                 {commandsData.map((c: any, i: number) => (
+                   <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                     <div className="flex justify-between">
+                       <span className="text-sm font-medium">Sender: {formatParty(c.payload?.sender || c.sender)}</span>
+                       <span className="text-sm text-muted-foreground">Nonce: {c.payload?.nonce || c.nonce || 'N/A'}</span>
+                     </div>
+                     <div className="text-sm text-muted-foreground">Provider: {formatParty(c.payload?.provider || c.provider)}</div>
+                   </div>
+                 ))}
+                 <PaginationControls
+                   currentPage={commandsPage}
+                   totalItems={filteredCommands.length}
+                   pageSize={pageSize}
+                   onPageChange={setCommandsPage}
+                 />
+               </>
+              }
             </TabsContent>
 
             <TabsContent value="instructions" className="space-y-4 mt-4">
               {isLoading ? <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}</div> :
                instructionsData.length === 0 ? <p className="text-center text-muted-foreground py-8">No instructions found</p> :
-               instructionsData.map((ins: any, i: number) => (
-                <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Transfer ID: {(ins.contract?.contractId || 'Unknown').substring(0, 16)}...</span>
-                    <span className="text-sm text-muted-foreground">Amount: {formatAmount(ins.payload?.transfer?.amount || ins.transfer?.amount)}</span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Sender: {formatParty(ins.payload?.transfer?.sender || ins.transfer?.sender)}</div>
-                  <div className="text-sm text-muted-foreground">Receiver: {formatParty(ins.payload?.transfer?.receiver?.receiver || ins.transfer?.receiver)}</div>
-                </div>
-              ))}
+               <>
+                 {instructionsData.map((ins: any, i: number) => (
+                   <div key={i} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                     <div className="flex justify-between">
+                       <span className="text-sm font-medium">Transfer ID: {(ins.contract?.contractId || 'Unknown').substring(0, 16)}...</span>
+                       <span className="text-sm text-muted-foreground">Amount: {formatAmount(ins.payload?.transfer?.amount || ins.transfer?.amount)}</span>
+                     </div>
+                     <div className="text-sm text-muted-foreground">Sender: {formatParty(ins.payload?.transfer?.sender || ins.transfer?.sender)}</div>
+                     <div className="text-sm text-muted-foreground">Receiver: {formatParty(ins.payload?.transfer?.receiver?.receiver || ins.transfer?.receiver)}</div>
+                   </div>
+                 ))}
+                 <PaginationControls
+                   currentPage={instructionsPage}
+                   totalItems={filteredInstructions.length}
+                   pageSize={pageSize}
+                   onPageChange={setInstructionsPage}
+                 />
+               </>
+              }
             </TabsContent>
           </Tabs>
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={snapshot?.id}
+          templateSuffixes={[
+            "Splice:AmuletRules:TransferPreapproval",
+            "Splice:ExternalPartyAmuletRules:TransferCommand",
+            "Splice:AmuletTransferInstruction:AmuletTransferInstruction"
+          ]}
+          isProcessing={isProcessing}
+        />
       </div>
     </DashboardLayout>
   );
