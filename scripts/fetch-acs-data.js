@@ -23,8 +23,10 @@ const cantonClient = axios.create({
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
 const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-const UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
+let UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
 const UPLOAD_DELAY_MS = parseInt(process.env.UPLOAD_DELAY_MS || "500", 10);
+const MIN_CHUNK_SIZE = 1; // Never go below 1 template per batch
+const MAX_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
@@ -46,7 +48,7 @@ console.log(`   - Supabase URL: ${SUPABASE_URL ? '✅ Configured' : '❌ Not con
 console.log(`   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? '✅ Configured' : '❌ Not configured'}`);
 console.log(`   - Supabase Client: ${supabase ? '✅ Initialized' : '❌ Not initialized'}`);
 console.log(`   - Page Size: ${parseInt(process.env.PAGE_SIZE || "500", 10)}`);
-console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE}`);
+console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE}) - adaptive`);
 console.log(`   - Upload Delay: ${UPLOAD_DELAY_MS}ms`);
 console.log(`   - Max In-Flight Uploads: ${parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10)}`);
 console.log("=".repeat(80) + "\n");
@@ -68,10 +70,13 @@ function safeFileName(templateId) {
   return templateId.replace(/[:.]/g, "_");
 }
 
-async function uploadToEdgeFunction(phase, data) {
+async function uploadToEdgeFunction(phase, data, retryCount = 0) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) {
     return null;
   }
+
+  const MAX_RETRIES = 5;
+  const is546Error = (error) => error.response?.status === 546 || error.message?.includes('546');
 
   try {
     const response = await axios.post(EDGE_FUNCTION_URL, data, {
@@ -81,9 +86,34 @@ async function uploadToEdgeFunction(phase, data) {
       },
       timeout: 300000, // 5 minute timeout for large uploads
     });
+    
+    // Success - gradually increase chunk size back up
+    if (phase === 'append' && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
+      UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
+      console.log(`✅ Upload successful - increased chunk size to ${UPLOAD_CHUNK_SIZE}`);
+    }
+    
     return response.data;
   } catch (error) {
-    console.error(`❌ Upload failed (${phase}):`, error.message);
+    const status = error.response?.status;
+    console.error(`❌ Upload failed (${phase}): ${error.message} (status: ${status || 'unknown'})`);
+    
+    // Handle 546 errors with adaptive batch sizing and exponential backoff
+    if (is546Error(error) && phase === 'append' && retryCount < MAX_RETRIES) {
+      // Reduce chunk size if possible
+      if (UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE) {
+        UPLOAD_CHUNK_SIZE = Math.max(MIN_CHUNK_SIZE, Math.floor(UPLOAD_CHUNK_SIZE / 2));
+        console.log(`⚠️  Reduced chunk size to ${UPLOAD_CHUNK_SIZE} due to 546 error`);
+      }
+      
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+      const backoffMs = Math.min(2000 * Math.pow(2, retryCount), 32000);
+      console.log(`⏳ Waiting ${backoffMs}ms before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+      await sleep(backoffMs);
+      
+      return uploadToEdgeFunction(phase, data, retryCount + 1);
+    }
+    
     throw error;
   }
 }
@@ -333,15 +363,23 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
             inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
           }
 
-          console.log(`📤 Starting upload of ${Object.keys(pendingUploads).length} templates...`);
+          // Take exactly UPLOAD_CHUNK_SIZE templates for this batch
+          const allPendingKeys = Object.keys(pendingUploads);
+          const batchKeys = allPendingKeys.slice(0, UPLOAD_CHUNK_SIZE);
           
-          const templates = Object.entries(pendingUploads).map(([templateId, contracts]) => ({
+          console.log(`📤 Starting upload of ${batchKeys.length} templates (chunk size: ${UPLOAD_CHUNK_SIZE})...`);
+          
+          const templates = batchKeys.map(templateId => ({
             filename: `${safeFileName(templateId)}.json`,
-            content: JSON.stringify(contracts, null, 2),
+            content: JSON.stringify(pendingUploads[templateId], null, 2),
           }));
 
-          const uploadSnapshot = { ...pendingUploads };
-          Object.keys(pendingUploads).forEach(key => delete pendingUploads[key]);
+          // Keep a snapshot for retry and remove from pending
+          const uploadSnapshot = {};
+          batchKeys.forEach(key => {
+            uploadSnapshot[key] = pendingUploads[key];
+            delete pendingUploads[key];
+          });
 
           // Start upload without waiting (pipelined)
           const uploadPromise = (async () => {
@@ -371,9 +409,12 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 },
               });
 
-              console.log(`✅ Upload completed. Progress: ${page} pages, ${pagesPerMin.toFixed(1)} pages/min`);
+              console.log(`✅ Batch uploaded successfully`);
             } catch (error) {
-              console.error(`❌ Upload failed:`, error.message);
+              console.error(`❌ Batch upload failed:`, error.message);
+              // Put failed templates back into pending queue to retry
+              console.log(`⚠️  Re-queueing ${Object.keys(uploadSnapshot).length} templates for retry`);
+              Object.assign(pendingUploads, uploadSnapshot);
             }
             uploadPromise.settled = true;
           })();
