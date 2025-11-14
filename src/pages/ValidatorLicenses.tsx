@@ -19,7 +19,6 @@ const ValidatorLicenses = () => {
   const pageSize = 100;
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
   
   const licensesQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
@@ -299,7 +298,7 @@ const ValidatorLicenses = () => {
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
           templateSuffixes={["Splice:ValidatorLicense:ValidatorLicense", "Splice:ValidatorLicense:ValidatorFaucetCoupon"]}
-          isProcessing={isProcessing}
+          isProcessing={false}
         />
       </div>
     </DashboardLayout>

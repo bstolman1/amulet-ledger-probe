@@ -18,7 +18,6 @@ const MiningRounds = () => {
   });
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
 
   // Fetch OpenMiningRound contracts - aggregated across all packages
   const { data: openRoundsData, isLoading: openLoading, isError: openError } = useAggregatedTemplateData(

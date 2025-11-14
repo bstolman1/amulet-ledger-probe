@@ -12,7 +12,6 @@ import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 const ExternalPartySetup = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: latestSnapshot } = useLatestACSSnapshot();
-  const isProcessing = activeData?.isProcessing || false;
   
   const proposalsQuery = useAggregatedTemplateData(
     latestSnapshot?.id,

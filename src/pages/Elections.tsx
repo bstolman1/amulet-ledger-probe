@@ -4,8 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { Vote, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
@@ -18,20 +17,7 @@ const Elections = () => {
   const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
   const itemsPerPage = 20;
 
-  const { data: snapshots } = useQuery({
-    queryKey: ["acs-snapshots-latest"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("acs_snapshots")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const latestSnapshot = snapshots?.[0];
+  const { data: latestSnapshot } = useLatestACSSnapshot();
 
   const electionsQuery = useAggregatedTemplateData(
     latestSnapshot?.id,
