@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Flame, Coins, TrendingUp, TrendingDown, Package, RefreshCw } from "lucide-react";
 import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
 import { useAggregatedTemplateSum } from "@/hooks/use-aggregated-template-sum";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
-import { pickAmount, pickLockedAmount } from "@/lib/amount-utils";
+import { pickAmount } from "@/lib/amount-utils";
 
 const Supply = () => {
   const queryClient = useQueryClient();
@@ -31,21 +31,8 @@ const Supply = () => {
     }
   };
 
-  // Fetch latest snapshot
-  const { data: snapshots } = useQuery({
-    queryKey: ["acs-snapshots-latest"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("acs_snapshots")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data;
-    }
-  });
-
-  const latestSnapshot = snapshots?.[0];
+  // Fetch latest completed snapshot only
+  const { data: latestSnapshot } = useLatestACSSnapshot();
 
   // Server-side aggregate: circulating supply (Amulet)
   const circulatingData = useTemplateSumServer(
