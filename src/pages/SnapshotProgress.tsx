@@ -9,6 +9,7 @@ import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } fro
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
+import { RealtimeStatusIndicator } from "@/components/RealtimeStatusIndicator";
 
 interface Snapshot {
   id: string;
@@ -226,6 +227,8 @@ const SnapshotProgress = () => {
             </Button>
           </div>
         </div>
+
+        <RealtimeStatusIndicator lastUpdate={snapshots[0]?.started_at} />
 
         {snapshots.map((snapshot) => (
           <Card key={snapshot.id} className="glass-card">
