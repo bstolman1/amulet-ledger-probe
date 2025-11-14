@@ -55,6 +55,8 @@ export function useLatestACSSnapshot() {
         .from("acs_snapshots")
         .select("*")
         .eq("status", "completed")
+        // Prefer latest FULL snapshot for data pages (incremental snapshots may not have template stats yet)
+        .or("is_delta.eq.false,snapshot_type.eq.full")
         .order("timestamp", { ascending: false })
         .limit(1)
         .maybeSingle();
