@@ -118,6 +118,11 @@ const DSOState = () => {
                   const svParty = node.payload?.svParty || node.svParty;
                   const isActive = state === 'active';
                   
+                  // Extract simple values from potential objects
+                  const stateValue = typeof state === 'object' ? JSON.stringify(state) : state;
+                  const nameValue = typeof svName === 'object' ? JSON.stringify(svName) : svName;
+                  const partyValue = typeof svParty === 'object' ? JSON.stringify(svParty) : svParty;
+                  
                   return (
                     <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
                       <div className="flex justify-between items-start">
@@ -128,14 +133,14 @@ const DSOState = () => {
                             ) : (
                               <AlertCircle className="h-4 w-4 text-yellow-500" />
                             )}
-                            <p className="text-sm font-medium">{svName || 'Unknown SV'}</p>
+                            <p className="text-sm font-medium">{nameValue || 'Unknown SV'}</p>
                           </div>
                           <p className="text-xs text-muted-foreground mb-1">
-                            Party: {formatParty(svParty || 'Unknown')}
+                            Party: {formatParty(partyValue || 'Unknown')}
                           </p>
                         </div>
                         <Badge variant={isActive ? "default" : "secondary"}>
-                          {state || 'Unknown'}
+                          {stateValue || 'Unknown'}
                         </Badge>
                       </div>
                     </div>
@@ -178,21 +183,27 @@ const DSOState = () => {
               ) : rewardStatesData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No reward states found</p>
               ) : (
-                rewardStatesData.map((reward: any, idx: number) => (
-                  <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">
-                          Round: {reward.payload?.round || reward.round || 'Unknown'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          SV: {formatParty(reward.payload?.svParty || reward.svParty || 'Unknown')}
-                        </p>
+                rewardStatesData.map((reward: any, idx: number) => {
+                  const round = reward.payload?.round || reward.round;
+                  const roundValue = typeof round === 'object' ? round?.number : round;
+                  const svParty = reward.payload?.svParty || reward.svParty;
+                  
+                  return (
+                    <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">
+                            Round: {roundValue || 'Unknown'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            SV: {formatParty(svParty || 'Unknown')}
+                          </p>
+                        </div>
+                        <Badge variant="default">Reward</Badge>
                       </div>
-                      <Badge variant="default">Reward</Badge>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </TabsContent>
           </Tabs>
