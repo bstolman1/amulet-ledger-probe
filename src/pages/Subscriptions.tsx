@@ -5,15 +5,18 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Search, Package } from "lucide-react";
+import { Search, Package, Code } from "lucide-react";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const Subscriptions = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedRequests, setExpandedRequests] = useState<Set<number>>(new Set());
   const pageSize = 100;
 
   const { data: activeData } = useActiveSnapshot();
@@ -42,6 +45,13 @@ const Subscriptions = () => {
   const idleStatesData = idleStatesQuery.data?.data || [];
   const requestsData = requestsQuery.data?.data || [];
   const isLoading = subscriptionsQuery.isLoading || idleStatesQuery.isLoading || requestsQuery.isLoading;
+
+  // Debug logging for requests data
+  console.log("🔍 DEBUG: Total requestsData count:", requestsData.length);
+  console.log("🔍 DEBUG: First 3 requests raw data:", requestsData.slice(0, 3));
+  if (requestsData.length > 0) {
+    console.log("🔍 DEBUG: First request structure:", JSON.stringify(requestsData[0], null, 2));
+  }
 
   const formatParty = (party: string) => {
     if (!party) return "Unknown";
@@ -244,6 +254,15 @@ const Subscriptions = () => {
                 <>
                   <div className="space-y-3">
                     {paginateData(filteredRequests).map((req: any, i: number) => {
+                      // Debug logging for each request
+                      console.log(`🔍 DEBUG: Request ${i}:`, {
+                        hasPayload: !!req.payload,
+                        hasSubscriptionData: !!(req.payload?.subscriptionData || req.subscriptionData),
+                        hasPayData: !!(req.payload?.payData || req.payData),
+                        keys: Object.keys(req),
+                        fullObject: req
+                      });
+
                       const subData = req.payload?.subscriptionData || req.subscriptionData || {};
                       const payData = req.payload?.payData || req.payData || {};
                       const paymentAmount = payData.paymentAmount?.amount || "N/A";
@@ -298,6 +317,20 @@ const Subscriptions = () => {
                                   <p className="text-sm">{paymentDuration}</p>
                                 </div>
                               </div>
+
+                              <Collapsible className="mt-3 pt-3 border-t">
+                                <CollapsibleTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    <Code className="h-4 w-4 mr-2" />
+                                    Show Raw JSON
+                                  </Button>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="mt-2">
+                                  <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                    {JSON.stringify(req, null, 2)}
+                                  </pre>
+                                </CollapsibleContent>
+                              </Collapsible>
                             </div>
                             <Badge variant="outline" className="ml-3">Pending</Badge>
                           </div>
