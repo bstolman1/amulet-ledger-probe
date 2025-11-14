@@ -10,6 +10,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
 import { RealtimeSnapshotStatus } from "@/components/RealtimeSnapshotStatus";
+import { TemplateActivitySection } from "@/components/TemplateActivitySection";
 import { useDeleteACSSnapshot } from "@/hooks/use-acs-snapshots";
 
 interface Snapshot {
@@ -238,6 +239,8 @@ const SnapshotProgress = () => {
         </div>
 
         <RealtimeSnapshotStatus />
+
+        <TemplateActivitySection />
 
         {snapshots.map((snapshot) => (
           <Card key={snapshot.id} className="glass-card">
