@@ -5,11 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Search, Award, Ticket } from "lucide-react";
+import { Search, Award, Ticket, Code, Clock, Activity } from "lucide-react";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const ValidatorLicenses = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -35,6 +37,13 @@ const ValidatorLicenses = () => {
   const licensesData = licensesQuery.data?.data || [];
   const couponsData = couponsQuery.data?.data || [];
   const isLoading = licensesQuery.isLoading || couponsQuery.isLoading;
+
+  // Debug logging for licenses data
+  console.log("🔍 DEBUG ValidatorLicenses: Total licenses count:", licensesData.length);
+  console.log("🔍 DEBUG ValidatorLicenses: First 3 licenses raw data:", licensesData.slice(0, 3));
+  if (licensesData.length > 0) {
+    console.log("🔍 DEBUG ValidatorLicenses: First license structure:", JSON.stringify(licensesData[0], null, 2));
+  }
 
   const formatParty = (party: string) => {
     if (!party || party.length <= 30) return party || "Unknown";
@@ -127,24 +136,103 @@ const ValidatorLicenses = () => {
                   {paginateData(filteredLicenses).map((license: any, idx: number) => {
                     const validator = license.payload?.validator || license.validator;
                     const sponsor = license.payload?.sponsor || license.sponsor;
+                    const dso = license.payload?.dso || license.dso;
+                    const faucetState = license.payload?.faucetState || license.faucetState;
+                    const metadata = license.payload?.metadata || license.metadata;
+                    const lastActiveAt = license.payload?.lastActiveAt || license.lastActiveAt;
                     const lastActiveRound = license.payload?.lastActiveRound || license.lastActiveRound;
                     const roundNumber = typeof lastActiveRound === 'object' ? lastActiveRound?.number : lastActiveRound;
                     
                     return (
-                      <div key={idx} className="p-4 bg-muted/30 rounded-lg space-y-2">
+                      <Card key={idx} className="p-4 space-y-3">
                         <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
-                            <p className="text-xs text-muted-foreground">Sponsor: {formatParty(sponsor)}</p>
+                          <div className="flex-1 space-y-2">
+                            <div>
+                              <p className="text-sm font-semibold text-primary">Validator</p>
+                              <p className="text-xs font-mono break-all">{validator}</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Sponsor</p>
+                                <p className="font-mono text-xs break-all">{formatParty(sponsor)}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">DSO</p>
+                                <p className="font-mono text-xs break-all">{formatParty(dso || "N/A")}</p>
+                              </div>
+                            </div>
+
+                            {faucetState && (
+                              <div className="pt-2 border-t">
+                                <p className="text-xs font-semibold mb-2">Faucet State</p>
+                                <div className="grid grid-cols-3 gap-3 text-xs">
+                                  <div>
+                                    <p className="text-muted-foreground">First Round</p>
+                                    <p className="font-medium">{faucetState.firstReceivedFor?.number || "N/A"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Last Round</p>
+                                    <p className="font-medium">{faucetState.lastReceivedFor?.number || "N/A"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Missed Coupons</p>
+                                    <p className="font-medium">{faucetState.numCouponsMissed || "0"}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {metadata && (
+                              <div className="pt-2 border-t">
+                                <p className="text-xs font-semibold mb-2">Metadata</p>
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div>
+                                    <p className="text-muted-foreground">Version</p>
+                                    <p className="font-medium">{metadata.version || "N/A"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Contact</p>
+                                    <p className="font-medium">{metadata.contactPoint || "Not provided"}</p>
+                                  </div>
+                                  {metadata.lastUpdatedAt && (
+                                    <div className="col-span-2">
+                                      <p className="text-muted-foreground">Last Updated</p>
+                                      <p className="font-medium flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {new Date(metadata.lastUpdatedAt).toLocaleString()}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {lastActiveAt && (
+                              <div className="pt-2 border-t flex items-center gap-2 text-xs">
+                                <Activity className="h-3 w-3 text-green-500" />
+                                <span className="text-muted-foreground">Last Active:</span>
+                                <span className="font-medium">{new Date(lastActiveAt).toLocaleString()}</span>
+                              </div>
+                            )}
+
+                            <Collapsible className="pt-2 border-t">
+                              <CollapsibleTrigger asChild>
+                                <Button variant="ghost" size="sm" className="w-full justify-start">
+                                  <Code className="h-4 w-4 mr-2" />
+                                  Show Raw JSON
+                                </Button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="mt-2">
+                                <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                  {JSON.stringify(license, null, 2)}
+                                </pre>
+                              </CollapsibleContent>
+                            </Collapsible>
                           </div>
                           <Badge variant="default">Active</Badge>
                         </div>
-                        {roundNumber && (
-                          <p className="text-xs text-muted-foreground">
-                            Last Active Round: {roundNumber}
-                          </p>
-                        )}
-                      </div>
+                      </Card>
                     );
                   })}
                   <PaginationControls
