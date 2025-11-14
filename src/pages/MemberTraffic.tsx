@@ -3,11 +3,13 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Activity } from "lucide-react";
+import { Search, Activity, Code } from "lucide-react";
 import { useActiveSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 const MemberTraffic = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -26,6 +28,13 @@ const MemberTraffic = () => {
 
   const trafficData = trafficQuery.data?.data || [];
   const isLoading = trafficQuery.isLoading;
+
+  // Debug logging
+  console.log("🔍 DEBUG MemberTraffic: Total traffic records:", trafficData.length);
+  console.log("🔍 DEBUG MemberTraffic: First 3 records:", trafficData.slice(0, 3));
+  if (trafficData.length > 0) {
+    console.log("🔍 DEBUG MemberTraffic: First record structure:", JSON.stringify(trafficData[0], null, 2));
+  }
 
   const filteredTraffic = trafficData
     .filter((traffic: any) => {
@@ -139,21 +148,40 @@ const MemberTraffic = () => {
             <>
               <div className="space-y-3">
                 {paginatedData.map((record: any, i: number) => (
-                  <Card key={i} className="p-4">
+                  <Card key={i} className="p-4 space-y-3">
                     <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="text-sm text-muted-foreground mb-1">Member</p>
-                        <p className="font-mono text-sm">{formatMember(record.payload?.member || record.member)}</p>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-muted-foreground mb-1">Migration ID</p>
-                        <p className="font-mono text-sm">{record.payload?.migrationId || record.migrationId || "N/A"}</p>
-                      </div>
-                      <div className="flex-1 text-right">
-                        <p className="text-sm text-muted-foreground mb-1">Traffic</p>
-                        <p className="text-lg font-semibold text-primary">
-                          {formatBytes(record.payload?.totalTrafficBytes || record.totalTrafficBytes)}
-                        </p>
+                      <div className="flex-1 space-y-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Member</p>
+                          <p className="font-mono text-sm break-all">{record.payload?.member || record.member || "N/A"}</p>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Migration ID</p>
+                            <p className="font-mono text-sm">{record.payload?.migrationId || record.migrationId || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Total Traffic</p>
+                            <p className="text-lg font-semibold text-primary">
+                              {formatBytes(record.payload?.totalTrafficBytes || record.totalTrafficBytes)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <Collapsible className="pt-2 border-t">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-full justify-start">
+                              <Code className="h-4 w-4 mr-2" />
+                              Show Raw JSON
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2">
+                            <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                              {JSON.stringify(record, null, 2)}
+                            </pre>
+                          </CollapsibleContent>
+                        </Collapsible>
                       </div>
                     </div>
                   </Card>
