@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
     const snapshotId = body?.snapshot_id;
     const isCronCall = body?.cron === true;
 
-    // Debouncing: Skip if called too frequently from cron
+    // Debouncing: Skip if called from cron and last update was < 30 seconds ago
     if (isCronCall && !snapshotId) {
       const { data: recentSnapshots } = await supabaseAdmin
         .from('acs_snapshots')
