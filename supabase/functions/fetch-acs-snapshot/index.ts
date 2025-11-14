@@ -439,6 +439,7 @@ Deno.serve(async (req) => {
       // Create new snapshot
       console.log('🆕 Creating new snapshot');
       const migration_id = await detectLatestMigration(BASE_URL);
+      console.log(`📋 Detected migration ID: ${migration_id}`);
       
       // Check if there's already a snapshot in progress for this migration
       const { data: existingSnapshot } = await supabaseAdmin
@@ -460,19 +461,26 @@ Deno.serve(async (req) => {
         );
       }
       
-      // Determine if this should be an incremental (delta) snapshot
+      // Check for ANY completed snapshot (not just for this migration)
       const { data: lastCompleted } = await supabaseAdmin
         .from('acs_snapshots')
-        .select('id, status, snapshot_type, record_time')
-        .eq('migration_id', migration_id)
+        .select('id, migration_id, status, snapshot_type, record_time')
         .eq('status', 'completed')
         .order('timestamp', { ascending: false })
         .limit(1)
         .maybeSingle();
 
+      if (lastCompleted) {
+        console.log(`✅ Found completed baseline snapshot: ${lastCompleted.id} (migration ${lastCompleted.migration_id})`);
+      } else {
+        console.log('ℹ️ No completed snapshot found - this will be a full snapshot');
+      }
+
       const isDelta = !!lastCompleted;
       const snapshotType = isDelta ? 'incremental' : 'full';
       const processingMode = isDelta ? 'delta' : 'full';
+
+      console.log(`📝 Creating ${snapshotType} snapshot (processing mode: ${processingMode})`);
 
       const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
@@ -501,6 +509,7 @@ Deno.serve(async (req) => {
         throw new Error('Failed to create snapshot record');
       }
 
+      console.log(`✨ Created snapshot ${data.id} (type: ${snapshotType})`);
       snapshot = data;
     }
 
