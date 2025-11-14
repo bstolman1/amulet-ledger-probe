@@ -1,12 +1,22 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Flame, Coins, TrendingUp, TrendingDown, Package } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Flame, Coins, TrendingUp, TrendingDown, Package, RefreshCw } from "lucide-react";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Supply = () => {
+  const queryClient = useQueryClient();
+
+  const handleForceRefresh = async () => {
+    toast.info("Invalidating caches and refreshing data...");
+    await queryClient.invalidateQueries();
+    toast.success("All data refreshed!");
+  };
+
   // Fetch latest snapshot
   const { data: snapshots } = useQuery({
     queryKey: ["acs-snapshots-latest"],
@@ -76,11 +86,22 @@ const Supply = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold mb-2">Supply & Tokenomics</h2>
-          <p className="text-muted-foreground">
-            Track circulating supply, locked tokens, and issuance metrics from ACS snapshots
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Supply & Tokenomics</h2>
+            <p className="text-muted-foreground">
+              Track circulating supply, locked tokens, and issuance metrics from ACS snapshots
+            </p>
+          </div>
+          <Button 
+            onClick={handleForceRefresh}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Force Refresh
+          </Button>
         </div>
 
         {/* Supply Stats */}
