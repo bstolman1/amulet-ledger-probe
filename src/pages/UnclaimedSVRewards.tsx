@@ -10,6 +10,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -106,192 +107,242 @@ const UnclaimedSVRewards = () => {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold mb-2">Unclaimed SV Rewards</h2>
+          <h2 className="text-3xl font-bold mb-2">SV Rewards</h2>
           <p className="text-muted-foreground">
-            Validator reward coupons awaiting collection from the latest ACS snapshot
+            Overview of validator reward coupons including unclaimed, claimed, and expired rewards
           </p>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="glass-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Award className="h-4 w-4" />
-                Total Reward Coupons
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-10 w-full" />
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-primary">
-                    {totalCoupons.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Unclaimed reward coupons
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
+        <Tabs defaultValue="unclaimed" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="unclaimed">Unclaimed Rewards</TabsTrigger>
+            <TabsTrigger value="claimed">Claimed Rewards</TabsTrigger>
+            <TabsTrigger value="expired">Expired Rewards</TabsTrigger>
+          </TabsList>
 
-          <Card className="glass-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                Unique Validators
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-10 w-full" />
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-chart-2">
-                    {uniqueUsers}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Validators with rewards
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <TabsContent value="unclaimed" className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="glass-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Award className="h-4 w-4" />
+                    Total Reward Coupons
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold text-primary">
+                        {totalCoupons.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Unclaimed reward coupons
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Total Reward Amount
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-10 w-full" />
-              ) : (
-                <>
-                  <p className="text-3xl font-bold text-success">
-                    {totalRewardAmount.toFixed(4)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Total unclaimed CC
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              <Card className="glass-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Unique Validators
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold text-chart-2">
+                        {uniqueUsers}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Validators with rewards
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
 
-        {/* Reward Coupons */}
-        <Card className="glass-card">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Unclaimed Reward Coupons</CardTitle>
-                <CardDescription className="mt-1">
-                  Validator reward coupons awaiting collection
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by validator..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-64"
-                />
-              </div>
+              <Card className="glass-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    Total Reward Amount
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold text-success">
+                        {totalRewardAmount.toFixed(4)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Total unclaimed CC
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Skeleton key={i} className="h-24 w-full" />
-                ))}
-              </div>
-            ) : aggregatedRewards.length === 0 ? (
-              <div className="text-center py-12">
-                <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-muted-foreground">
-                  {searchTerm ? "No rewards found matching your search" : "No unclaimed rewards found"}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {aggregatedRewards.map((reward, i) => (
-                  <Card key={i} className="p-4">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex-1">
-                        <p className="text-xs text-muted-foreground">Validator User</p>
-                        <p className="font-mono text-sm break-all">{formatParty(reward.user)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Total Reward</p>
-                        <p className="text-xl font-bold text-primary">{reward.totalAmount.toFixed(4)} CC</p>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-2">
-                      <Badge variant="secondary">{reward.coupons.length} Coupons</Badge>
-                    </div>
 
-                    {/* Individual Coupons */}
-                    <div className="space-y-2 mt-3 pt-3 border-t">
-                      {reward.coupons.map((coupon: any, idx: number) => {
-                        const amount = getField(coupon, 'amount', 'rewardAmount');
-                        const roundNum = getField(coupon, 'round')?.number;
-                        const dso = getField(coupon, 'dso');
-                        
-                        return (
-                        <div key={idx} className="bg-muted/30 p-3 rounded space-y-2">
-                          <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div>
-                              <p className="text-xs text-muted-foreground">Amount</p>
-                              <p className="font-semibold">{parseFloat(amount || "0").toFixed(4)} CC</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Round</p>
-                              <p className="font-mono">{roundNum || "N/A"}</p>
-                            </div>
+            {/* Reward Coupons */}
+            <Card className="glass-card">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Unclaimed Reward Coupons</CardTitle>
+                    <CardDescription className="mt-1">
+                      Validator reward coupons awaiting collection
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by validator..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-64"
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Skeleton key={i} className="h-24 w-full" />
+                    ))}
+                  </div>
+                ) : aggregatedRewards.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-muted-foreground">
+                      {searchTerm ? "No rewards found matching your search" : "No unclaimed rewards found"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {aggregatedRewards.map((reward, i) => (
+                      <Card key={i} className="p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <p className="text-xs text-muted-foreground">Validator User</p>
+                            <p className="font-mono text-sm break-all">{formatParty(reward.user)}</p>
                           </div>
-                          
-                          {dso && (
-                            <div>
-                              <p className="text-xs text-muted-foreground">DSO</p>
-                              <p className="font-mono text-xs break-all">{dso}</p>
-                            </div>
-                          )}
-
-                          <Collapsible>
-                            <CollapsibleTrigger asChild>
-                              <Button variant="ghost" size="sm" className="w-full justify-start">
-                                <Code className="h-4 w-4 mr-2" />
-                                Show Raw JSON
-                              </Button>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="mt-2">
-                              <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
-                                {JSON.stringify(coupon, null, 2)}
-                              </pre>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Total Reward</p>
+                            <p className="text-xl font-bold text-primary">{reward.totalAmount.toFixed(4)} CC</p>
+                          </div>
                         </div>
-                        );
-                      })}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                        
+                        <div className="mb-2">
+                          <Badge variant="secondary">{reward.coupons.length} Coupons</Badge>
+                        </div>
 
-        <DataSourcesFooter
+                        {/* Individual Coupons */}
+                        <div className="space-y-2 mt-3 pt-3 border-t">
+                          {reward.coupons.map((coupon: any, idx: number) => {
+                            const amount = getField(coupon, 'amount', 'rewardAmount');
+                            const roundNum = getField(coupon, 'round')?.number;
+                            const dso = getField(coupon, 'dso');
+                            
+                            return (
+                            <div key={idx} className="bg-muted/30 p-3 rounded space-y-2">
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Amount</p>
+                                  <p className="font-semibold">{parseFloat(amount || "0").toFixed(4)} CC</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Round</p>
+                                  <p className="font-mono">{roundNum || "N/A"}</p>
+                                </div>
+                              </div>
+                              
+                              {dso && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">DSO</p>
+                                  <p className="font-mono text-xs break-all">{dso}</p>
+                                </div>
+                              )}
+
+                              <Collapsible>
+                                <CollapsibleTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    <Code className="h-4 w-4 mr-2" />
+                                    Show Raw JSON
+                                  </Button>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="mt-2">
+                                  <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                                    {JSON.stringify(coupon, null, 2)}
+                                  </pre>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            </div>
+                            );
+                          })}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="claimed" className="space-y-6">
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle>Claimed Rewards</CardTitle>
+                <CardDescription>
+                  Rewards that have been successfully claimed by validators
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <div className="text-center space-y-2">
+                    <Award className="h-12 w-12 mx-auto opacity-50" />
+                    <p className="font-medium">Claimed rewards data will be available here</p>
+                    <p className="text-sm">This requires querying historical transaction data via the sv-rewards-summary edge function</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="expired" className="space-y-6">
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle>Expired Rewards</CardTitle>
+                <CardDescription>
+                  Rewards that expired before being claimed
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <div className="text-center space-y-2">
+                    <Award className="h-12 w-12 mx-auto opacity-50" />
+                    <p className="font-medium">Expired rewards data will be available here</p>
+                    <p className="text-sm">This requires querying historical transaction data via the sv-rewards-summary edge function</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        <DataSourcesFooter 
           snapshotId={snapshot?.id}
-          templateSuffixes={["Splice:Amulet:ValidatorRewardCoupon"]}
+          templateSuffixes={["ValidatorRewardCoupon"]}
           isProcessing={isProcessing}
         />
       </div>
