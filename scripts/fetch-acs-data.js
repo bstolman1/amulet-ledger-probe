@@ -17,7 +17,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const cantonClient = axios.create({
   httpAgent: new HttpAgent({ keepAlive: true, keepAliveMsecs: 30000 }),
   httpsAgent: new HttpsAgent({ keepAlive: true, keepAliveMsecs: 30000, rejectUnauthorized: false }),
-  timeout: 120000,
+  timeout: 150000, // Increased from 120s to 150s to reduce premature aborts
 });
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
@@ -937,6 +937,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         // Progress update
         const now = Date.now();
         if (now - lastProgressUpdate > 30000) {
+          const elapsedTime = now - startTime;
+          const pagesPerMinute = (page / (elapsedTime / 60000)).toFixed(2);
+          
           try {
             await uploadToEdgeFunction("progress", {
               mode: "progress",
@@ -945,13 +948,16 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               progress: {
                 processed_pages: page,
                 processed_events: allEvents.length,
-                last_record_time: lastSeenRecordTime,
+                elapsed_time_ms: elapsedTime,
+                pages_per_minute: parseFloat(pagesPerMinute),
+                record_time: lastSeenRecordTime,
+                cursor_after: after, // Include cursor for resume capability
                 amulet_total: amuletTotal.toFixed(),
                 locked_total: lockedTotal.toFixed(),
               },
             });
           } catch (err) {
-            console.warn("⚠️ Upload failed (progress):", err.message || err);
+            console.warn("⚠️ Progress update failed (non-fatal):", err.message || err);
           } finally {
             lastProgressUpdate = now;
           }
@@ -964,7 +970,17 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
       } catch (error) {
         retryCount++;
         const backoffDelay = BASE_DELAY * Math.pow(2, retryCount - 1) + Math.random() * JITTER_MS;
-        console.error(`   ❌ Error on page ${page} (attempt ${retryCount}/${MAX_RETRIES}):`, error.message);
+        
+        // Check if this is a retryable error
+        const isCanceled = error.code === 'ERR_CANCELED' || 
+                          error.code === 'ECONNABORTED' ||
+                          (error.message && error.message.toLowerCase().includes('cancel'));
+        
+        if (isCanceled) {
+          console.error(`   ❌ Request was canceled (ERR_CANCELED) on page ${page} (attempt ${retryCount}/${MAX_RETRIES})`);
+        } else {
+          console.error(`   ❌ Error on page ${page} (attempt ${retryCount}/${MAX_RETRIES}):`, error.message);
+        }
         
         if (retryCount >= MAX_RETRIES) {
           console.error("   💥 MAX RETRIES EXCEEDED - ABORTING");
