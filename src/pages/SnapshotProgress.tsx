@@ -293,18 +293,18 @@ const SnapshotProgress = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <FileText className="w-4 h-4" />
-                    Pages Processed
-                  </div>
-                  <p className="text-2xl font-bold">{snapshot.processed_pages?.toLocaleString() || 0}</p>
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Activity className="w-4 h-4" />
                     Events Processed
                   </div>
                   <p className="text-2xl font-bold">{snapshot.processed_events?.toLocaleString() || 0}</p>
+                </div>
+                
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <FileText className="w-4 h-4" />
+                    Pages Processed
+                  </div>
+                  <p className="text-2xl font-bold">{snapshot.processed_pages?.toLocaleString() || 0}</p>
                 </div>
 
                 <div className="space-y-1">
