@@ -1007,6 +1007,11 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         // Progress update with retry logic
         const now = Date.now();
         if (now - lastProgressUpdate > 30000) {
+          const elapsedMs = now - startTime;
+          const elapsedMin = elapsedMs / 1000 / 60;
+          const pagesPerMin = elapsedMin > 0 ? page / elapsedMin : 0;
+          const netChange = contractsCreated - contractsArchived;
+          
           let progressRetries = 0;
           const MAX_PROGRESS_RETRIES = 3;
           
@@ -1020,6 +1025,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                   processed_pages: page,
                   processed_events: allEvents.length,
                   last_record_time: lastSeenRecordTime,
+                  elapsed_time_ms: elapsedMs,
+                  pages_per_minute: pagesPerMin,
+                  entry_count: netChange,
                 },
               });
               lastProgressUpdate = now;
