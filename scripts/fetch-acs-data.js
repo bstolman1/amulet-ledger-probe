@@ -996,8 +996,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         // Progress update with retry logic
-        const now = Date.now();
-        if (now - lastProgressUpdate > 30000) {
+        const nowMs = Date.now();
+        if (nowMs - lastProgressUpdate > 30000) {
           let progressRetries = 0;
           const MAX_PROGRESS_RETRIES = 3;
           
@@ -1013,7 +1013,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                   last_record_time: lastSeenRecordTime,
                 },
               });
-              lastProgressUpdate = now;
+              lastProgressUpdate = nowMs;
               break; // Success, exit retry loop
             } catch (err) {
               progressRetries++;
@@ -1023,7 +1023,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 await sleep(delay);
               } else {
                 console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                lastProgressUpdate = now; // Update timestamp to avoid hammering
+                lastProgressUpdate = nowMs; // Update timestamp to avoid hammering
               }
             }
           }
