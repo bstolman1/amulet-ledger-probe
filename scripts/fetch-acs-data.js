@@ -768,11 +768,11 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     console.log(`   - New record_time: ${record_time}`);
   }
 
-  const allEvents = [];
+  // Counters and state
+  let eventsProcessed = 0; // count transactions/events processed (no big array)
   let after = 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = isResuming ? (baselineSnapshot.processed_pages || 1) : 1;
-  const seen = new Set();
 
   let amuletTotal = new BigNumber(baselineSnapshot.amulet_total || 0);
   let lockedTotal = new BigNumber(baselineSnapshot.locked_total || 0);
@@ -891,7 +891,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           console.log("\n" + "-".repeat(80));
           console.log(`📊 INCREMENTAL STATUS - Page ${page}`);
           console.log("-".repeat(80));
-          console.log(`   - Transactions Processed: ${allEvents.length.toLocaleString()}`);
+          console.log(`   - Transactions Processed: ${eventsProcessed.toLocaleString()}`);
           console.log(`   - Contracts Created: ${contractsCreated.toLocaleString()}`);
           console.log(`   - Contracts Archived: ${contractsArchived.toLocaleString()}`);
           console.log(`   - Net Contract Change: ${netChange.toLocaleString()}`);
@@ -944,25 +944,26 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               }
             }
 
-            allEvents.push(event);
-            seen.add(event.contract_id);
+            eventsProcessed++;
           }
         }
-
+        
         // Update lastSeenRecordTime for next page
         if (transactions.length > 0) {
           const lastTx = transactions[transactions.length - 1];
           const newRecordTime = lastTx.record_time;
-          // Always update the cursor - API handles pagination even with same timestamps
           if (newRecordTime) {
             lastSeenRecordTime = newRecordTime;
             console.log(`   📍 Updated cursor to: ${newRecordTime}`);
           }
         }
         
-        // Upload data in chunks (similar to fetchAllACS)
-        for (const [templateId, entries] of Object.entries(templatesData)) {
-          if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
+        // Secondary memory guard: if pending entries across templates grows too large, flush all
+        const FLUSH_THRESHOLD = parseInt(process.env.PENDING_FLUSH_THRESHOLD || "20000", 10);
+        const pendingTotal = Object.values(templatesData).reduce((acc, arr) => acc + (arr?.length || 0), 0);
+        if (pendingTotal > FLUSH_THRESHOLD) {
+          for (const [templateId, entries] of Object.entries(templatesData)) {
+            if (!entries || entries.length === 0) continue;
             const chunks = chunkTemplateEntries(templateId, entries);
             const chunkedTemplates = chunks.map(chunk => ({
               filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
@@ -972,10 +973,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               totalChunks: chunk.totalChunks,
               isChunked: true
             }));
-            
-            // Upload this template's chunks
             if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-              const currentPage = page; // Capture page number for async callback
+              const currentPage = page;
               const uploadPromise = (async () => {
                 try {
                   await uploadToEdgeFunction("append", {
@@ -984,20 +983,17 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                     snapshot_id: snapshotId,
                     templates: chunkedTemplates,
                   });
-                  console.log(`✅ [Page ${currentPage}] Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
+                  console.log(`✅ [Page ${currentPage}] Flushed ${chunkedTemplates.length} chunks for ${templateId} (memory guard)`);
                 } catch (error) {
-                  console.error(`❌ [Page ${currentPage}] Upload failed for ${templateId}:`, error.message);
+                  console.error(`❌ [Page ${currentPage}] Flush failed for ${templateId}:`, error.message);
                 }
                 uploadPromise.settled = true;
               })();
-              
               inflightUploads.push(uploadPromise);
             }
-            
             delete templatesData[templateId];
           }
         }
-
         // Wait for uploads if we hit the concurrency limit
         if (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
           await Promise.race(inflightUploads);
@@ -1023,7 +1019,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 snapshot_id: snapshotId,
                 progress: {
                   processed_pages: page,
-                  processed_events: allEvents.length,
+                  processed_events: eventsProcessed,
                   last_record_time: lastSeenRecordTime,
                   elapsed_time_ms: elapsedMs,
                   pages_per_minute: pagesPerMin,
@@ -1132,8 +1128,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     });
     console.log("✅ Incremental snapshot completed!");
   }
-
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
+  
+  return { eventsProcessed, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
 }
 
 async function run() {
