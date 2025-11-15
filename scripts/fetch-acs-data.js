@@ -102,7 +102,7 @@ async function uploadToEdgeFunction(phase, data, retryCount = 0) {
         "Content-Type": "application/json",
         "x-webhook-secret": WEBHOOK_SECRET,
       },
-      timeout: 300000, // 5 minute timeout for large uploads
+      timeout: 600000, // 10 minute timeout for large uploads
     });
     
     // Success - gradually increase chunk size back up
