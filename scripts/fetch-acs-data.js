@@ -884,8 +884,10 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         if (transactions.length > 0) {
           const lastTx = transactions[transactions.length - 1];
           const newRecordTime = lastTx.record_time;
-          if (newRecordTime && newRecordTime > lastSeenRecordTime) {
+          // Always update the cursor - API handles pagination even with same timestamps
+          if (newRecordTime) {
             lastSeenRecordTime = newRecordTime;
+            console.log(`   📍 Updated cursor to: ${newRecordTime}`);
           }
         }
         
@@ -951,6 +953,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         page++;
+        success = true;  // Exit inner retry loop
         await sleep(UPLOAD_DELAY_MS);
         
       } catch (error) {
@@ -970,8 +973,12 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
     // Check if we're done (no more transactions)
     if (lastPageTransactionCount === 0) {
+      console.log("   ✅ No more transactions - pagination complete");
       break;
     }
+    
+    // Continue to next page
+    console.log(`   ➡️  Continuing to page ${page + 1}...`);
   }
 
   // Wait for all uploads to complete
