@@ -845,7 +845,14 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     
     while (retryCount < MAX_RETRIES && !success) {
       try {
-        console.log(`\n📄 Page ${page} (lastSeenRecordTime=${lastSeenRecordTime}, pageSize=${pageSize})`);
+        // Calculate elapsed time and rate
+        const now = Date.now();
+        const elapsedMs = now - startTime;
+        const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
+        const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
+        
+        console.log(`\n📄 Page ${page} (cursor=${lastSeenRecordTime}, elapsed=${elapsedMin}m, rate=${pagesPerMin}pg/m)`);
+        
         
         // Use POST v2/updates endpoint with proper body format
         const url = `${baseUrl}/v2/updates`;
@@ -868,6 +875,25 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         lastPageTransactionCount = transactions.length;
         
         console.log(`   ✅ Fetched ${transactions.length} transactions`);
+        
+        // Detailed status every 10 pages
+        if (page % 10 === 0) {
+          const now = Date.now();
+          const elapsedMs = now - startTime;
+          const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
+          const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
+          const eventsCount = allEvents.length;
+          
+          console.log("\n" + "-".repeat(80));
+          console.log(`📊 INCREMENTAL STATUS - Page ${page}`);
+          console.log("-".repeat(80));
+          console.log(`   - Events Processed: ${eventsCount.toLocaleString()}`);
+          console.log(`   - Elapsed Time: ${elapsedMin} minutes`);
+          console.log(`   - Processing Rate: ${pagesPerMin} pages/min`);
+          console.log(`   - Last Record Time: ${lastSeenRecordTime}`);
+          console.log("-".repeat(80) + "\n");
+        }
+        
         
         if (transactions.length === 0) {
           console.log("   ℹ️  No more delta updates - incremental sync complete!");
@@ -940,6 +966,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
             
             // Upload this template's chunks
             if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+              const currentPage = page; // Capture page number for async callback
               const uploadPromise = (async () => {
                 try {
                   await uploadToEdgeFunction("append", {
@@ -948,9 +975,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                     snapshot_id: snapshotId,
                     templates: chunkedTemplates,
                   });
-                  console.log(`✅ Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
+                  console.log(`✅ [Page ${currentPage}] Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
                 } catch (error) {
-                  console.error(`❌ Upload failed for ${templateId}:`, error.message);
+                  console.error(`❌ [Page ${currentPage}] Upload failed for ${templateId}:`, error.message);
                 }
                 uploadPromise.settled = true;
               })();
@@ -1026,9 +1053,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
       console.log("   ✅ No more transactions - pagination complete");
       break;
     }
-    
-    // Continue to next page
-    console.log(`   ➡️  Continuing to page ${page + 1}...`);
   }
 
   // Wait for all uploads to complete
