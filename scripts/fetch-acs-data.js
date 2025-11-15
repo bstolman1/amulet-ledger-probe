@@ -850,8 +850,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     while (retryCount < MAX_RETRIES && !success) {
       try {
         // Calculate elapsed time and rate
-        const now = Date.now();
-        const elapsedMs = now - startTime;
+        const headerNow = Date.now();
+        const elapsedMs = headerNow - startTime;
         const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
         const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
         
@@ -882,8 +882,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         
         // Detailed status every 10 pages
         if (page % 10 === 0) {
-          const now = Date.now();
-          const elapsedMs = now - startTime;
+          const statusNow = Date.now();
+          const elapsedMs = statusNow - startTime;
           const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
           const netChange = contractsCreated - contractsArchived;
