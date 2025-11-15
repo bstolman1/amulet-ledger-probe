@@ -459,8 +459,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
               });
               
               // Send progress update after upload with retry logic
-              const now = Date.now();
-              const elapsedMs = now - startTime;
+              const uploadNow = Date.now();
+              const elapsedMs = uploadNow - startTime;
               const elapsedMinutes = elapsedMs / 1000 / 60;
               const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
@@ -514,8 +514,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
         // Detailed status update every 10 pages
         if (page % 10 === 0) {
-          const now = Date.now();
-          const elapsedMs = now - startTime;
+          const statusNow1 = Date.now();
+          const elapsedMs = statusNow1 - startTime;
           const elapsedMinutes = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : 0;
           const eventsPerPage = page > 0 ? (allEvents.length / page).toFixed(0) : 0;
@@ -535,10 +535,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
         // Push progress update every page (throttled) with retry logic
         if (snapshotId) {
-          const now = Date.now();
-          const shouldUpdate = now - lastProgressUpdate >= UPLOAD_DELAY_MS;
+          const pageNow = Date.now();
+          const shouldUpdate = pageNow - lastProgressUpdate >= UPLOAD_DELAY_MS;
           if (shouldUpdate) {
-            const elapsedMs = now - startTime;
+            const elapsedMs = pageNow - startTime;
             const elapsedMinutes = elapsedMs / 1000 / 60;
             const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
