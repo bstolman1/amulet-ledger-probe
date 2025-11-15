@@ -458,40 +458,23 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 templates: chunkedTemplates,
               });
               
-              // Send progress update after upload with retry logic
+              // Send progress update after upload
               const now = Date.now();
               const elapsedMs = now - startTime;
               const elapsedMinutes = elapsedMs / 1000 / 60;
               const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-              let progressRetries = 0;
-              const MAX_PROGRESS_RETRIES = 3;
-              
-              while (progressRetries < MAX_PROGRESS_RETRIES) {
-                try {
-                  await uploadToEdgeFunction("progress", {
-                    mode: "progress",
-                    webhookSecret: WEBHOOK_SECRET,
-                    snapshot_id: snapshotId,
-                    progress: {
-                      processed_pages: page,
-                      processed_events: allEvents.length,
-                      elapsed_time_ms: elapsedMs,
-                      pages_per_minute: pagesPerMin,
-                    },
-                  });
-                  break; // Success, exit retry loop
-                } catch (err) {
-                  progressRetries++;
-                  if (progressRetries < MAX_PROGRESS_RETRIES) {
-                    const delay = Math.pow(2, progressRetries) * 1000;
-                    console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
-                    await sleep(delay);
-                  } else {
-                    console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                  }
-                }
-              }
+              await uploadToEdgeFunction("progress", {
+                mode: "progress",
+                webhookSecret: WEBHOOK_SECRET,
+                snapshot_id: snapshotId,
+                progress: {
+                  processed_pages: page,
+                  processed_events: allEvents.length,
+                  elapsed_time_ms: elapsedMs,
+                  pages_per_minute: pagesPerMin,
+                },
+              });
 
               console.log(`✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`);
             } catch (error) {
@@ -533,7 +516,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           console.log("-".repeat(80) + "\n");
         }
 
-        // Push progress update every page (throttled) with retry logic
+        // Push progress update every page (throttled)
         if (snapshotId) {
           const now = Date.now();
           const shouldUpdate = now - lastProgressUpdate >= UPLOAD_DELAY_MS;
@@ -542,36 +525,19 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
             const elapsedMinutes = elapsedMs / 1000 / 60;
             const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-            let progressRetries = 0;
-            const MAX_PROGRESS_RETRIES = 3;
-            
-            while (progressRetries < MAX_PROGRESS_RETRIES) {
-              try {
-                await uploadToEdgeFunction("progress", {
-                  mode: "progress",
-                  webhookSecret: WEBHOOK_SECRET,
-                  snapshot_id: snapshotId,
-                  progress: {
-                    processed_pages: page,
-                    processed_events: allEvents.length,
-                    elapsed_time_ms: elapsedMs,
-                    pages_per_minute: pagesPerMin,
-                  },
-                });
-                lastProgressUpdate = now;
-                break; // Success, exit retry loop
-              } catch (err) {
-                progressRetries++;
-                if (progressRetries < MAX_PROGRESS_RETRIES) {
-                  const delay = Math.pow(2, progressRetries) * 1000;
-                  console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
-                  await sleep(delay);
-                } else {
-                  console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                  lastProgressUpdate = now; // Update timestamp to avoid hammering
-                }
-              }
-            }
+            await uploadToEdgeFunction("progress", {
+              mode: "progress",
+              webhookSecret: WEBHOOK_SECRET,
+              snapshot_id: snapshotId,
+              progress: {
+                processed_pages: page,
+                processed_events: allEvents.length,
+                elapsed_time_ms: elapsedMs,
+                pages_per_minute: pagesPerMin,
+              },
+            });
+
+            lastProgressUpdate = now;
           }
         }
 
@@ -845,14 +811,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     
     while (retryCount < MAX_RETRIES && !success) {
       try {
-        // Calculate elapsed time and rate
-        const now = Date.now();
-        const elapsedMs = now - startTime;
-        const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
-        const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
-        
-        console.log(`\n📄 Page ${page} (cursor=${lastSeenRecordTime}, elapsed=${elapsedMin}m, rate=${pagesPerMin}pg/m)`);
-        
+        console.log(`\n📄 Page ${page} (lastSeenRecordTime=${lastSeenRecordTime}, pageSize=${pageSize})`);
         
         // Use POST v2/updates endpoint with proper body format
         const url = `${baseUrl}/v2/updates`;
@@ -875,25 +834,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         lastPageTransactionCount = transactions.length;
         
         console.log(`   ✅ Fetched ${transactions.length} transactions`);
-        
-        // Detailed status every 10 pages
-        if (page % 10 === 0) {
-          const now = Date.now();
-          const elapsedMs = now - startTime;
-          const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
-          const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
-          const eventsCount = allEvents.length;
-          
-          console.log("\n" + "-".repeat(80));
-          console.log(`📊 INCREMENTAL STATUS - Page ${page}`);
-          console.log("-".repeat(80));
-          console.log(`   - Events Processed: ${eventsCount.toLocaleString()}`);
-          console.log(`   - Elapsed Time: ${elapsedMin} minutes`);
-          console.log(`   - Processing Rate: ${pagesPerMin} pages/min`);
-          console.log(`   - Last Record Time: ${lastSeenRecordTime}`);
-          console.log("-".repeat(80) + "\n");
-        }
-        
         
         if (transactions.length === 0) {
           console.log("   ℹ️  No more delta updates - incremental sync complete!");
@@ -944,10 +884,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         if (transactions.length > 0) {
           const lastTx = transactions[transactions.length - 1];
           const newRecordTime = lastTx.record_time;
-          // Always update the cursor - API handles pagination even with same timestamps
-          if (newRecordTime) {
+          if (newRecordTime && newRecordTime > lastSeenRecordTime) {
             lastSeenRecordTime = newRecordTime;
-            console.log(`   📍 Updated cursor to: ${newRecordTime}`);
           }
         }
         
@@ -966,7 +904,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
             
             // Upload this template's chunks
             if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-              const currentPage = page; // Capture page number for async callback
               const uploadPromise = (async () => {
                 try {
                   await uploadToEdgeFunction("append", {
@@ -975,9 +912,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                     snapshot_id: snapshotId,
                     templates: chunkedTemplates,
                   });
-                  console.log(`✅ [Page ${currentPage}] Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
+                  console.log(`✅ Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
                 } catch (error) {
-                  console.error(`❌ [Page ${currentPage}] Upload failed for ${templateId}:`, error.message);
+                  console.error(`❌ Upload failed for ${templateId}:`, error.message);
                 }
                 uploadPromise.settled = true;
               })();
@@ -995,42 +932,25 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
         }
 
-        // Progress update with retry logic
-        const nowMs = Date.now();
-        if (nowMs - lastProgressUpdate > 30000) {
-          let progressRetries = 0;
-          const MAX_PROGRESS_RETRIES = 3;
-          
-          while (progressRetries < MAX_PROGRESS_RETRIES) {
-            try {
-              await uploadToEdgeFunction("progress", {
-                mode: "progress",
-                webhookSecret: WEBHOOK_SECRET,
-                snapshot_id: snapshotId,
-                progress: {
-                  processed_pages: page,
-                  processed_events: allEvents.length,
-                  last_record_time: lastSeenRecordTime,
-                },
-              });
-              lastProgressUpdate = nowMs;
-              break; // Success, exit retry loop
-            } catch (err) {
-              progressRetries++;
-              if (progressRetries < MAX_PROGRESS_RETRIES) {
-                const delay = Math.pow(2, progressRetries) * 1000;
-                console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
-                await sleep(delay);
-              } else {
-                console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                lastProgressUpdate = nowMs; // Update timestamp to avoid hammering
-              }
-            }
-          }
+        // Progress update
+        const now = Date.now();
+        if (now - lastProgressUpdate > 30000) {
+          await uploadToEdgeFunction("progress", {
+            mode: "progress",
+            webhookSecret: WEBHOOK_SECRET,
+            snapshotId,
+            progress: {
+              processed_pages: page,
+              processed_events: allEvents.length,
+              last_record_time: lastSeenRecordTime,
+              amulet_total: amuletTotal.toFixed(),
+              locked_total: lockedTotal.toFixed(),
+            },
+          });
+          lastProgressUpdate = now;
         }
 
         page++;
-        success = true;  // Exit inner retry loop
         await sleep(UPLOAD_DELAY_MS);
         
       } catch (error) {
@@ -1050,7 +970,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
     // Check if we're done (no more transactions)
     if (lastPageTransactionCount === 0) {
-      console.log("   ✅ No more transactions - pagination complete");
       break;
     }
   }
