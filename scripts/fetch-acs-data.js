@@ -937,19 +937,24 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         // Progress update
         const now = Date.now();
         if (now - lastProgressUpdate > 30000) {
-          await uploadToEdgeFunction("progress", {
-            mode: "progress",
-            webhookSecret: WEBHOOK_SECRET,
-            snapshotId,
-            progress: {
-              processed_pages: page,
-              processed_events: allEvents.length,
-              last_record_time: lastSeenRecordTime,
-              amulet_total: amuletTotal.toFixed(),
-              locked_total: lockedTotal.toFixed(),
-            },
-          });
-          lastProgressUpdate = now;
+          try {
+            await uploadToEdgeFunction("progress", {
+              mode: "progress",
+              webhookSecret: WEBHOOK_SECRET,
+              snapshot_id: snapshotId,
+              progress: {
+                processed_pages: page,
+                processed_events: allEvents.length,
+                last_record_time: lastSeenRecordTime,
+                amulet_total: amuletTotal.toFixed(),
+                locked_total: lockedTotal.toFixed(),
+              },
+            });
+          } catch (err) {
+            console.warn("⚠️ Upload failed (progress):", err.message || err);
+          } finally {
+            lastProgressUpdate = now;
+          }
         }
 
         page++;
