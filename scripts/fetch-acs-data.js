@@ -780,10 +780,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
   const templatesByPackage = {};
   const templatesData = {};
   const pendingUploads = {};
-  
-  // Track contract changes for incremental snapshots
-  let contractsCreated = 0;
-  let contractsArchived = 0;
 
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
@@ -886,15 +882,12 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           const elapsedMs = now - startTime;
           const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
-          const netChange = contractsCreated - contractsArchived;
+          const eventsCount = allEvents.length;
           
           console.log("\n" + "-".repeat(80));
           console.log(`📊 INCREMENTAL STATUS - Page ${page}`);
           console.log("-".repeat(80));
-          console.log(`   - Transactions Processed: ${allEvents.length.toLocaleString()}`);
-          console.log(`   - Contracts Created: ${contractsCreated.toLocaleString()}`);
-          console.log(`   - Contracts Archived: ${contractsArchived.toLocaleString()}`);
-          console.log(`   - Net Contract Change: ${netChange.toLocaleString()}`);
+          console.log(`   - Events Processed: ${eventsCount.toLocaleString()}`);
           console.log(`   - Elapsed Time: ${elapsedMin} minutes`);
           console.log(`   - Processing Rate: ${pagesPerMin} pages/min`);
           console.log(`   - Last Record Time: ${lastSeenRecordTime}`);
@@ -923,7 +916,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
             // Handle created vs archived events
             if (event.created_event) {
-              contractsCreated++;
               // Count as active contract (created)
               if (isTemplate(event, "splice-amulet", "Amulet")) {
                 const amt = event.create_arguments?.amount?.initialAmount || "0";
@@ -933,7 +925,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 lockedTotal = lockedTotal.plus(new BigNumber(amt));
               }
             } else if (event.archived_event) {
-              contractsArchived++;
               // Subtract from totals (archived)
               if (isTemplate(event, "splice-amulet", "Amulet")) {
                 const amt = event.create_arguments?.amount?.initialAmount || "0";
@@ -1007,11 +998,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         // Progress update with retry logic
         const now = Date.now();
         if (now - lastProgressUpdate > 30000) {
-          const elapsedMs = now - startTime;
-          const elapsedMin = elapsedMs / 1000 / 60;
-          const pagesPerMin = elapsedMin > 0 ? page / elapsedMin : 0;
-          const netChange = contractsCreated - contractsArchived;
-          
           let progressRetries = 0;
           const MAX_PROGRESS_RETRIES = 3;
           
@@ -1025,9 +1011,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                   processed_pages: page,
                   processed_events: allEvents.length,
                   last_record_time: lastSeenRecordTime,
-                  elapsed_time_ms: elapsedMs,
-                  pages_per_minute: pagesPerMin,
-                  entry_count: netChange,
                 },
               });
               lastProgressUpdate = now;
@@ -1109,13 +1092,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
   // Mark snapshot as complete
   if (EDGE_FUNCTION_URL && WEBHOOK_SECRET && snapshotId) {
-    const netContractChange = contractsCreated - contractsArchived;
-    console.log(`\n📊 INCREMENTAL SNAPSHOT SUMMARY:`);
-    console.log(`   - Transactions Processed: ${allEvents.length.toLocaleString()}`);
-    console.log(`   - Contracts Created: ${contractsCreated.toLocaleString()}`);
-    console.log(`   - Contracts Archived: ${contractsArchived.toLocaleString()}`);
-    console.log(`   - Net Contract Change: ${netContractChange.toLocaleString()}`);
-    
     await uploadToEdgeFunction("complete", {
       mode: "complete",
       webhookSecret: WEBHOOK_SECRET,
@@ -1126,7 +1102,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           locked: lockedTotal.toFixed(),
           circulating: amuletTotal.minus(lockedTotal).toFixed(),
         },
-        entry_count: netContractChange, // Net change, not total transactions
+        entry_count: allEvents.length,
         canonical_package: canonicalPkg,
       },
     });

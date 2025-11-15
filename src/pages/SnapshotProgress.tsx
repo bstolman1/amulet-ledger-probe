@@ -32,7 +32,6 @@ interface Snapshot {
   is_delta?: boolean;
   snapshot_type?: string;
   previous_snapshot_id?: string;
-  entry_count?: number;
 }
 
 interface TemplateStats {
@@ -294,18 +293,18 @@ const SnapshotProgress = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Activity className="w-4 h-4" />
-                    {snapshot.snapshot_type === 'incremental' || snapshot.is_delta ? 'Transactions' : 'Events Processed'}
-                  </div>
-                  <p className="text-2xl font-bold">{snapshot.processed_events?.toLocaleString() || 0}</p>
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <FileText className="w-4 h-4" />
                     Pages Processed
                   </div>
                   <p className="text-2xl font-bold">{snapshot.processed_pages?.toLocaleString() || 0}</p>
+                </div>
+                
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Activity className="w-4 h-4" />
+                    Events Processed
+                  </div>
+                  <p className="text-2xl font-bold">{snapshot.processed_events?.toLocaleString() || 0}</p>
                 </div>
 
                 <div className="space-y-1">
@@ -326,7 +325,7 @@ const SnapshotProgress = () => {
               </div>
 
               {/* New Activity Metrics */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-lg bg-primary/5 border border-primary/10">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-lg bg-primary/5 border border-primary/10">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Database className="w-4 h-4" />
@@ -336,18 +335,6 @@ const SnapshotProgress = () => {
                     {templateStats[snapshot.id]?.reduce((sum, stat) => sum + stat.contract_count, 0)?.toLocaleString() || 0}
                   </p>
                 </div>
-
-                {(snapshot.snapshot_type === 'incremental' || snapshot.is_delta) && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Activity className="w-4 h-4" />
-                      Net Contract Change
-                    </div>
-                    <p className="text-2xl font-bold text-primary">
-                      {snapshot.entry_count > 0 ? '+' : ''}{snapshot.entry_count?.toLocaleString() || 0}
-                    </p>
-                  </div>
-                )}
 
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
