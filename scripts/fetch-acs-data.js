@@ -951,6 +951,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         page++;
+        success = true;  // Exit inner retry loop
         await sleep(UPLOAD_DELAY_MS);
         
       } catch (error) {
