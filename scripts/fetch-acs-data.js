@@ -459,8 +459,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
               });
               
               // Send progress update after upload with retry logic
-              const uploadNow = Date.now();
-              const elapsedMs = uploadNow - startTime;
+              const now = Date.now();
+              const elapsedMs = now - startTime;
               const elapsedMinutes = elapsedMs / 1000 / 60;
               const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
@@ -514,8 +514,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
         // Detailed status update every 10 pages
         if (page % 10 === 0) {
-          const statusNow1 = Date.now();
-          const elapsedMs = statusNow1 - startTime;
+          const now = Date.now();
+          const elapsedMs = now - startTime;
           const elapsedMinutes = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : 0;
           const eventsPerPage = page > 0 ? (allEvents.length / page).toFixed(0) : 0;
@@ -535,10 +535,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
 
         // Push progress update every page (throttled) with retry logic
         if (snapshotId) {
-          const pageNow = Date.now();
-          const shouldUpdate = pageNow - lastProgressUpdate >= UPLOAD_DELAY_MS;
+          const now = Date.now();
+          const shouldUpdate = now - lastProgressUpdate >= UPLOAD_DELAY_MS;
           if (shouldUpdate) {
-            const elapsedMs = pageNow - startTime;
+            const elapsedMs = now - startTime;
             const elapsedMinutes = elapsedMs / 1000 / 60;
             const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
@@ -768,11 +768,11 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     console.log(`   - New record_time: ${record_time}`);
   }
 
-  // Counters and state
-  let eventsProcessed = 0; // count transactions/events processed (no big array)
+  const allEvents = [];
   let after = 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = isResuming ? (baselineSnapshot.processed_pages || 1) : 1;
+  const seen = new Set();
 
   let amuletTotal = new BigNumber(baselineSnapshot.amulet_total || 0);
   let lockedTotal = new BigNumber(baselineSnapshot.locked_total || 0);
@@ -850,8 +850,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     while (retryCount < MAX_RETRIES && !success) {
       try {
         // Calculate elapsed time and rate
-        const headerNow = Date.now();
-        const elapsedMs = headerNow - startTime;
+        const now = Date.now();
+        const elapsedMs = now - startTime;
         const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
         const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
         
@@ -882,8 +882,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         
         // Detailed status every 10 pages
         if (page % 10 === 0) {
-          const statusNow = Date.now();
-          const elapsedMs = statusNow - startTime;
+          const now = Date.now();
+          const elapsedMs = now - startTime;
           const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
           const netChange = contractsCreated - contractsArchived;
@@ -891,7 +891,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           console.log("\n" + "-".repeat(80));
           console.log(`📊 INCREMENTAL STATUS - Page ${page}`);
           console.log("-".repeat(80));
-          console.log(`   - Transactions Processed: ${eventsProcessed.toLocaleString()}`);
+          console.log(`   - Transactions Processed: ${allEvents.length.toLocaleString()}`);
           console.log(`   - Contracts Created: ${contractsCreated.toLocaleString()}`);
           console.log(`   - Contracts Archived: ${contractsArchived.toLocaleString()}`);
           console.log(`   - Net Contract Change: ${netChange.toLocaleString()}`);
@@ -944,26 +944,25 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               }
             }
 
-            eventsProcessed++;
+            allEvents.push(event);
+            seen.add(event.contract_id);
           }
         }
-        
+
         // Update lastSeenRecordTime for next page
         if (transactions.length > 0) {
           const lastTx = transactions[transactions.length - 1];
           const newRecordTime = lastTx.record_time;
+          // Always update the cursor - API handles pagination even with same timestamps
           if (newRecordTime) {
             lastSeenRecordTime = newRecordTime;
             console.log(`   📍 Updated cursor to: ${newRecordTime}`);
           }
         }
         
-        // Secondary memory guard: if pending entries across templates grows too large, flush all
-        const FLUSH_THRESHOLD = parseInt(process.env.PENDING_FLUSH_THRESHOLD || "20000", 10);
-        const pendingTotal = Object.values(templatesData).reduce((acc, arr) => acc + (arr?.length || 0), 0);
-        if (pendingTotal > FLUSH_THRESHOLD) {
-          for (const [templateId, entries] of Object.entries(templatesData)) {
-            if (!entries || entries.length === 0) continue;
+        // Upload data in chunks (similar to fetchAllACS)
+        for (const [templateId, entries] of Object.entries(templatesData)) {
+          if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
             const chunks = chunkTemplateEntries(templateId, entries);
             const chunkedTemplates = chunks.map(chunk => ({
               filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
@@ -973,8 +972,10 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               totalChunks: chunk.totalChunks,
               isChunked: true
             }));
+            
+            // Upload this template's chunks
             if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-              const currentPage = page;
+              const currentPage = page; // Capture page number for async callback
               const uploadPromise = (async () => {
                 try {
                   await uploadToEdgeFunction("append", {
@@ -983,17 +984,20 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                     snapshot_id: snapshotId,
                     templates: chunkedTemplates,
                   });
-                  console.log(`✅ [Page ${currentPage}] Flushed ${chunkedTemplates.length} chunks for ${templateId} (memory guard)`);
+                  console.log(`✅ [Page ${currentPage}] Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
                 } catch (error) {
-                  console.error(`❌ [Page ${currentPage}] Flush failed for ${templateId}:`, error.message);
+                  console.error(`❌ [Page ${currentPage}] Upload failed for ${templateId}:`, error.message);
                 }
                 uploadPromise.settled = true;
               })();
+              
               inflightUploads.push(uploadPromise);
             }
+            
             delete templatesData[templateId];
           }
         }
+
         // Wait for uploads if we hit the concurrency limit
         if (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
           await Promise.race(inflightUploads);
@@ -1001,9 +1005,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         // Progress update with retry logic
-        const nowTs = Date.now();
-        if (nowTs - lastProgressUpdate > 30000) {
-          const elapsedMs = nowTs - startTime;
+        const now = Date.now();
+        if (now - lastProgressUpdate > 30000) {
+          const elapsedMs = now - startTime;
           const elapsedMin = elapsedMs / 1000 / 60;
           const pagesPerMin = elapsedMin > 0 ? page / elapsedMin : 0;
           const netChange = contractsCreated - contractsArchived;
@@ -1019,14 +1023,14 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 snapshot_id: snapshotId,
                 progress: {
                   processed_pages: page,
-                  processed_events: eventsProcessed,
+                  processed_events: allEvents.length,
                   last_record_time: lastSeenRecordTime,
                   elapsed_time_ms: elapsedMs,
                   pages_per_minute: pagesPerMin,
                   entry_count: netChange,
                 },
               });
-              lastProgressUpdate = nowTs;
+              lastProgressUpdate = now;
               break; // Success, exit retry loop
             } catch (err) {
               progressRetries++;
@@ -1036,7 +1040,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 await sleep(delay);
               } else {
                 console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                lastProgressUpdate = nowTs; // Update timestamp to avoid hammering
+                lastProgressUpdate = now; // Update timestamp to avoid hammering
               }
             }
           }
@@ -1128,8 +1132,8 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     });
     console.log("✅ Incremental snapshot completed!");
   }
-  
-  return { eventsProcessed, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
+
+  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
 }
 
 async function run() {
