@@ -965,7 +965,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
 
         page++;
         success = true;  // Exit inner retry loop
-        await sleep(UPLOAD_DELAY_MS);
+        // Add jitter to prevent synchronized uploads
+        const delayWithJitter = UPLOAD_DELAY_MS + Math.random() * JITTER_MS;
+        await sleep(delayWithJitter);
         
       } catch (error) {
         retryCount++;
@@ -999,7 +1001,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     }
     
     // Continue to next page
-    console.log(`   ➡️  Continuing to page ${page + 1}...`);
+    console.log(`   ➡️  Continuing to page ${page}...`);
   }
 
   // Wait for all uploads to complete
