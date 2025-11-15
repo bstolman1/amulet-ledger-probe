@@ -76,6 +76,7 @@ interface ProgressRequest {
     pages_per_minute?: number;
     record_time?: string; // optional latest record_time
     last_record_time?: string; // backward compatible
+    entry_count?: number; // net contract change for incremental
   };
 }
 
@@ -432,6 +433,7 @@ Deno.serve(async (req) => {
       };
       if (typeof progress.elapsed_time_ms !== 'undefined') updatePayload.elapsed_time_ms = progress.elapsed_time_ms;
       if (typeof progress.pages_per_minute !== 'undefined') updatePayload.pages_per_minute = progress.pages_per_minute;
+      if (typeof progress.entry_count !== 'undefined') updatePayload.entry_count = progress.entry_count;
       if (latestRecordTime) updatePayload.record_time = latestRecordTime;
 
       const { error: updateError } = await supabase
