@@ -846,7 +846,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     while (retryCount < MAX_RETRIES && !success) {
       try {
         // Calculate elapsed time and rate
-        const now = Date.now();
+        let now = Date.now();
         const elapsedMs = now - startTime;
         const elapsedMin = (elapsedMs / 1000 / 60).toFixed(1);
         const pagesPerMin = elapsedMin > 0 ? (page / elapsedMin).toFixed(2) : '0.00';
@@ -996,7 +996,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         // Progress update with retry logic
-        const now = Date.now();
+        now = Date.now();
         if (now - lastProgressUpdate > 30000) {
           let progressRetries = 0;
           const MAX_PROGRESS_RETRIES = 3;
