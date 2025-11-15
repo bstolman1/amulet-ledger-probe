@@ -458,23 +458,40 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 templates: chunkedTemplates,
               });
               
-              // Send progress update after upload
+              // Send progress update after upload with retry logic
               const now = Date.now();
               const elapsedMs = now - startTime;
               const elapsedMinutes = elapsedMs / 1000 / 60;
               const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-              await uploadToEdgeFunction("progress", {
-                mode: "progress",
-                webhookSecret: WEBHOOK_SECRET,
-                snapshot_id: snapshotId,
-                progress: {
-                  processed_pages: page,
-                  processed_events: allEvents.length,
-                  elapsed_time_ms: elapsedMs,
-                  pages_per_minute: pagesPerMin,
-                },
-              });
+              let progressRetries = 0;
+              const MAX_PROGRESS_RETRIES = 3;
+              
+              while (progressRetries < MAX_PROGRESS_RETRIES) {
+                try {
+                  await uploadToEdgeFunction("progress", {
+                    mode: "progress",
+                    webhookSecret: WEBHOOK_SECRET,
+                    snapshot_id: snapshotId,
+                    progress: {
+                      processed_pages: page,
+                      processed_events: allEvents.length,
+                      elapsed_time_ms: elapsedMs,
+                      pages_per_minute: pagesPerMin,
+                    },
+                  });
+                  break; // Success, exit retry loop
+                } catch (err) {
+                  progressRetries++;
+                  if (progressRetries < MAX_PROGRESS_RETRIES) {
+                    const delay = Math.pow(2, progressRetries) * 1000;
+                    console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
+                    await sleep(delay);
+                  } else {
+                    console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
+                  }
+                }
+              }
 
               console.log(`✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`);
             } catch (error) {
@@ -516,7 +533,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           console.log("-".repeat(80) + "\n");
         }
 
-        // Push progress update every page (throttled)
+        // Push progress update every page (throttled) with retry logic
         if (snapshotId) {
           const now = Date.now();
           const shouldUpdate = now - lastProgressUpdate >= UPLOAD_DELAY_MS;
@@ -525,19 +542,36 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
             const elapsedMinutes = elapsedMs / 1000 / 60;
             const pagesPerMin = elapsedMinutes > 0 ? page / elapsedMinutes : 0;
 
-            await uploadToEdgeFunction("progress", {
-              mode: "progress",
-              webhookSecret: WEBHOOK_SECRET,
-              snapshot_id: snapshotId,
-              progress: {
-                processed_pages: page,
-                processed_events: allEvents.length,
-                elapsed_time_ms: elapsedMs,
-                pages_per_minute: pagesPerMin,
-              },
-            });
-
-            lastProgressUpdate = now;
+            let progressRetries = 0;
+            const MAX_PROGRESS_RETRIES = 3;
+            
+            while (progressRetries < MAX_PROGRESS_RETRIES) {
+              try {
+                await uploadToEdgeFunction("progress", {
+                  mode: "progress",
+                  webhookSecret: WEBHOOK_SECRET,
+                  snapshot_id: snapshotId,
+                  progress: {
+                    processed_pages: page,
+                    processed_events: allEvents.length,
+                    elapsed_time_ms: elapsedMs,
+                    pages_per_minute: pagesPerMin,
+                  },
+                });
+                lastProgressUpdate = now;
+                break; // Success, exit retry loop
+              } catch (err) {
+                progressRetries++;
+                if (progressRetries < MAX_PROGRESS_RETRIES) {
+                  const delay = Math.pow(2, progressRetries) * 1000;
+                  console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
+                  await sleep(delay);
+                } else {
+                  console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
+                  lastProgressUpdate = now; // Update timestamp to avoid hammering
+                }
+              }
+            }
           }
         }
 
@@ -934,26 +968,37 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
         }
 
-        // Progress update
+        // Progress update with retry logic
         const now = Date.now();
         if (now - lastProgressUpdate > 30000) {
-          try {
-            await uploadToEdgeFunction("progress", {
-              mode: "progress",
-              webhookSecret: WEBHOOK_SECRET,
-              snapshot_id: snapshotId,
-              progress: {
-                processed_pages: page,
-                processed_events: allEvents.length,
-                last_record_time: lastSeenRecordTime,
-                amulet_total: amuletTotal.toFixed(),
-                locked_total: lockedTotal.toFixed(),
-              },
-            });
-          } catch (err) {
-            console.warn("⚠️ Upload failed (progress):", err.message || err);
-          } finally {
-            lastProgressUpdate = now;
+          let progressRetries = 0;
+          const MAX_PROGRESS_RETRIES = 3;
+          
+          while (progressRetries < MAX_PROGRESS_RETRIES) {
+            try {
+              await uploadToEdgeFunction("progress", {
+                mode: "progress",
+                webhookSecret: WEBHOOK_SECRET,
+                snapshot_id: snapshotId,
+                progress: {
+                  processed_pages: page,
+                  processed_events: allEvents.length,
+                  last_record_time: lastSeenRecordTime,
+                },
+              });
+              lastProgressUpdate = now;
+              break; // Success, exit retry loop
+            } catch (err) {
+              progressRetries++;
+              if (progressRetries < MAX_PROGRESS_RETRIES) {
+                const delay = Math.pow(2, progressRetries) * 1000;
+                console.warn(`⚠️ Progress update failed (attempt ${progressRetries}/${MAX_PROGRESS_RETRIES}), retrying in ${delay}ms...`);
+                await sleep(delay);
+              } else {
+                console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
+                lastProgressUpdate = now; // Update timestamp to avoid hammering
+              }
+            }
           }
         }
 
