@@ -76,6 +76,7 @@ interface ProgressRequest {
     pages_per_minute?: number;
     record_time?: string; // optional latest record_time
     last_record_time?: string; // backward compatible
+    cursor_after?: number; // optional cursor for resume capability
   };
 }
 
@@ -423,7 +424,7 @@ Deno.serve(async (req) => {
     if (request.mode === 'progress') {
       const { snapshot_id, progress } = request;
       const latestRecordTime = progress.last_record_time || progress.record_time;
-      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events${latestRecordTime ? `, record_time=${latestRecordTime}` : ''}`);
+      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events${latestRecordTime ? `, record_time=${latestRecordTime}` : ''}${progress.cursor_after ? `, cursor=${progress.cursor_after}` : ''}`);
 
       const updatePayload: any = {
         processed_pages: progress.processed_pages,
@@ -433,6 +434,7 @@ Deno.serve(async (req) => {
       if (typeof progress.elapsed_time_ms !== 'undefined') updatePayload.elapsed_time_ms = progress.elapsed_time_ms;
       if (typeof progress.pages_per_minute !== 'undefined') updatePayload.pages_per_minute = progress.pages_per_minute;
       if (latestRecordTime) updatePayload.record_time = latestRecordTime;
+      if (typeof progress.cursor_after !== 'undefined') updatePayload.cursor_after = progress.cursor_after;
 
       const { error: updateError } = await supabase
         .from('acs_snapshots')
