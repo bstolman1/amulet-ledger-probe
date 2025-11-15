@@ -891,30 +891,40 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           }
         }
         
-        // Upload data in chunks (similar to fetchAllACS)
+        // Upload data in chunks - separate created/archived for incremental mode
         for (const [templateId, entries] of Object.entries(templatesData)) {
           if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
-            const chunks = chunkTemplateEntries(templateId, entries);
+            // Separate created and archived events
+            const createdEvents = entries.filter(e => e.created_event);
+            const archivedEvents = entries.filter(e => e.archived_event);
+            
+            const incrementalData = {
+              created: createdEvents,
+              archived: archivedEvents
+            };
+            
+            const chunks = chunkTemplateEntries(templateId, [incrementalData]);
             const chunkedTemplates = chunks.map(chunk => ({
               filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
-              content: JSON.stringify(chunk.entries, null, 2),
+              content: JSON.stringify(chunk.entries[0], null, 2), // Single object with created/archived
               templateId: chunk.templateId,
               chunkIndex: chunk.chunkIndex,
               totalChunks: chunk.totalChunks,
               isChunked: true
             }));
             
-            // Upload this template's chunks
+            // Upload this template's chunks using incremental mode
             if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
               const uploadPromise = (async () => {
                 try {
-                  await uploadToEdgeFunction("append", {
-                    mode: "append",
+                  await uploadToEdgeFunction("append_incremental", {
+                    mode: "append_incremental",
                     webhookSecret: WEBHOOK_SECRET,
                     snapshot_id: snapshotId,
+                    baseline_snapshot_id: baselineSnapshot.id,
                     templates: chunkedTemplates,
                   });
-                  console.log(`✅ Uploaded ${chunkedTemplates.length} chunks for ${templateId}`);
+                  console.log(`✅ Uploaded ${chunkedTemplates.length} incremental chunks for ${templateId} (+${createdEvents.length} -${archivedEvents.length})`);
                 } catch (error) {
                   console.error(`❌ Upload failed for ${templateId}:`, error.message);
                 }

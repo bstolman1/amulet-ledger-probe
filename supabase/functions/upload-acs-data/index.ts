@@ -88,7 +88,8 @@ type UploadRequest = StartRequest | AppendRequest | AppendIncrementalRequest | C
 async function processTemplateChunk(
   supabase: any,
   snapshot_id: string,
-  template: TemplateFile
+  template: TemplateFile,
+  isIncremental: boolean = false
 ): Promise<number> {
   const isChunked = template.isChunked || false;
   const templateId = template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':');
@@ -117,11 +118,41 @@ async function processTemplateChunk(
     throw uploadError;
   }
 
-  // Parse JSON only to count contracts, then immediately release
+  // Parse JSON to count contracts and update contract state
   let contractCount: number;
   {
-    const data = JSON.parse(template.content);
-    contractCount = data.length;
+    const contracts = JSON.parse(template.content);
+    contractCount = contracts.length;
+    
+    // Update acs_contract_state for tracking across snapshots
+    if (isIncremental && Array.isArray(contracts)) {
+      const contractUpdates = contracts.map((contract: any) => ({
+        contract_id: contract.contract_id || contract.contractId,
+        template_id: templateId,
+        package_name: contract.package_name || contract.packageName,
+        create_arguments: contract.create_arguments || contract.createArguments,
+        is_active: true,
+        last_seen_in_snapshot_id: snapshot_id,
+        created_at: new Date().toISOString(),
+      }));
+      
+      // Batch upsert contract state (50 at a time to avoid payload limits)
+      for (let i = 0; i < contractUpdates.length; i += 50) {
+        const batch = contractUpdates.slice(i, i + 50);
+        const { error: stateError } = await supabase
+          .from('acs_contract_state')
+          .upsert(batch, {
+            onConflict: 'contract_id',
+            ignoreDuplicates: false,
+          });
+        
+        if (stateError) {
+          console.error(`Failed to update contract state:`, stateError);
+          // Don't throw - continue with template stats update
+        }
+      }
+    }
+    
     // data goes out of scope here and can be garbage collected
   }
 
@@ -298,15 +329,66 @@ Deno.serve(async (req) => {
 
             // Parse to count new and archived contracts
             const updateData = JSON.parse(template.content);
-            const createdCount = updateData.created?.length || 0;
-            const archivedCount = updateData.archived?.length || 0;
+            const createdEvents = updateData.created || [];
+            const archivedEvents = updateData.archived || [];
+            const createdCount = createdEvents.length;
+            const archivedCount = archivedEvents.length;
+            
+            const templateId = template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+            
+            // Update acs_contract_state table for real-time tracking
+            // Mark archived contracts as inactive
+            if (archivedCount > 0) {
+              const archivedIds = archivedEvents.map((e: any) => e.contract_id);
+              const { error: archiveError } = await supabase
+                .from('acs_contract_state')
+                .update({
+                  is_active: false,
+                  archived_at: new Date().toISOString(),
+                  last_seen_in_snapshot_id: snapshot_id
+                })
+                .in('contract_id', archivedIds);
+              
+              if (archiveError) {
+                console.error(`Failed to archive contracts:`, archiveError);
+              }
+            }
+            
+            // Insert or update created contracts as active
+            if (createdCount > 0) {
+              const contractUpdates = createdEvents.map((event: any) => ({
+                contract_id: event.contract_id,
+                template_id: templateId,
+                package_name: event.package_name,
+                create_arguments: event.create_arguments,
+                is_active: true,
+                archived_at: null,
+                last_seen_in_snapshot_id: snapshot_id,
+                created_at: event.created_event?.created_at || new Date().toISOString(),
+              }));
+              
+              // Batch upsert (50 at a time)
+              for (let i = 0; i < contractUpdates.length; i += 50) {
+                const batch = contractUpdates.slice(i, i + 50);
+                const { error: upsertError } = await supabase
+                  .from('acs_contract_state')
+                  .upsert(batch, {
+                    onConflict: 'contract_id',
+                    ignoreDuplicates: false,
+                  });
+                
+                if (upsertError) {
+                  console.error(`Failed to upsert contract state:`, upsertError);
+                }
+              }
+            }
             
             // Get baseline count
             const { data: baselineStats } = await supabase
               .from('acs_template_stats')
               .select('contract_count')
               .eq('snapshot_id', baselineSnapshotId)
-              .eq('template_id', template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':'))
+              .eq('template_id', templateId)
               .maybeSingle();
 
             const baselineCount = baselineStats?.contract_count || 0;
@@ -317,7 +399,7 @@ Deno.serve(async (req) => {
               .from('acs_template_stats')
               .upsert({
                 snapshot_id,
-                template_id: template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':'),
+                template_id: templateId,
                 contract_count: newCount,
                 storage_path: storagePath,
               }, {
@@ -326,7 +408,7 @@ Deno.serve(async (req) => {
 
             processed++;
             totalContractsAdded += newCount;
-            console.log(`  ${template.filename}: +${createdCount} -${archivedCount} = ${newCount} total`);
+            console.log(`  ${template.filename}: +${createdCount} -${archivedCount} = ${newCount} total (updated contract_state)`);
           } catch (error) {
             console.error(`Error processing ${template.filename}:`, error);
             errors.push({ filename: template.filename, error: error instanceof Error ? error.message : String(error) });
