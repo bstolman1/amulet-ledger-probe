@@ -802,7 +802,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
   const inflightUploads = [];
 
   let lastSeenRecordTime = baselineSnapshot.record_time;
-  let lastPageTransactionCount = -1;
 
   while (true) {
     let retryCount = 0;
@@ -831,7 +830,6 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         
         const response = await cantonClient.post(url, requestBody);
         const transactions = response.data?.transactions ?? [];
-        lastPageTransactionCount = transactions.length;
         
         console.log(`   ✅ Fetched ${transactions.length} transactions`);
         
@@ -951,6 +949,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         page++;
+        success = true;
         await sleep(UPLOAD_DELAY_MS);
         
       } catch (error) {
@@ -969,7 +968,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     }
 
     // Check if we're done (no more transactions)
-    if (lastPageTransactionCount === 0) {
+    if (success) {
       break;
     }
   }
