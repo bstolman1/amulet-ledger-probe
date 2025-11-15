@@ -11,8 +11,16 @@ jobs:
     timeout-minutes: 330 # 5.5 hours - leave buffer before 6-hour hard limit
     
     steps:
+      - name: Clean workspace (self-hosted runner)
+        run: |
+          rm -rf "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE"
+      
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
