@@ -262,7 +262,7 @@ async function checkForExistingSnapshot(migration_id) {
 async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot = null) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
-  const allEvents = [];
+  let eventCount = 0; // Track count instead of storing all events
   let after = existingSnapshot?.cursor_after || 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = existingSnapshot?.processed_pages || 1;
@@ -391,7 +391,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           }
         }
 
-        allEvents.push(...events);
+        eventCount += events.length;
 
         // Add to pending uploads
         for (const templateId of pageTemplates) {
@@ -470,7 +470,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 snapshot_id: snapshotId,
                 progress: {
                   processed_pages: page,
-                  processed_events: allEvents.length,
+                  processed_events: eventCount,
                   elapsed_time_ms: elapsedMs,
                   pages_per_minute: pagesPerMin,
                 },
@@ -501,13 +501,13 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           const elapsedMs = now - startTime;
           const elapsedMinutes = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : 0;
-          const eventsPerPage = page > 0 ? (allEvents.length / page).toFixed(0) : 0;
+          const eventsPerPage = page > 0 ? (eventCount / page).toFixed(0) : 0;
           
           console.log("\n" + "-".repeat(80));
           console.log(`📊 STATUS UPDATE - Page ${page}`);
           console.log("-".repeat(80));
           console.log(`   - Snapshot ID: ${snapshotId || 'N/A'}`);
-          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
+          console.log(`   - Events Processed: ${eventCount.toLocaleString()}`);
           console.log(`   - Elapsed Time: ${elapsedMinutes} minutes`);
           console.log(`   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`);
           console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
@@ -531,7 +531,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
               snapshot_id: snapshotId,
               progress: {
                 processed_pages: page,
-                processed_events: allEvents.length,
+                processed_events: eventCount,
                 elapsed_time_ms: elapsedMs,
                 pages_per_minute: pagesPerMin,
               },
@@ -611,7 +611,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
     }
   }
 
-  console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
+  console.log(`\n✅ Fetched ${eventCount.toLocaleString()} ACS entries.`);
 
   // Wait for all remaining in-flight uploads
   if (inflightUploads.length > 0) {
@@ -703,7 +703,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           locked: lockedTotal.toString(),
           circulating: circulatingSupply.toString(),
         },
-        entry_count: allEvents.length,
+        entry_count: eventCount,
         canonical_package: canonicalPkg,
       },
     });
@@ -712,7 +712,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
     console.log("⚠️ No upload configured (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET)");
   }
 
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
+  return { eventCount, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
 }
 
 async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapshot) {
@@ -734,7 +734,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
     console.log(`   - New record_time: ${record_time}`);
   }
 
-  const allEvents = [];
+  let eventCount = 0; // Track count instead of storing all events
   let after = 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = isResuming ? (baselineSnapshot.processed_pages || 1) : 1;
@@ -875,7 +875,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               }
             }
 
-            allEvents.push(event);
+            eventCount++;
             seen.add(event.contract_id);
           }
         }
@@ -957,7 +957,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
               snapshot_id: snapshotId,
               progress: {
                 processed_pages: page,
-                processed_events: allEvents.length,
+                processed_events: eventCount,
                 elapsed_time_ms: elapsedTime,
                 pages_per_minute: parseFloat(pagesPerMinute),
                 record_time: lastSeenRecordTime,
@@ -1061,14 +1061,14 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
           locked: lockedTotal.toFixed(),
           circulating: amuletTotal.minus(lockedTotal).toFixed(),
         },
-        entry_count: allEvents.length,
+        entry_count: eventCount,
         canonical_package: canonicalPkg,
       },
     });
     console.log("✅ Incremental snapshot completed!");
   }
 
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
+  return { eventCount, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
 }
 
 async function run() {
@@ -1167,13 +1167,13 @@ async function run() {
       result = await fetchAllACS(BASE_URL, migration_id, record_time, null);
     }
 
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } = result;
+    const { eventCount, amuletTotal, lockedTotal, canonicalPkg } = result;
     const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
     
     console.log("\n" + "=".repeat(80));
     console.log("✅ SNAPSHOT COMPLETED SUCCESSFULLY");
     console.log("=".repeat(80));
-    console.log(`   - Total Events: ${allEvents.length.toLocaleString()}`);
+    console.log(`   - Total Events: ${eventCount.toLocaleString()}`);
     console.log(`   - Canonical Package: ${canonicalPkg}`);
     console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
     console.log(`   - Locked Total: ${lockedTotal.toString()}`);
