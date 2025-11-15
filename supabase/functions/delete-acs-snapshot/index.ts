@@ -27,7 +27,20 @@ Deno.serve(async (req) => {
 
     console.log(`🗑️ Deleting snapshot: ${snapshot_id}`);
 
-    // Delete template stats first (foreign key constraint)
+    // First, update any snapshots that reference this one to NULL
+    const { error: updateError } = await supabaseAdmin
+      .from('acs_snapshots')
+      .update({ previous_snapshot_id: null })
+      .eq('previous_snapshot_id', snapshot_id);
+
+    if (updateError) {
+      console.error('Failed to update referencing snapshots:', updateError);
+      throw updateError;
+    }
+
+    console.log('✅ Updated referencing snapshots');
+
+    // Delete template stats (foreign key constraint)
     const { error: statsError } = await supabaseAdmin
       .from('acs_template_stats')
       .delete()
