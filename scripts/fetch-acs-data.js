@@ -1001,9 +1001,9 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
         }
 
         // Progress update with retry logic
-        const now = Date.now();
-        if (now - lastProgressUpdate > 30000) {
-          const elapsedMs = now - startTime;
+        const nowTs = Date.now();
+        if (nowTs - lastProgressUpdate > 30000) {
+          const elapsedMs = nowTs - startTime;
           const elapsedMin = elapsedMs / 1000 / 60;
           const pagesPerMin = elapsedMin > 0 ? page / elapsedMin : 0;
           const netChange = contractsCreated - contractsArchived;
@@ -1026,7 +1026,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                   entry_count: netChange,
                 },
               });
-              lastProgressUpdate = now;
+              lastProgressUpdate = nowTs;
               break; // Success, exit retry loop
             } catch (err) {
               progressRetries++;
@@ -1036,7 +1036,7 @@ async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapsho
                 await sleep(delay);
               } else {
                 console.error(`❌ Progress update failed after ${MAX_PROGRESS_RETRIES} attempts:`, err.message || err);
-                lastProgressUpdate = now; // Update timestamp to avoid hammering
+                lastProgressUpdate = nowTs; // Update timestamp to avoid hammering
               }
             }
           }
