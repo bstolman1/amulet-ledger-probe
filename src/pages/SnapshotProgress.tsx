@@ -313,8 +313,7 @@ const SnapshotProgress = () => {
                     <Clock className="w-4 h-4" />
                     Elapsed Time
                   </div>
-                  <p className="text-2xl font-bold">{formatDuration(((snapshot.elapsed_time_ms && snapshot.elapsed_time_ms > 0) ? snapshot.elapsed_time_ms : Math.max(0, Date.now() - new Date(snapshot.started_at).getTime())))}
-                  </p>
+                  <p className="text-2xl font-bold">{formatDuration(snapshot.elapsed_time_ms || 0)}</p>
                 </div>
 
                 <div className="space-y-1">
@@ -322,16 +321,7 @@ const SnapshotProgress = () => {
                     <Activity className="w-4 h-4" />
                     Pages/Min
                   </div>
-                  <p className="text-2xl font-bold">{(() => {
-                    const elapsedMs = (snapshot.elapsed_time_ms && snapshot.elapsed_time_ms > 0)
-                      ? snapshot.elapsed_time_ms
-                      : Math.max(0, Date.now() - new Date(snapshot.started_at).getTime());
-                    const ppm = (snapshot.pages_per_minute && snapshot.pages_per_minute > 0)
-                      ? snapshot.pages_per_minute
-                      : (elapsedMs > 0 ? snapshot.processed_pages / (elapsedMs / 60000) : 0);
-                    return Number(ppm).toFixed(1);
-                  })()}
-                  </p>
+                  <p className="text-2xl font-bold">{Number(snapshot.pages_per_minute ?? 0).toFixed(1)}</p>
                 </div>
               </div>
 
