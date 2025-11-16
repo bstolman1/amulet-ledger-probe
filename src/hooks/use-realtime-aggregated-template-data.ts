@@ -14,7 +14,7 @@ interface ChunkManifest {
 }
 
 /**
- * Helper function to fetch template data from storage
+ * Helper function to fetch template data from storage with chunk discovery and concurrency limiting
  */
 async function fetchTemplateData(storagePath: string): Promise<any[]> {
   const { data: fileData, error: downloadError } = await supabase.storage
@@ -37,27 +37,77 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
       }))
       .filter((c) => !!c.path);
 
+    // De-duplicate by path
     const byPath = new Map<string, { index: number; path: string; entryCount: number }>();
     for (const c of normalized) {
       if (!byPath.has(c.path)) byPath.set(c.path, c);
     }
     const chunks = Array.from(byPath.values());
 
-    // Download all chunks in parallel
-    const chunkPromises = chunks.map(async (chunk) => {
-      const { data: chunkData, error: chunkError } = await supabase.storage
-        .from("acs-data")
-        .download(chunk.path);
+    // Attempt to auto-discover additional chunks in the same folder when manifest looks incomplete
+    let discoveredChunkPaths: string[] = [];
+    try {
+      const sample = chunks[0];
+      if (sample?.path) {
+        const lastSlash = sample.path.lastIndexOf("/");
+        if (lastSlash !== -1) {
+          const dir = sample.path.substring(0, lastSlash);
+          const file = sample.path.substring(lastSlash + 1);
+          const basePrefix = file.split("_chunk_")[0] + "_chunk_"; // e.g. <hash>_Splice_Amulet_Amulet_chunk_
 
-      if (chunkError || !chunkData) return [] as any[];
+          if (basePrefix.includes("_chunk_")) {
+            const { data: listed, error: listError } = await supabase.storage
+              .from("acs-data")
+              .list(dir, { limit: 1000, search: basePrefix });
 
-      const chunkText = await chunkData.text();
-      const chunkArray = JSON.parse(chunkText);
-      return Array.isArray(chunkArray) ? chunkArray : [];
-    });
+            if (!listError && Array.isArray(listed) && listed.length > 0) {
+              const names = listed
+                .filter((it) => it.name.startsWith(basePrefix) && it.name.endsWith(".json"))
+                .map((it) => `${dir}/${it.name}`);
+              const existing = new Set(chunks.map((c) => c.path));
+              for (const p of names) if (!existing.has(p)) discoveredChunkPaths.push(p);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore discovery errors
+    }
 
-    const chunkArrays = await Promise.all(chunkPromises);
-    return chunkArrays.flat();
+    const allChunkPaths = [
+      ...chunks.map((c) => c.path),
+      ...discoveredChunkPaths,
+    ];
+
+    // Download chunks with a concurrency limit to avoid overwhelming the browser
+    const limit = 8;
+    const results: any[][] = new Array(allChunkPaths.length);
+    let i = 0;
+
+    const worker = async () => {
+      while (true) {
+        const current = i++;
+        if (current >= allChunkPaths.length) break;
+        const path = allChunkPaths[current];
+        try {
+          const { data: chunkData } = await supabase.storage.from("acs-data").download(path);
+          if (!chunkData) {
+            results[current] = [];
+            continue;
+          }
+          const chunkText = await chunkData.text();
+          const chunkArray = JSON.parse(chunkText);
+          results[current] = Array.isArray(chunkArray) ? chunkArray : [];
+        } catch (err) {
+          console.error("Chunk download failed:", path, err);
+          results[current] = [];
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(limit, allChunkPaths.length) }, () => worker()));
+
+    return results.flat();
   }
 
   // Direct file format
