@@ -72,7 +72,7 @@ export function useRealtimeAggregatedTemplateData(
   templateSuffix: string,
   enabled: boolean = true
 ) {
-  const { data: snapshots, isLoading: snapshotsLoading } = useRealtimeSnapshots(enabled);
+  const { data: snapshots, isLoading: snapshotsLoading, error: snapshotsError } = useRealtimeSnapshots(enabled);
 
   return useQuery({
     queryKey: ["realtime-aggregated-template-data", templateSuffix, snapshots?.allSnapshots.map(s => s.id)],
@@ -80,6 +80,9 @@ export function useRealtimeAggregatedTemplateData(
       if (!snapshots || !templateSuffix) {
         throw new Error("Missing snapshots or templateSuffix");
       }
+
+      console.log(`🔄 Aggregating template data for: ${templateSuffix}`);
+      console.log(`📊 Processing ${snapshots.allSnapshots.length} snapshots`);
 
       // Support both legacy and new template id separators
       const firstColon = templateSuffix.indexOf(":");
@@ -102,12 +105,16 @@ export function useRealtimeAggregatedTemplateData(
           );
 
         if (statsError) {
-          console.error(`Error loading templates for snapshot ${snapshot.id}:`, statsError);
+          console.error(`❌ Error loading templates for snapshot ${snapshot.id}:`, statsError);
           continue;
         }
 
-        if (!templateStats || templateStats.length === 0) continue;
+        if (!templateStats || templateStats.length === 0) {
+          console.log(`⚠️ No templates found for snapshot ${snapshot.id}`);
+          continue;
+        }
 
+        console.log(`✅ Found ${templateStats.length} templates in snapshot ${snapshot.id}`);
         totalTemplateCount = Math.max(totalTemplateCount, templateStats.length);
 
         // Fetch data from all matching templates in this snapshot
@@ -123,12 +130,13 @@ export function useRealtimeAggregatedTemplateData(
               }
             }
           } catch (error) {
-            console.error(`Error loading template ${template.template_id} from snapshot ${snapshot.id}:`, error);
+            console.error(`❌ Error loading template ${template.template_id} from snapshot ${snapshot.id}:`, error);
           }
         }
       }
 
       const mergedData = Array.from(contractsMap.values());
+      console.log(`✅ Aggregated ${mergedData.length} unique contracts`);
 
       return {
         data: mergedData,
