@@ -130,6 +130,14 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
  * Fetch and aggregate data across baseline and all incremental snapshots
  * This provides near real-time data by merging multiple snapshots
  */
+interface SnapshotBreakdownEntry {
+  id: string;
+  type: "baseline" | "incremental";
+  templateCount: number;
+  contractCount: number;
+  timestamp: string;
+}
+
 export function useRealtimeAggregatedTemplateData(
   templateSuffix: string,
   enabled: boolean = true
@@ -146,15 +154,23 @@ export function useRealtimeAggregatedTemplateData(
       console.log(`🔄 Aggregating template data for: ${templateSuffix}`);
       console.log(`📊 Processing ${snapshots.allSnapshots.length} snapshots`);
 
-      // Support both legacy and new template id separators
+      // Support both legacy and new template id separators and collect flexible filters
       const firstColon = templateSuffix.indexOf(":");
       const dotVariant = firstColon !== -1
         ? templateSuffix.slice(0, firstColon) + "." + templateSuffix.slice(firstColon + 1)
         : templateSuffix;
+      const suffixVariants = Array.from(new Set([templateSuffix, dotVariant].filter(Boolean)));
+      const filterExpressions = suffixVariants.flatMap((variant) => [
+        `template_id.ilike.${variant}`,
+        `template_id.ilike.%${variant}`,
+        `template_id.ilike.%:${variant}`,
+        `template_id.eq.${variant}`,
+      ]);
 
       // Collect data from all snapshots
       const contractsMap = new Map<string, any>();
       let totalTemplateCount = 0;
+      const snapshotBreakdown: SnapshotBreakdownEntry[] = [];
 
       for (const snapshot of snapshots.allSnapshots) {
         // Find all templates matching the suffix for this snapshot
@@ -163,9 +179,7 @@ export function useRealtimeAggregatedTemplateData(
           .from("acs_template_stats")
           .select("template_id, storage_path, contract_count")
           .eq("snapshot_id", snapshot.id)
-          .or(
-            `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
-          );
+          .or(filterExpressions.join(","));
 
         if (statsError) {
           console.error(`❌ Error loading templates for snapshot ${snapshot.id}:`, statsError);
@@ -178,13 +192,15 @@ export function useRealtimeAggregatedTemplateData(
         }
 
         console.log(`✅ Found ${templateStats.length} templates in snapshot ${snapshot.id}`, templateStats.map(t => t.template_id));
-        totalTemplateCount = Math.max(totalTemplateCount, templateStats.length);
+        totalTemplateCount += templateStats.length;
+        let snapshotContractCount = 0;
 
         // Fetch data from all matching templates in this snapshot
         for (const template of templateStats) {
           try {
             const contractsArray = await fetchTemplateData(template.storage_path);
-            
+            snapshotContractCount += contractsArray.length;
+
             // Merge contracts, using latest version (from most recent snapshot)
             for (const contract of contractsArray) {
               // Handle multiple possible field name variations for contract ID
@@ -208,6 +224,14 @@ export function useRealtimeAggregatedTemplateData(
             console.error(`❌ Error loading template ${template.template_id} from snapshot ${snapshot.id}:`, error);
           }
         }
+
+        snapshotBreakdown.push({
+          id: snapshot.id,
+          type: snapshot.id === snapshots.baseline.id ? "baseline" : "incremental",
+          templateCount: templateStats.length,
+          contractCount: snapshotContractCount,
+          timestamp: snapshot.timestamp,
+        });
       }
 
       const mergedData = Array.from(contractsMap.values());
@@ -219,7 +243,8 @@ export function useRealtimeAggregatedTemplateData(
         totalContracts: mergedData.length,
         snapshotCount: snapshots.allSnapshots.length,
         baselineId: snapshots.baseline.id,
-        incrementalIds: snapshots.incrementals.map(i => i.id)
+        incrementalIds: snapshots.incrementals.map(i => i.id),
+        snapshotBreakdown,
       };
     },
     enabled: enabled && !!snapshots && !!templateSuffix && !snapshotsLoading,
