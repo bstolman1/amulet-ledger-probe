@@ -9,7 +9,7 @@ import { Search, Package, Code } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
@@ -21,20 +21,17 @@ const Subscriptions = () => {
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
   
-  const subscriptionsQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const subscriptionsQuery = useRealtimeAggregatedTemplateData(
     "Wallet:Subscriptions:Subscription",
     !!latestSnapshot
   );
-  
-  const idleStatesQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+
+  const idleStatesQuery = useRealtimeAggregatedTemplateData(
     "Wallet:Subscriptions:SubscriptionIdleState",
     !!latestSnapshot
   );
-  
-  const requestsQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+
+  const requestsQuery = useRealtimeAggregatedTemplateData(
     "Wallet:Subscriptions:SubscriptionRequest",
     !!latestSnapshot
   );

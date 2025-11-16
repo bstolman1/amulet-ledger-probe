@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Shield, CheckCircle, AlertCircle, Code } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
@@ -14,20 +14,17 @@ import { Button } from "@/components/ui/button";
 const DSOState = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
   
-  const nodeStatesQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const nodeStatesQuery = useRealtimeAggregatedTemplateData(
     "DSO:SvState:SvNodeState",
     !!latestSnapshot
   );
-  
-  const statusReportsQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+
+  const statusReportsQuery = useRealtimeAggregatedTemplateData(
     "DSO:SvState:SvStatusReport",
     !!latestSnapshot
   );
-  
-  const rewardStatesQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+
+  const rewardStatesQuery = useRealtimeAggregatedTemplateData(
     "DSO:SvState:SvRewardState",
     !!latestSnapshot
   );

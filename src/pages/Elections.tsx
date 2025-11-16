@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { Vote, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
@@ -19,8 +19,7 @@ const Elections = () => {
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  const electionsQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const electionsQuery = useRealtimeAggregatedTemplateData(
     "Splice:DsoRules:ElectionRequest",
     !!latestSnapshot
   );

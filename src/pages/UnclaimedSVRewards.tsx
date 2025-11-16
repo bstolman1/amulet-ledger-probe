@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Award, Users, TrendingUp, Search, Code } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -32,8 +32,7 @@ const UnclaimedSVRewards = () => {
   const { data: snapshot } = useLatestACSSnapshot();
 
   // Fetch ValidatorRewardCoupon contracts - the actual unclaimed rewards
-  const { data: rewardCouponsData, isLoading: couponsLoading } = useAggregatedTemplateData(
-    snapshot?.id,
+  const { data: rewardCouponsData, isLoading: couponsLoading } = useRealtimeAggregatedTemplateData(
     "Splice:Amulet:ValidatorRewardCoupon",
     !!snapshot
   );

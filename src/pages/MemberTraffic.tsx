@@ -7,7 +7,7 @@ import { Search, Activity, Code } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { PaginationControls } from "@/components/PaginationControls";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
@@ -18,8 +18,7 @@ const MemberTraffic = () => {
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
   
-  const trafficQuery = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const trafficQuery = useRealtimeAggregatedTemplateData(
     "Splice:DecentralizedSynchronizer:MemberTraffic",
     !!latestSnapshot
   );

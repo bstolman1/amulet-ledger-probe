@@ -7,7 +7,7 @@ import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
@@ -22,22 +22,19 @@ const Governance = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
   // Fetch DsoRules to get SV count and voting threshold - aggregated across all packages
-  const { data: dsoRulesData } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const { data: dsoRulesData } = useRealtimeAggregatedTemplateData(
     "Splice:DsoRules:DsoRules",
     !!latestSnapshot
   );
 
   // Fetch vote requests - aggregated across all packages
-  const { data: voteRequestsData, isLoading, isError } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const { data: voteRequestsData, isLoading, isError } = useRealtimeAggregatedTemplateData(
     "Splice:DsoRules:VoteRequest",
     !!latestSnapshot
   );
 
   // Fetch Amulet Price Votes
-  const { data: priceVotesData, isLoading: priceVotesLoading } = useAggregatedTemplateData(
-    latestSnapshot?.id,
+  const { data: priceVotesData, isLoading: priceVotesLoading } = useRealtimeAggregatedTemplateData(
     "Splice:DSO:AmuletPrice:AmuletPriceVote",
     !!latestSnapshot
   );
