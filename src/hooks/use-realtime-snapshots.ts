@@ -44,7 +44,7 @@ export function useRealtimeSnapshots(enabled: boolean = true) {
         .select("id, record_time, snapshot_type, status, timestamp")
         .eq("snapshot_type", "incremental")
         .in("status", ["completed", "processing"])
-        .gte("timestamp", baseline.timestamp)
+        .gt("timestamp", baseline.timestamp)
         .order("timestamp", { ascending: true });
 
       if (incrementalsError) {

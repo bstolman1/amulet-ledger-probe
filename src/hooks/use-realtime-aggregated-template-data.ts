@@ -17,12 +17,20 @@ interface ChunkManifest {
  * Helper function to fetch template data from storage with chunk discovery and concurrency limiting
  */
 async function fetchTemplateData(storagePath: string): Promise<any[]> {
+  console.log(`📥 Downloading template data from: ${storagePath}`);
+  
   const { data: fileData, error: downloadError } = await supabase.storage
     .from("acs-data")
     .download(storagePath);
 
-  if (downloadError) throw downloadError;
-  if (!fileData) throw new Error("No data returned from storage");
+  if (downloadError) {
+    console.error(`❌ Download error for ${storagePath}:`, downloadError);
+    return [];
+  }
+  if (!fileData) {
+    console.warn(`⚠️ No data returned for ${storagePath}`);
+    return [];
+  }
 
   const text = await fileData.text();
   const parsed = JSON.parse(text);
@@ -79,6 +87,8 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
       ...discoveredChunkPaths,
     ];
 
+    console.log(`📦 Found ${chunks.length} manifest chunks + ${discoveredChunkPaths.length} discovered chunks = ${allChunkPaths.length} total`);
+
     // Download chunks with a concurrency limit to avoid overwhelming the browser
     const limit = 8;
     const results: any[][] = new Array(allChunkPaths.length);
@@ -111,7 +121,9 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
   }
 
   // Direct file format
-  return Array.isArray(parsed) ? parsed : [];
+  const result = Array.isArray(parsed) ? parsed : [];
+  console.log(`✅ Loaded ${result.length} entries from ${storagePath}`);
+  return result;
 }
 
 /**
@@ -146,12 +158,13 @@ export function useRealtimeAggregatedTemplateData(
 
       for (const snapshot of snapshots.allSnapshots) {
         // Find all templates matching the suffix for this snapshot
+        // Handle both "Splice:Amulet:Amulet" and "Splice.Amulet:Amulet" formats
         const { data: templateStats, error: statsError } = await supabase
           .from("acs_template_stats")
           .select("template_id, storage_path, contract_count")
           .eq("snapshot_id", snapshot.id)
           .or(
-            `template_id.like.%:${templateSuffix},template_id.like.%:${dotVariant}`
+            `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
           );
 
         if (statsError) {
@@ -164,7 +177,7 @@ export function useRealtimeAggregatedTemplateData(
           continue;
         }
 
-        console.log(`✅ Found ${templateStats.length} templates in snapshot ${snapshot.id}`);
+        console.log(`✅ Found ${templateStats.length} templates in snapshot ${snapshot.id}`, templateStats.map(t => t.template_id));
         totalTemplateCount = Math.max(totalTemplateCount, templateStats.length);
 
         // Fetch data from all matching templates in this snapshot
@@ -174,11 +187,23 @@ export function useRealtimeAggregatedTemplateData(
             
             // Merge contracts, using latest version (from most recent snapshot)
             for (const contract of contractsArray) {
-              const contractId = contract.contractId || contract.contract_id;
-              if (contractId) {
-                contractsMap.set(contractId, contract);
+              // Handle multiple possible field name variations for contract ID
+              const contractId = 
+                contract.contract?.contractId || 
+                contract.contractId || 
+                contract.contract_id ||
+                contract.payload?.contractId ||
+                contract.payload?.contract_id;
+              
+              if (!contractId) {
+                console.warn("⚠️ Contract entry missing contract ID:", Object.keys(contract));
+                continue;
               }
+              
+              contractsMap.set(contractId, contract);
             }
+            
+            console.log(`📊 Snapshot ${snapshot.id}: Template ${template.template_id} added ${contractsArray.length} contracts, map now has ${contractsMap.size}`);
           } catch (error) {
             console.error(`❌ Error loading template ${template.template_id} from snapshot ${snapshot.id}:`, error);
           }
