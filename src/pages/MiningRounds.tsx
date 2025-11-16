@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
@@ -20,19 +20,22 @@ const MiningRounds = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
   // Fetch OpenMiningRound contracts - aggregated across all packages
-  const { data: openRoundsData, isLoading: openLoading, isError: openError } = useRealtimeAggregatedTemplateData(
+  const { data: openRoundsData, isLoading: openLoading, isError: openError } = useAggregatedTemplateData(
+    latestSnapshot?.id,
     "Splice:Round:OpenMiningRound",
     !!latestSnapshot
   );
 
   // Fetch IssuingMiningRound contracts - aggregated across all packages
-  const { data: issuingRoundsData, isLoading: issuingLoading, isError: issuingError } = useRealtimeAggregatedTemplateData(
+  const { data: issuingRoundsData, isLoading: issuingLoading, isError: issuingError } = useAggregatedTemplateData(
+    latestSnapshot?.id,
     "Splice:Round:IssuingMiningRound",
     !!latestSnapshot
   );
 
   // Fetch ClosedMiningRound contracts - aggregated across all packages
-  const { data: closedRoundsData, isLoading: closedLoading, isError: closedError } = useRealtimeAggregatedTemplateData(
+  const { data: closedRoundsData, isLoading: closedLoading, isError: closedError } = useAggregatedTemplateData(
+    latestSnapshot?.id,
     "Splice:Round:ClosedMiningRound",
     !!latestSnapshot
   );

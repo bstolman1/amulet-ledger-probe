@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRightLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { PaginationControls } from "@/components/PaginationControls";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,9 +20,9 @@ const Transfers = () => {
   
   const { data: snapshot } = useLatestACSSnapshot();
 
-  const preapprovalsQuery = useRealtimeAggregatedTemplateData("Splice:AmuletRules:TransferPreapproval", !!snapshot);
-  const commandsQuery = useRealtimeAggregatedTemplateData("Splice:ExternalPartyAmuletRules:TransferCommand", !!snapshot);
-  const instructionsQuery = useRealtimeAggregatedTemplateData("Splice:AmuletTransferInstruction:AmuletTransferInstruction", !!snapshot);
+  const preapprovalsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletRules:TransferPreapproval", !!snapshot);
+  const commandsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:ExternalPartyAmuletRules:TransferCommand", !!snapshot);
+  const instructionsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:AmuletTransferInstruction:AmuletTransferInstruction", !!snapshot);
 
   const isLoading = preapprovalsQuery.isLoading || commandsQuery.isLoading || instructionsQuery.isLoading;
 

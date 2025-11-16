@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { Hash, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
@@ -19,7 +19,8 @@ const TransferCounters = () => {
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  const countersQuery = useRealtimeAggregatedTemplateData(
+  const countersQuery = useAggregatedTemplateData(
+    latestSnapshot?.id,
     "Splice:ExternalPartyAmuletRules:TransferCommandCounter",
     !!latestSnapshot
   );

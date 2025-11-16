@@ -6,14 +6,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Search, Users, Clock } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const ExternalPartySetup = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { data: latestSnapshot } = useLatestACSSnapshot();
   
-  const proposalsQuery = useRealtimeAggregatedTemplateData(
+  const proposalsQuery = useAggregatedTemplateData(
+    latestSnapshot?.id,
     "Splice:AmuletRules:ExternalPartySetupProposal",
     !!latestSnapshot
   );
