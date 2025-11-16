@@ -105,7 +105,7 @@ const Balances = () => {
             Top CC holders and balance distribution
           </p>
           {amuletData && (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Badge variant="outline" className="text-xs">
                 Real-time: {amuletData.snapshotCount} snapshot{amuletData.snapshotCount !== 1 ? 's' : ''} aggregated
               </Badge>
@@ -116,6 +116,30 @@ const Balances = () => {
               )}
             </div>
           )}
+          {amuletData?.snapshotBreakdown?.length ? (
+            <div className="mt-3 rounded-lg border border-border/70 bg-muted/30 p-4 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Snapshot aggregation order
+              </p>
+              <div className="space-y-1">
+                {amuletData.snapshotBreakdown.map((entry) => (
+                  <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={entry.type === 'baseline' ? 'default' : 'secondary'} className="text-[10px]">
+                        {entry.type === 'baseline' ? 'Baseline' : 'Incremental'}
+                      </Badge>
+                      <span>
+                        {entry.id.substring(0, 8)}… · {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <span className="text-muted-foreground">
+                      {entry.templateCount} templates · {entry.contractCount.toLocaleString()} contracts applied
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Summary Cards */}
