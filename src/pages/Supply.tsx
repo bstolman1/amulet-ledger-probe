@@ -2,14 +2,67 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Flame, Coins, TrendingUp, TrendingDown, Package, RefreshCw } from "lucide-react";
-import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
+import { Badge } from "@/components/ui/badge";
+import { Coins, TrendingUp, TrendingDown, Package, RefreshCw, ScrollText } from "lucide-react";
+import { useTemplateSumServer, AggregationLogLine } from "@/hooks/use-template-sum-server";
 import { useAggregatedTemplateSum } from "@/hooks/use-aggregated-template-sum";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { pickAmount } from "@/lib/amount-utils";
+
+const logLevelStyles: Record<AggregationLogLine['level'], string> = {
+  info: "bg-muted text-foreground",
+  warn: "bg-amber-100 text-amber-900 border-amber-200",
+  error: "bg-destructive/15 text-destructive border-destructive/40",
+};
+
+interface AggregationLogPanelProps {
+  title: string;
+  description: string;
+  logs?: AggregationLogLine[];
+  isLoading: boolean;
+}
+
+const AggregationLogPanel = ({ title, description, logs, isLoading }: AggregationLogPanelProps) => {
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/50 p-4 shadow-sm">
+      <div className="mb-4">
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      ) : logs && logs.length > 0 ? (
+        <div className="space-y-3 max-h-72 overflow-auto pr-2">
+          {logs.map((log) => (
+            <div
+              key={`${log.timestamp}-${log.message}`}
+              className="rounded-lg border border-border/50 bg-muted/20 p-3 text-xs font-mono"
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </span>
+                <Badge variant="outline" className={logLevelStyles[log.level]}>
+                  {log.level}
+                </Badge>
+              </div>
+              <p className="leading-snug text-foreground/90">{log.message}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No logs available yet.</p>
+      )}
+    </div>
+  );
+};
 
 const Supply = () => {
   const queryClient = useQueryClient();
@@ -208,6 +261,32 @@ const Supply = () => {
                 </p>
               )}
             </div>
+          </div>
+        </Card>
+
+        <Card className="glass-card p-6">
+          <div className="mb-6 flex items-center gap-3">
+            <ScrollText className="h-5 w-5 text-primary" />
+            <div>
+              <h3 className="text-xl font-semibold">Aggregation Debug Logs</h3>
+              <p className="text-sm text-muted-foreground">
+                Live output from the Supabase edge function so you can verify each snapshot aggregation is running.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <AggregationLogPanel
+              title="Circulating Supply Aggregation"
+              description="Splice:Amulet:Amulet"
+              logs={circulatingData.data?.logs}
+              isLoading={circulatingData.isLoading}
+            />
+            <AggregationLogPanel
+              title="Locked Supply Aggregation"
+              description="Splice:Amulet:LockedAmulet"
+              logs={lockedData.data?.logs}
+              isLoading={lockedData.isLoading}
+            />
           </div>
         </Card>
 

@@ -52,6 +52,36 @@ async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): 
   return results;
 }
 
+type LogLevel = "info" | "warn" | "error";
+
+interface LogEntry {
+  level: LogLevel;
+  message: string;
+  timestamp: string;
+}
+
+function createLogger(entries: LogEntry[]) {
+  return (level: LogLevel, message: string, error?: unknown) => {
+    const timestamp = new Date().toISOString();
+    entries.push({ level, message, timestamp });
+    const prefix = `[aggregate-template-sum] ${message}`;
+    switch (level) {
+      case "warn":
+        console.warn(prefix);
+        break;
+      case "error":
+        if (error) {
+          console.error(prefix, error);
+        } else {
+          console.error(prefix);
+        }
+        break;
+      default:
+        console.log(prefix);
+    }
+  };
+}
+
 // ------------------------------
 // Main server function
 // ------------------------------
@@ -59,6 +89,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const logs: LogEntry[] = [];
+  const log = createLogger(logs);
 
   try {
     const { snapshot_id, template_suffix, mode = "circulating" } = await req.json();
@@ -245,8 +278,8 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
-    console.error("aggregate-template-sum error", e);
-    return new Response(JSON.stringify({ error: (e as Error)?.message ?? "Internal server error" }), {
+    log("error", `aggregate-template-sum error: ${(e as Error)?.message ?? "Internal server error"}`, e);
+    return new Response(JSON.stringify({ error: (e as Error)?.message ?? "Internal server error", logs }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
