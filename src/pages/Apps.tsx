@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Package, Star, Code } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 const Apps = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
+  const appsQuery = useRealtimeAggregatedTemplateData("Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
 
   const isLoading = appsQuery.isLoading;
   const apps = appsQuery.data?.data || [];

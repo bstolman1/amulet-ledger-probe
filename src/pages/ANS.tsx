@@ -5,7 +5,7 @@ import { Search, Globe } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
-import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { PaginationControls } from "@/components/PaginationControls";
 
@@ -16,8 +16,8 @@ const ANS = () => {
   
   const { data: snapshot } = useLatestACSSnapshot();
   
-  const ansEntriesQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntry", !!snapshot);
-  const ansContextsQuery = useAggregatedTemplateData(snapshot?.id, "Splice:Ans:AnsEntryContext", !!snapshot);
+  const ansEntriesQuery = useRealtimeAggregatedTemplateData("Splice:Ans:AnsEntry", !!snapshot);
+  const ansContextsQuery = useRealtimeAggregatedTemplateData("Splice:Ans:AnsEntryContext", !!snapshot);
 
   const isLoading = ansEntriesQuery.isLoading || ansContextsQuery.isLoading;
   const ansEntries = ansEntriesQuery.data?.data || [];
