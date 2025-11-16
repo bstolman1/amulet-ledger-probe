@@ -52,6 +52,36 @@ async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): 
   return results;
 }
 
+type LogLevel = "info" | "warn" | "error";
+
+interface LogEntry {
+  level: LogLevel;
+  message: string;
+  timestamp: string;
+}
+
+function createLogger(entries: LogEntry[]) {
+  return (level: LogLevel, message: string, error?: unknown) => {
+    const timestamp = new Date().toISOString();
+    entries.push({ level, message, timestamp });
+    const prefix = `[aggregate-template-sum] ${message}`;
+    switch (level) {
+      case "warn":
+        console.warn(prefix);
+        break;
+      case "error":
+        if (error) {
+          console.error(prefix, error);
+        } else {
+          console.error(prefix);
+        }
+        break;
+      default:
+        console.log(prefix);
+    }
+  };
+}
+
 // ------------------------------
 // Main server function
 // ------------------------------
@@ -59,6 +89,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const logs: LogEntry[] = [];
+  const log = createLogger(logs);
 
   try {
     const { snapshot_id, template_suffix, mode = "circulating" } = await req.json();
@@ -72,6 +105,23 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
+    log("info", `Starting aggregation | snapshot=${snapshot_id} | suffix=${template_suffix} | mode=${mode}`);
+
+    const { data: snapshotInfo, error: snapshotInfoError } = await supabase
+      .from("acs_snapshots")
+      .select("snapshot_type, status, timestamp, record_time")
+      .eq("id", snapshot_id)
+      .maybeSingle();
+
+    if (snapshotInfoError) {
+      log("warn", `Unable to load snapshot metadata for ${snapshot_id}: ${snapshotInfoError.message}`);
+    } else if (snapshotInfo) {
+      log(
+        "info",
+        `Snapshot context | type=${snapshotInfo.snapshot_type} | status=${snapshotInfo.status} | timestamp=${snapshotInfo.timestamp} | record_time=${snapshotInfo.record_time}`,
+      );
+    }
+
     // ---------------------------
     // Fetch template stats
     // ---------------------------
@@ -83,6 +133,12 @@ Deno.serve(async (req) => {
 
     if (tsErr) throw tsErr;
 
+    const templateCount = templates?.length ?? 0;
+    log("info", `Snapshot ${snapshot_id} has ${templateCount} template(s) matching suffix ${template_suffix}`);
+    if (templateCount === 0) {
+      log("warn", `No matching templates found for snapshot ${snapshot_id}`);
+    }
+
     let totalSum = 0;
     let totalCount = 0;
 
@@ -92,7 +148,12 @@ Deno.serve(async (req) => {
     // Process templates
     // ---------------------------
     for (const t of templates ?? []) {
-      if (!t.storage_path) continue;
+      if (!t.storage_path) {
+        log("warn", `Template ${t.template_id} is missing a storage_path – skipping`);
+        continue;
+      }
+
+      log("info", `Processing template ${t.template_id} (snapshot=${snapshot_id}) manifest=${t.storage_path}`);
 
       const { data: manifestFile, error: mErr } = await supabase.storage.from("acs-data").download(t.storage_path);
 
@@ -107,12 +168,14 @@ Deno.serve(async (req) => {
       }
 
       let chunkPaths: string[] = [];
+      let manifestReferencedChunks = false;
 
       // ----------------------------------------------
       // Manifest Type 1 — parsed.chunks: [{ path }]
       // ----------------------------------------------
       if (parsed?.chunks && Array.isArray(parsed.chunks)) {
         chunkPaths = parsed.chunks.map((c: any) => c.path || c.storagePath).filter((p: string) => !!p);
+        manifestReferencedChunks = manifestReferencedChunks || chunkPaths.length > 0;
       }
 
       // ----------------------------------------------
@@ -120,6 +183,7 @@ Deno.serve(async (req) => {
       // ----------------------------------------------
       if (parsed?.chunk_paths) {
         chunkPaths.push(...parsed.chunk_paths);
+        manifestReferencedChunks = manifestReferencedChunks || parsed.chunk_paths.length > 0;
       }
 
       // ----------------------------------------------
@@ -131,54 +195,80 @@ Deno.serve(async (req) => {
       // ----------------------------------------------
       // 🔥 DEDUPLICATE HERE — MOST IMPORTANT FIX
       // ----------------------------------------------
-      chunkPaths = [...new Set(chunkPaths)];
-
-      console.log(`Template ${t.template_id}: ${chunkPaths.length} unique chunk files.`);
-
-      // ----------------------------------------------
-      // Chunk processing tasks
-      // ----------------------------------------------
-      const tasks = chunkPaths.map((path) => async () => {
-        try {
-          const { data: chunkFile } = await supabase.storage.from("acs-data").download(path);
-
-          if (!chunkFile) return { sum: 0, count: 0 };
-
-          const text = await chunkFile.text();
-          const arr = JSON.parse(text);
-
-          if (!Array.isArray(arr)) return { sum: 0, count: 0 };
-
-          const sum = arr.reduce((a, it) => a + picker(it), 0);
-          return { sum, count: arr.length };
-        } catch (err) {
-          console.error(`Error loading chunk ${path}:`, err);
-          return { sum: 0, count: 0 };
+      if (manifestReferencedChunks && chunkPaths.length > 0) {
+        const deduped = [...new Set(chunkPaths)];
+        if (deduped.length !== chunkPaths.length) {
+          log("info", `Template ${t.template_id}: deduped chunk paths ${chunkPaths.length} -> ${deduped.length}`);
         }
-      });
+        chunkPaths = deduped;
 
-      // ----------------------------------------------
-      // Process with concurrency limit
-      // ----------------------------------------------
-      const results = await limitConcurrency(tasks, 6);
+        log(
+          "info",
+          `Template ${t.template_id}: manifest listed ${parsed?.chunks?.length || parsed?.chunk_paths?.length || 0} chunk reference(s); processing ${chunkPaths.length} unique chunk file(s)`,
+        );
 
-      for (const r of results) {
-        totalSum += r.sum;
-        totalCount += r.count;
+        // ----------------------------------------------
+        // Chunk processing tasks
+        // ----------------------------------------------
+        const tasks = chunkPaths.map((path) => async () => {
+          try {
+            const { data: chunkFile } = await supabase.storage.from("acs-data").download(path);
+
+            if (!chunkFile) return { sum: 0, count: 0 };
+
+            const text = await chunkFile.text();
+            const arr = JSON.parse(text);
+
+            if (!Array.isArray(arr)) return { sum: 0, count: 0 };
+
+            const sum = arr.reduce((a, it) => a + picker(it), 0);
+            return { sum, count: arr.length };
+          } catch (err) {
+            log("error", `Error loading chunk ${path}: ${(err as Error)?.message ?? err}`);
+            return { sum: 0, count: 0 };
+          }
+        });
+
+        // ----------------------------------------------
+        // Process with concurrency limit
+        // ----------------------------------------------
+        const results = await limitConcurrency(tasks, 6);
+
+        let templateSum = 0;
+        let templateCount = 0;
+        for (const r of results) {
+          totalSum += r.sum;
+          totalCount += r.count;
+          templateSum += r.sum;
+          templateCount += r.count;
+        }
+
+        log("info", `Template ${t.template_id}: contributed sum=${templateSum} across ${templateCount} contract(s)`);
+      } else if (Array.isArray(parsed)) {
+        const sum = parsed.reduce((acc: number, item: any) => acc + picker(item), 0);
+        totalSum += sum;
+        totalCount += parsed.length;
+
+        log("info", `Template ${t.template_id}: direct JSON file contributed sum=${sum} across ${parsed.length} contract(s)`);
+      } else {
+        log("warn", `Template ${t.template_id}: manifest format unrecognized, skipping`);
       }
     }
+
+    log("info", `Snapshot ${snapshot_id} aggregation complete | sum=${totalSum} | count=${totalCount} | templates=${templateCount}`);
 
     return new Response(
       JSON.stringify({
         sum: totalSum,
         count: totalCount,
-        templateCount: templates?.length ?? 0,
+        templateCount,
+        logs,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
-    console.error("aggregate-template-sum error", e);
-    return new Response(JSON.stringify({ error: (e as Error)?.message ?? "Internal server error" }), {
+    log("error", `aggregate-template-sum error: ${(e as Error)?.message ?? "Internal server error"}`, e);
+    return new Response(JSON.stringify({ error: (e as Error)?.message ?? "Internal server error", logs }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

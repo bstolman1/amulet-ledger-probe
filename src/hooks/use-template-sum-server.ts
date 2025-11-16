@@ -1,10 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
+export interface AggregationLogLine {
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  timestamp: string;
+}
+
 export interface ServerAggregationResult {
   sum: number;
   count: number;
   templateCount: number;
+  logs?: AggregationLogLine[];
 }
 
 export function useTemplateSumServer(
