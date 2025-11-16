@@ -5,6 +5,7 @@ interface SnapshotInfo {
   id: string;
   record_time: string;
   snapshot_type: string;
+  timestamp: string;
 }
 
 /**
@@ -14,29 +15,44 @@ export function useRealtimeSnapshots(enabled: boolean = true) {
   return useQuery({
     queryKey: ["realtime-snapshots"],
     queryFn: async () => {
+      console.log("🔄 Fetching real-time snapshots...");
+      
       // Get latest completed full snapshot (baseline)
       const { data: baseline, error: baselineError } = await supabase
         .from("acs_snapshots")
-        .select("id, record_time, snapshot_type")
+        .select("id, record_time, snapshot_type, timestamp")
         .eq("status", "completed")
         .eq("snapshot_type", "full")
         .order("timestamp", { ascending: false })
         .limit(1)
         .single();
 
-      if (baselineError) throw baselineError;
-      if (!baseline) throw new Error("No baseline snapshot found");
+      if (baselineError) {
+        console.error("❌ Error fetching baseline:", baselineError);
+        throw baselineError;
+      }
+      if (!baseline) {
+        console.error("❌ No baseline snapshot found");
+        throw new Error("No baseline snapshot found");
+      }
 
-      // Get all incremental snapshots after the baseline
+      console.log("✅ Baseline snapshot:", baseline.id);
+
+      // Get all incremental snapshots after the baseline (compare timestamps correctly)
       const { data: incrementals, error: incrementalsError } = await supabase
         .from("acs_snapshots")
-        .select("id, record_time, snapshot_type, status")
+        .select("id, record_time, snapshot_type, status, timestamp")
         .eq("snapshot_type", "incremental")
         .in("status", ["completed", "processing"])
-        .gte("timestamp", baseline.record_time)
+        .gte("timestamp", baseline.timestamp)
         .order("timestamp", { ascending: true });
 
-      if (incrementalsError) throw incrementalsError;
+      if (incrementalsError) {
+        console.error("❌ Error fetching incrementals:", incrementalsError);
+        throw incrementalsError;
+      }
+
+      console.log(`✅ Found ${incrementals?.length || 0} incremental snapshots`);
 
       return {
         baseline,
