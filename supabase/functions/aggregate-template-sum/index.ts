@@ -105,7 +105,9 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
-    log("info", `Starting aggregation | snapshot=${snapshot_id} | suffix=${template_suffix} | mode=${mode}`);
+    console.log(
+      `[aggregate-template-sum] Starting aggregation | snapshot=${snapshot_id} | suffix=${template_suffix} | mode=${mode}`,
+    );
 
     const { data: snapshotInfo, error: snapshotInfoError } = await supabase
       .from("acs_snapshots")
@@ -114,11 +116,10 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (snapshotInfoError) {
-      log("warn", `Unable to load snapshot metadata for ${snapshot_id}: ${snapshotInfoError.message}`);
+      console.warn(`[aggregate-template-sum] Unable to load snapshot metadata for ${snapshot_id}:`, snapshotInfoError);
     } else if (snapshotInfo) {
-      log(
-        "info",
-        `Snapshot context | type=${snapshotInfo.snapshot_type} | status=${snapshotInfo.status} | timestamp=${snapshotInfo.timestamp} | record_time=${snapshotInfo.record_time}`,
+      console.log(
+        `[aggregate-template-sum] Snapshot context | type=${snapshotInfo.snapshot_type} | status=${snapshotInfo.status} | timestamp=${snapshotInfo.timestamp} | record_time=${snapshotInfo.record_time}`,
       );
     }
 
@@ -134,9 +135,11 @@ Deno.serve(async (req) => {
     if (tsErr) throw tsErr;
 
     const templateCount = templates?.length ?? 0;
-    log("info", `Snapshot ${snapshot_id} has ${templateCount} template(s) matching suffix ${template_suffix}`);
+    console.log(
+      `[aggregate-template-sum] Snapshot ${snapshot_id} has ${templateCount} template(s) matching suffix ${template_suffix}`,
+    );
     if (templateCount === 0) {
-      log("warn", `No matching templates found for snapshot ${snapshot_id}`);
+      console.warn(`[aggregate-template-sum] No matching templates found for snapshot ${snapshot_id}`);
     }
 
     let totalSum = 0;
@@ -149,11 +152,13 @@ Deno.serve(async (req) => {
     // ---------------------------
     for (const t of templates ?? []) {
       if (!t.storage_path) {
-        log("warn", `Template ${t.template_id} is missing a storage_path – skipping`);
+        console.warn(`[aggregate-template-sum] Template ${t.template_id} is missing a storage_path – skipping`);
         continue;
       }
 
-      log("info", `Processing template ${t.template_id} (snapshot=${snapshot_id}) manifest=${t.storage_path}`);
+      console.log(
+        `[aggregate-template-sum] Processing template ${t.template_id} (snapshot=${snapshot_id}) manifest=${t.storage_path}`,
+      );
 
       const { data: manifestFile, error: mErr } = await supabase.storage.from("acs-data").download(t.storage_path);
 
@@ -198,13 +203,14 @@ Deno.serve(async (req) => {
       if (manifestReferencedChunks && chunkPaths.length > 0) {
         const deduped = [...new Set(chunkPaths)];
         if (deduped.length !== chunkPaths.length) {
-          log("info", `Template ${t.template_id}: deduped chunk paths ${chunkPaths.length} -> ${deduped.length}`);
+          console.log(
+            `[aggregate-template-sum] Template ${t.template_id}: deduped chunk paths ${chunkPaths.length} -> ${deduped.length}`,
+          );
         }
         chunkPaths = deduped;
 
-        log(
-          "info",
-          `Template ${t.template_id}: manifest listed ${parsed?.chunks?.length || parsed?.chunk_paths?.length || 0} chunk reference(s); processing ${chunkPaths.length} unique chunk file(s)`,
+        console.log(
+          `[aggregate-template-sum] Template ${t.template_id}: manifest listed ${parsed?.chunks?.length || parsed?.chunk_paths?.length || 0} chunk reference(s); processing ${chunkPaths.length} unique chunk file(s)`,
         );
 
         // ----------------------------------------------
@@ -224,7 +230,7 @@ Deno.serve(async (req) => {
             const sum = arr.reduce((a, it) => a + picker(it), 0);
             return { sum, count: arr.length };
           } catch (err) {
-            log("error", `Error loading chunk ${path}: ${(err as Error)?.message ?? err}`);
+            console.error(`Error loading chunk ${path}:`, err);
             return { sum: 0, count: 0 };
           }
         });
@@ -243,26 +249,31 @@ Deno.serve(async (req) => {
           templateCount += r.count;
         }
 
-        log("info", `Template ${t.template_id}: contributed sum=${templateSum} across ${templateCount} contract(s)`);
+        console.log(
+          `[aggregate-template-sum] Template ${t.template_id}: contributed sum=${templateSum} across ${templateCount} contract(s)`,
+        );
       } else if (Array.isArray(parsed)) {
         const sum = parsed.reduce((acc: number, item: any) => acc + picker(item), 0);
         totalSum += sum;
         totalCount += parsed.length;
 
-        log("info", `Template ${t.template_id}: direct JSON file contributed sum=${sum} across ${parsed.length} contract(s)`);
+        console.log(
+          `[aggregate-template-sum] Template ${t.template_id}: direct JSON file contributed sum=${sum} across ${parsed.length} contract(s)`,
+        );
       } else {
-        log("warn", `Template ${t.template_id}: manifest format unrecognized, skipping`);
+        console.warn(`[aggregate-template-sum] Template ${t.template_id}: manifest format unrecognized, skipping`);
       }
     }
 
-    log("info", `Snapshot ${snapshot_id} aggregation complete | sum=${totalSum} | count=${totalCount} | templates=${templateCount}`);
+    console.log(
+      `[aggregate-template-sum] Snapshot ${snapshot_id} aggregation complete | sum=${totalSum} | count=${totalCount} | templates=${templateCount}`,
+    );
 
     return new Response(
       JSON.stringify({
         sum: totalSum,
         count: totalCount,
         templateCount,
-        logs,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
