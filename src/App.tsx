@@ -29,6 +29,7 @@ import Allocations from "./pages/Allocations";
 import Elections from "./pages/Elections";
 import TransferCounters from "./pages/TransferCounters";
 import ExternalPartyRules from "./pages/ExternalPartyRules";
+import AggregationDebug from "./pages/AggregationDebug";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -77,6 +78,7 @@ const App = () => (
           <Route path="/elections" element={<Elections />} />
           <Route path="/transfer-counters" element={<TransferCounters />} />
           <Route path="/external-party-rules" element={<ExternalPartyRules />} />
+          <Route path="/aggregation-debug" element={<AggregationDebug />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
