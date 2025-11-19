@@ -3,7 +3,7 @@ name: Fetch ACS Snapshot
 on:
   workflow_dispatch: # Manual trigger
   schedule:
-    - cron: '0 1 * * *' # Daily at 1:00 AM UTC (full snapshot validation)
+    - cron: '0 */2 * * *' # Every 2 hours to allow resuming before 6-hour timeout
 
 jobs:
   fetch-and-upload:
@@ -24,7 +24,7 @@ jobs:
           npm init -y
           npm install axios bignumber.js @supabase/supabase-js
       
-      - name: Fetch and Upload ACS Data (Daily Full Snapshot Validation)
+      - name: Fetch and Upload ACS Data in Real-Time
         run: node scripts/fetch-acs-data.js
         env:
           BASE_URL: https://scan.sv-1.global.canton.network.sync.global/api/scan
@@ -37,7 +37,6 @@ jobs:
           UPLOAD_DELAY_MS: '200'
           RETRY_COOLDOWN_MS: '15000'
           MAX_INFLIGHT_UPLOADS: '1'
-          FORCE_FULL_SNAPSHOT: 'true'
       
       - name: Upload artifacts (backup)
         uses: actions/upload-artifact@v4

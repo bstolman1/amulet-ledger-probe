@@ -374,45 +374,6 @@ Deno.serve(async (req) => {
     
     const body = await req.json().catch(() => ({}));
     const snapshotId = body?.snapshot_id;
-    const isCronCall = body?.cron === true;
-
-    // Debouncing: Skip if called from cron and last update was < 30 seconds ago
-    if (isCronCall && !snapshotId) {
-      const { data: recentSnapshots } = await supabaseAdmin
-        .from('acs_snapshots')
-        .select('created_at, status')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (recentSnapshots && recentSnapshots.length > 0) {
-        const timeSinceLastRun = Date.now() - new Date(recentSnapshots[0].created_at).getTime();
-        
-        // If last snapshot was created less than 30 seconds ago, skip
-        if (timeSinceLastRun < 30000) {
-          console.log(`⏭️ Skipping - last snapshot was ${Math.floor(timeSinceLastRun / 1000)}s ago (< 30s)`);
-          return new Response(
-            JSON.stringify({ 
-              message: 'Skipped - too soon since last update',
-              lastRun: recentSnapshots[0].created_at,
-              timeSinceLastMs: timeSinceLastRun
-            }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-        
-        // If there's already one processing, skip
-        if (recentSnapshots[0].status === 'processing') {
-          console.log('⏭️ Skipping - snapshot already in progress');
-          return new Response(
-            JSON.stringify({ 
-              message: 'Skipped - snapshot already in progress',
-              processingSnapshot: recentSnapshots[0]
-            }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-      }
-    }
 
     let snapshot: any;
 
@@ -460,20 +421,6 @@ Deno.serve(async (req) => {
         );
       }
       
-      // Determine if this should be an incremental (delta) snapshot
-      const { data: lastCompleted } = await supabaseAdmin
-        .from('acs_snapshots')
-        .select('id, status, snapshot_type, record_time')
-        .eq('migration_id', migration_id)
-        .eq('status', 'completed')
-        .order('timestamp', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const isDelta = !!lastCompleted;
-      const snapshotType = isDelta ? 'incremental' : 'full';
-      const processingMode = isDelta ? 'delta' : 'full';
-
       const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
       const { data, error } = await supabaseAdmin
@@ -489,10 +436,6 @@ Deno.serve(async (req) => {
           cursor_after: 0,
           iteration_count: 0,
           status: 'processing',
-          is_delta: isDelta,
-          snapshot_type: snapshotType,
-          processing_mode: processingMode,
-          previous_snapshot_id: lastCompleted?.id ?? null,
         })
         .select()
         .single();

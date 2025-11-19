@@ -17,7 +17,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const cantonClient = axios.create({
   httpAgent: new HttpAgent({ keepAlive: true, keepAliveMsecs: 30000 }),
   httpsAgent: new HttpsAgent({ keepAlive: true, keepAliveMsecs: 30000, rejectUnauthorized: false }),
-  timeout: 150000, // Increased from 120s to 150s to reduce premature aborts
+  timeout: 120000,
 });
 
 const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
@@ -102,7 +102,7 @@ async function uploadToEdgeFunction(phase, data, retryCount = 0) {
         "Content-Type": "application/json",
         "x-webhook-secret": WEBHOOK_SECRET,
       },
-      timeout: 600000, // 10 minute timeout for large uploads
+      timeout: 300000, // 5 minute timeout for large uploads
     });
     
     // Success - gradually increase chunk size back up
@@ -185,15 +185,15 @@ async function checkForExistingSnapshot(migration_id) {
     console.log("\n⚠️  WARNING: Supabase not configured - cannot check for existing snapshots");
     console.log("   This means a new snapshot will be created even if one is in progress!");
     console.log("   Please ensure SUPABASE_URL and SUPABASE_ANON_KEY are set in GitHub secrets.\n");
-    return { inProgress: null, lastCompleted: null };
+    return null;
   }
 
   console.log("\n" + "-".repeat(80));
-  console.log("🔍 Checking for existing snapshots...");
+  console.log("🔍 Checking for existing in-progress snapshots...");
   console.log(`   - Migration ID: ${migration_id}`);
+  console.log(`   - Query: acs_snapshots WHERE migration_id=${migration_id} AND status='processing'`);
   
-  // Check for in-progress snapshots
-  const { data: inProgressData, error: inProgressError } = await supabase
+  const { data, error } = await supabase
     .from('acs_snapshots')
     .select('*')
     .eq('migration_id', migration_id)
@@ -201,68 +201,43 @@ async function checkForExistingSnapshot(migration_id) {
     .order('started_at', { ascending: false })
     .limit(1);
 
-  if (inProgressError) {
-    console.error("❌ Error querying for in-progress snapshots:", inProgressError.message);
-    return { inProgress: null, lastCompleted: null };
+  if (error) {
+    console.error("❌ Error querying for existing snapshots:", error.message);
+    console.error("   Full error:", JSON.stringify(error, null, 2));
+    return null;
   }
 
-  // Check for completed snapshots (for delta sync)
-  const { data: completedData, error: completedError } = await supabase
-    .from('acs_snapshots')
-    .select('*')
-    .eq('migration_id', migration_id)
-    .eq('status', 'completed')
-    .order('completed_at', { ascending: false })
-    .limit(1);
-
-  if (completedError) {
-    console.error("❌ Error querying for completed snapshots:", completedError.message);
-  }
-
-  const inProgress = inProgressData && inProgressData.length > 0 ? inProgressData[0] : null;
-  const lastCompleted = completedData && completedData.length > 0 ? completedData[0] : null;
-
-  if (inProgress) {
-    const startedAt = new Date(inProgress.started_at);
+  if (data && data.length > 0) {
+    const snapshot = data[0];
+    const startedAt = new Date(snapshot.started_at);
     const now = new Date();
     const runtimeMinutes = ((now - startedAt) / 1000 / 60).toFixed(1);
-    const isIncremental = inProgress.snapshot_type === 'incremental' || inProgress.is_delta === true;
     
     console.log("✅ FOUND EXISTING IN-PROGRESS SNAPSHOT - WILL RESUME");
-    console.log(`   - Snapshot ID: ${inProgress.id}`);
-    console.log(`   - Migration ID: ${inProgress.migration_id}`);
-    console.log(`   - Type: ${isIncremental ? 'INCREMENTAL' : 'FULL'}`);
-    console.log(`   - Started: ${inProgress.started_at} (${runtimeMinutes} minutes ago)`);
-    console.log(`   - Processed Pages: ${inProgress.processed_pages || 0}`);
-    console.log(`   - Processed Events: ${inProgress.processed_events || 0}`);
-    console.log(`   - Cursor Position: ${inProgress.cursor_after || 0}`);
-    if (isIncremental) {
-      console.log(`   - Last Record Time: ${inProgress.record_time || 'unknown'}`);
-    }
+    console.log(`   - Snapshot ID: ${snapshot.id}`);
+    console.log(`   - Migration ID: ${snapshot.migration_id}`);
+    console.log(`   - Started: ${snapshot.started_at} (${runtimeMinutes} minutes ago)`);
+    console.log(`   - Processed Pages: ${snapshot.processed_pages || 0}`);
+    console.log(`   - Processed Events: ${snapshot.processed_events || 0}`);
+    console.log(`   - Cursor Position: ${snapshot.cursor_after || 0}`);
+    console.log(`   - Amulet Total: ${snapshot.amulet_total || '0'}`);
+    console.log(`   - Locked Total: ${snapshot.locked_total || '0'}`);
     console.log("   ⚡ This cron job will continue from where the previous job left off");
-  } else {
-    console.log("ℹ️  No in-progress snapshots found");
+    console.log("-".repeat(80) + "\n");
+    return snapshot;
   }
 
-  if (lastCompleted) {
-    console.log("📋 Last completed snapshot found:");
-    console.log(`   - Snapshot ID: ${lastCompleted.id}`);
-    console.log(`   - Record Time: ${lastCompleted.record_time}`);
-    console.log(`   - Completed: ${lastCompleted.completed_at}`);
-    console.log(`   - Type: ${lastCompleted.snapshot_type || 'full'}`);
-  } else {
-    console.log("ℹ️  No completed snapshots found - will create FULL snapshot");
-  }
-
+  console.log("ℹ️  No existing in-progress snapshots found for this migration");
+  console.log("   - A new snapshot will be created");
   console.log("-".repeat(80) + "\n");
-  return { inProgress, lastCompleted };
+  return null;
 }
 
 
 async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot = null) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
-  let eventCount = 0; // Track count instead of storing all events
+  const allEvents = [];
   let after = existingSnapshot?.cursor_after || 0;
   const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
   let page = existingSnapshot?.processed_pages || 1;
@@ -391,7 +366,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           }
         }
 
-        eventCount += events.length;
+        allEvents.push(...events);
 
         // Add to pending uploads
         for (const templateId of pageTemplates) {
@@ -470,7 +445,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
                 snapshot_id: snapshotId,
                 progress: {
                   processed_pages: page,
-                  processed_events: eventCount,
+                  processed_events: allEvents.length,
                   elapsed_time_ms: elapsedMs,
                   pages_per_minute: pagesPerMin,
                 },
@@ -501,13 +476,13 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           const elapsedMs = now - startTime;
           const elapsedMinutes = (elapsedMs / 1000 / 60).toFixed(1);
           const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : 0;
-          const eventsPerPage = page > 0 ? (eventCount / page).toFixed(0) : 0;
+          const eventsPerPage = page > 0 ? (allEvents.length / page).toFixed(0) : 0;
           
           console.log("\n" + "-".repeat(80));
           console.log(`📊 STATUS UPDATE - Page ${page}`);
           console.log("-".repeat(80));
           console.log(`   - Snapshot ID: ${snapshotId || 'N/A'}`);
-          console.log(`   - Events Processed: ${eventCount.toLocaleString()}`);
+          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
           console.log(`   - Elapsed Time: ${elapsedMinutes} minutes`);
           console.log(`   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`);
           console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
@@ -531,7 +506,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
               snapshot_id: snapshotId,
               progress: {
                 processed_pages: page,
-                processed_events: eventCount,
+                processed_events: allEvents.length,
                 elapsed_time_ms: elapsedMs,
                 pages_per_minute: pagesPerMin,
               },
@@ -611,7 +586,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
     }
   }
 
-  console.log(`\n✅ Fetched ${eventCount.toLocaleString()} ACS entries.`);
+  console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
 
   // Wait for all remaining in-flight uploads
   if (inflightUploads.length > 0) {
@@ -703,7 +678,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
           locked: lockedTotal.toString(),
           circulating: circulatingSupply.toString(),
         },
-        entry_count: eventCount,
+        entry_count: allEvents.length,
         canonical_package: canonicalPkg,
       },
     });
@@ -712,363 +687,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot 
     console.log("⚠️ No upload configured (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET)");
   }
 
-  return { eventCount, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
-}
-
-async function fetchDeltaACS(baseUrl, migration_id, record_time, baselineSnapshot) {
-  // baselineSnapshot can be either:
-  // - A completed snapshot (for starting a new incremental)
-  // - An in-progress incremental snapshot (for resuming)
-  const isResuming = baselineSnapshot.status === 'processing';
-  
-  if (isResuming) {
-    console.log("🔄 Resuming INCREMENTAL (delta) snapshot...");
-    console.log(`   - Resuming snapshot: ${baselineSnapshot.id}`);
-    console.log(`   - Last record_time: ${baselineSnapshot.record_time}`);
-    console.log(`   - Processed events so far: ${baselineSnapshot.processed_events || 0}`);
-    console.log(`   - Target record_time: ${record_time}`);
-  } else {
-    console.log("🔄 Fetching INCREMENTAL (delta) snapshot using v2/updates...");
-    console.log(`   - Baseline snapshot: ${baselineSnapshot.id}`);
-    console.log(`   - Baseline record_time: ${baselineSnapshot.record_time}`);
-    console.log(`   - New record_time: ${record_time}`);
-  }
-
-  let eventCount = 0; // Track count instead of storing all events
-  let after = 0;
-  const pageSize = parseInt(process.env.PAGE_SIZE || "500", 10);
-  let page = isResuming ? (baselineSnapshot.processed_pages || 1) : 1;
-  const seen = new Set();
-
-  let amuletTotal = new BigNumber(baselineSnapshot.amulet_total || 0);
-  let lockedTotal = new BigNumber(baselineSnapshot.locked_total || 0);
-  const perPackage = {};
-  const templatesByPackage = {};
-  const templatesData = {};
-  const pendingUploads = {};
-
-  const outputDir = "./acs_full";
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-
-  // Start or resume incremental snapshot
-  let snapshotId = isResuming ? baselineSnapshot.id : null;
-  let canonicalPkg = baselineSnapshot.canonical_package || "unknown";
-  const startTime = Date.now();
-  let lastProgressUpdate = startTime;
-
-  if (!isResuming && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-    console.log("\n" + "🔄".repeat(40));
-    console.log("🔄 CREATING INCREMENTAL SNAPSHOT");
-    console.log("🔄".repeat(40));
-    console.log("   - Creating new incremental snapshot record...");
-    const startResult = await uploadToEdgeFunction("start", {
-      mode: "start",
-      webhookSecret: WEBHOOK_SECRET,
-      summary: {
-        sv_url: baseUrl,
-        migration_id,
-        record_time,
-        canonical_package: canonicalPkg,
-        totals: {
-          amulet: amuletTotal.toFixed(),
-          locked: lockedTotal.toFixed(),
-          circulating: amuletTotal.minus(lockedTotal).toFixed(),
-        },
-        entry_count: 0,
-        is_delta: true,
-        snapshot_type: 'incremental',
-        processing_mode: 'delta',
-        previous_snapshot_id: baselineSnapshot.id,
-      },
-    });
-    snapshotId = startResult?.snapshot_id;
-    console.log(`   ✅ Incremental Snapshot Created: ${snapshotId}`);
-    console.log("🔄".repeat(40) + "\n");
-  } else if (isResuming) {
-    console.log("\n" + "🔄".repeat(40));
-    console.log("🔄 RESUMING EXISTING INCREMENTAL SNAPSHOT");
-    console.log("🔄".repeat(40));
-    console.log(`   - Snapshot ID: ${snapshotId}`);
-    console.log(`   - Starting from page: ${page}`);
-    console.log("🔄".repeat(40) + "\n");
-  }
-
-  const MAX_RETRIES = 8;
-  const BASE_DELAY = 3000;
-  const MAX_PAGE_COOLDOWNS = 2;
-  const COOLDOWN_AFTER_FAIL_MS = parseInt(process.env.RETRY_COOLDOWN_MS || "15000", 10);
-  const JITTER_MS = 500;
-  const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
-  const inflightUploads = [];
-
-  let lastSeenRecordTime = baselineSnapshot.record_time;
-  let lastPageTransactionCount = -1;
-
-  while (true) {
-    let retryCount = 0;
-    let cooldowns = 0;
-    let success = false;
-    
-    while (retryCount < MAX_RETRIES && !success) {
-      try {
-        console.log(`\n📄 Page ${page} (lastSeenRecordTime=${lastSeenRecordTime}, pageSize=${pageSize})`);
-        
-        // Use POST v2/updates endpoint with proper body format
-        const url = `${baseUrl}/v2/updates`;
-        const requestBody = {
-          after: {
-            after_migration_id: baselineSnapshot.migration_id || migration_id,
-            after_record_time: lastSeenRecordTime,
-          },
-          page_size: pageSize,
-          daml_value_encoding: "compact_json",
-        };
-        
-        // Log first page payload for debugging
-        if (page === 1) {
-          console.log(`   📋 Request body:`, JSON.stringify(requestBody, null, 2));
-        }
-        
-        const response = await cantonClient.post(url, requestBody);
-        const transactions = response.data?.transactions ?? [];
-        lastPageTransactionCount = transactions.length;
-        
-        console.log(`   ✅ Fetched ${transactions.length} transactions`);
-        
-        if (transactions.length === 0) {
-          console.log("   ℹ️  No more delta updates - incremental sync complete!");
-          success = true;
-          break;
-        }
-
-        // Process transactions and their events
-        for (const tx of transactions) {
-          const events = Object.values(tx.events_by_id || {});
-          
-          for (const event of events) {
-            if (!event.template_id) continue;
-            
-            const tid = event.template_id;
-            if (!templatesData[tid]) {
-              templatesData[tid] = [];
-            }
-            templatesData[tid].push(event);
-
-            // Handle created vs archived events
-            if (event.created_event) {
-              // Count as active contract (created)
-              if (isTemplate(event, "splice-amulet", "Amulet")) {
-                const amt = event.create_arguments?.amount?.initialAmount || "0";
-                amuletTotal = amuletTotal.plus(new BigNumber(amt));
-              } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
-                const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
-                lockedTotal = lockedTotal.plus(new BigNumber(amt));
-              }
-            } else if (event.archived_event) {
-              // Subtract from totals (archived)
-              if (isTemplate(event, "splice-amulet", "Amulet")) {
-                const amt = event.create_arguments?.amount?.initialAmount || "0";
-                amuletTotal = amuletTotal.minus(new BigNumber(amt));
-              } else if (isTemplate(event, "splice-amulet", "LockedAmulet")) {
-                const amt = event.create_arguments?.amulet?.amount?.initialAmount || "0";
-                lockedTotal = lockedTotal.minus(new BigNumber(amt));
-              }
-            }
-
-            eventCount++;
-            seen.add(event.contract_id);
-          }
-        }
-
-        // Update lastSeenRecordTime for next page
-        if (transactions.length > 0) {
-          const lastTx = transactions[transactions.length - 1];
-          const newRecordTime = lastTx.record_time;
-          // Always update the cursor - API handles pagination even with same timestamps
-          if (newRecordTime) {
-            lastSeenRecordTime = newRecordTime;
-            console.log(`   📍 Updated cursor to: ${newRecordTime}`);
-          }
-        }
-        
-        // Upload data in chunks - separate created/archived for incremental mode
-        for (const [templateId, entries] of Object.entries(templatesData)) {
-          if (entries.length >= ENTRIES_PER_CHUNK || transactions.length === 0) {
-            // Separate created and archived events
-            const createdEvents = entries.filter(e => e.created_event);
-            const archivedEvents = entries.filter(e => e.archived_event);
-            
-            const incrementalData = {
-              created: createdEvents,
-              archived: archivedEvents
-            };
-            
-            const chunks = chunkTemplateEntries(templateId, [incrementalData]);
-            const chunkedTemplates = chunks.map(chunk => ({
-              filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
-              content: JSON.stringify(chunk.entries[0], null, 2), // Single object with created/archived
-              templateId: chunk.templateId,
-              chunkIndex: chunk.chunkIndex,
-              totalChunks: chunk.totalChunks,
-              isChunked: true
-            }));
-            
-            // Upload this template's chunks using incremental mode
-            if (snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-              const uploadPromise = (async () => {
-                try {
-                  await uploadToEdgeFunction("append_incremental", {
-                    mode: "append_incremental",
-                    webhookSecret: WEBHOOK_SECRET,
-                    snapshot_id: snapshotId,
-                    baseline_snapshot_id: baselineSnapshot.id,
-                    templates: chunkedTemplates,
-                  });
-                  console.log(`✅ Uploaded ${chunkedTemplates.length} incremental chunks for ${templateId} (+${createdEvents.length} -${archivedEvents.length})`);
-                } catch (error) {
-                  console.error(`❌ Upload failed for ${templateId}:`, error.message);
-                }
-                uploadPromise.settled = true;
-              })();
-              
-              inflightUploads.push(uploadPromise);
-            }
-            
-            delete templatesData[templateId];
-          }
-        }
-
-        // Wait for uploads if we hit the concurrency limit
-        if (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
-          await Promise.race(inflightUploads);
-          inflightUploads.splice(inflightUploads.findIndex(p => p.settled), 1);
-        }
-
-        // Progress update
-        const now = Date.now();
-        if (now - lastProgressUpdate > 30000) {
-          const elapsedTime = now - startTime;
-          const pagesPerMinute = (page / (elapsedTime / 60000)).toFixed(2);
-          
-          try {
-            await uploadToEdgeFunction("progress", {
-              mode: "progress",
-              webhookSecret: WEBHOOK_SECRET,
-              snapshot_id: snapshotId,
-              progress: {
-                processed_pages: page,
-                processed_events: eventCount,
-                elapsed_time_ms: elapsedTime,
-                pages_per_minute: parseFloat(pagesPerMinute),
-                record_time: lastSeenRecordTime,
-                cursor_after: after, // Include cursor for resume capability
-                amulet_total: amuletTotal.toFixed(),
-                locked_total: lockedTotal.toFixed(),
-              },
-            });
-          } catch (err) {
-            console.warn("⚠️ Progress update failed (non-fatal):", err.message || err);
-          } finally {
-            lastProgressUpdate = now;
-          }
-        }
-
-        page++;
-        success = true;  // Exit inner retry loop
-        // Add jitter to prevent synchronized uploads
-        const delayWithJitter = UPLOAD_DELAY_MS + Math.random() * JITTER_MS;
-        await sleep(delayWithJitter);
-        
-      } catch (error) {
-        retryCount++;
-        const backoffDelay = BASE_DELAY * Math.pow(2, retryCount - 1) + Math.random() * JITTER_MS;
-        
-        // Check if this is a retryable error
-        const isCanceled = error.code === 'ERR_CANCELED' || 
-                          error.code === 'ECONNABORTED' ||
-                          (error.message && error.message.toLowerCase().includes('cancel'));
-        
-        if (isCanceled) {
-          console.error(`   ❌ Request was canceled (ERR_CANCELED) on page ${page} (attempt ${retryCount}/${MAX_RETRIES})`);
-        } else {
-          console.error(`   ❌ Error on page ${page} (attempt ${retryCount}/${MAX_RETRIES}):`, error.message);
-        }
-        
-        if (retryCount >= MAX_RETRIES) {
-          console.error("   💥 MAX RETRIES EXCEEDED - ABORTING");
-          throw error;
-        }
-        
-        console.log(`   ⏳ Waiting ${(backoffDelay / 1000).toFixed(1)}s before retry...`);
-        await sleep(backoffDelay);
-      }
-    }
-
-    // Check if we're done (no more transactions)
-    if (lastPageTransactionCount === 0) {
-      console.log("   ✅ No more transactions - pagination complete");
-      break;
-    }
-    
-    // Continue to next page
-    console.log(`   ➡️  Continuing to page ${page}...`);
-  }
-
-  // Wait for all uploads to complete
-  console.log("\n⏳ Waiting for all uploads to complete...");
-  if (inflightUploads.length > 0) {
-    await Promise.all(inflightUploads);
-  }
-
-  // Upload remaining templates
-  if (snapshotId && Object.keys(templatesData).length > 0) {
-    console.log(`📤 Uploading final ${Object.keys(templatesData).length} templates...`);
-    
-    const chunkedTemplates = [];
-    for (const [templateId, entries] of Object.entries(templatesData)) {
-      if (entries.length > 0) {
-        const chunks = chunkTemplateEntries(templateId, entries);
-        chunkedTemplates.push(...chunks.map(chunk => ({
-          filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
-          content: JSON.stringify(chunk.entries, null, 2),
-          templateId: chunk.templateId,
-          chunkIndex: chunk.chunkIndex,
-          totalChunks: chunk.totalChunks,
-          isChunked: true
-        })));
-      }
-    }
-
-    if (chunkedTemplates.length > 0) {
-      await uploadToEdgeFunction("append", {
-        mode: "append",
-        webhookSecret: WEBHOOK_SECRET,
-        snapshot_id: snapshotId,
-        templates: chunkedTemplates,
-      });
-    }
-  }
-
-  // Mark snapshot as complete
-  if (EDGE_FUNCTION_URL && WEBHOOK_SECRET && snapshotId) {
-    await uploadToEdgeFunction("complete", {
-      mode: "complete",
-      webhookSecret: WEBHOOK_SECRET,
-      snapshot_id: snapshotId,
-      summary: {
-        totals: {
-          amulet: amuletTotal.toFixed(),
-          locked: lockedTotal.toFixed(),
-          circulating: amuletTotal.minus(lockedTotal).toFixed(),
-        },
-        entry_count: eventCount,
-        canonical_package: canonicalPkg,
-      },
-    });
-    console.log("✅ Incremental snapshot completed!");
-  }
-
-  return { eventCount, amuletTotal, lockedTotal, canonicalPkg, snapshotId };
+  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
 }
 
 async function run() {
@@ -1086,94 +705,35 @@ async function run() {
     console.log("\n" + "=".repeat(80));
     console.log("🔍 STEP 3: Checking for Existing Snapshots");
     console.log("=".repeat(80));
-    const { inProgress, lastCompleted } = await checkForExistingSnapshot(migration_id);
+    const existingSnapshot = await checkForExistingSnapshot(migration_id);
     
     console.log("\n" + "=".repeat(80));
-    let result;
-    let startTime;
-    
-    if (inProgress) {
-      const isIncremental = inProgress.snapshot_type === 'incremental' || inProgress.is_delta === true;
-      
-      if (isIncremental) {
-        console.log("🔄 DECISION: RESUMING IN-PROGRESS INCREMENTAL SNAPSHOT");
-        console.log("=".repeat(80));
-        console.log("   Continuing a previous in-progress incremental snapshot.");
-        console.log(`   - Snapshot ID: ${inProgress.id}`);
-        console.log(`   - Will resume from record_time: ${inProgress.record_time || record_time}`);
-        console.log(`   - Processed Events: ${inProgress.processed_events || 0}`);
-        console.log("=".repeat(80) + "\n");
-        
-        startTime = Date.now();
-        // Resume incremental snapshot using fetchDeltaACS with the last record_time
-        result = await fetchDeltaACS(BASE_URL, migration_id, record_time, inProgress);
-      } else {
-        console.log("🔄 DECISION: RESUMING IN-PROGRESS FULL SNAPSHOT");
-        console.log("=".repeat(80));
-        console.log("   Continuing a previous in-progress full snapshot.");
-        console.log(`   - Snapshot ID: ${inProgress.id}`);
-        console.log(`   - Will resume from page: ${inProgress.processed_pages || 1}`);
-        console.log(`   - Will resume from cursor: ${inProgress.cursor_after || 0}`);
-        console.log("=".repeat(80) + "\n");
-        
-        startTime = Date.now();
-        result = await fetchAllACS(BASE_URL, migration_id, record_time, inProgress);
-      }
-      
-    } else if (lastCompleted) {
-      // Safety check: verify no incremental snapshot is already processing
-      if (supabase) {
-        const { data: processingIncremental } = await supabase
-          .from('acs_snapshots')
-          .select('id, started_at, snapshot_type')
-          .eq('migration_id', migration_id)
-          .eq('status', 'processing')
-          .eq('snapshot_type', 'incremental')
-          .maybeSingle();
-        
-        if (processingIncremental) {
-          console.log("⚠️  WARNING: Another incremental snapshot is already processing");
-          console.log(`   - Snapshot ID: ${processingIncremental.id}`);
-          console.log(`   - Started: ${processingIncremental.started_at}`);
-          console.log("   - Skipping new incremental creation to avoid overlap");
-          console.log("   - The next cron run will resume the existing one");
-          console.log("=".repeat(80) + "\n");
-          return; // Exit early to prevent duplicate processing
-        }
-      }
-      
-      console.log("🔄 DECISION: CREATING INCREMENTAL (DELTA) SNAPSHOT");
+    if (existingSnapshot) {
+      console.log("🔄 DECISION: RESUMING EXISTING SNAPSHOT");
       console.log("=".repeat(80));
-      console.log("   A completed snapshot exists - fetching only changes since then.");
-      console.log(`   - Baseline Snapshot: ${lastCompleted.id}`);
-      console.log(`   - Baseline Record Time: ${lastCompleted.record_time}`);
-      console.log(`   - New Record Time: ${record_time}`);
-      console.log(`   - Using /v2/updates endpoint`);
-      console.log("=".repeat(80) + "\n");
-      
-      startTime = Date.now();
-      result = await fetchDeltaACS(BASE_URL, migration_id, record_time, lastCompleted);
-      
+      console.log("   This GitHub Actions run is continuing a previous snapshot.");
+      console.log("   This is the expected behavior when a snapshot takes longer than 2 hours.");
+      console.log(`   - Continuing snapshot: ${existingSnapshot.id}`);
+      console.log(`   - Will resume from page: ${existingSnapshot.processed_pages || 1}`);
+      console.log(`   - Will resume from cursor: ${existingSnapshot.cursor_after || 0}`);
     } else {
-      console.log("🆕 DECISION: CREATING FULL SNAPSHOT");
+      console.log("🆕 DECISION: STARTING NEW SNAPSHOT");
       console.log("=".repeat(80));
-      console.log("   No existing snapshots found. Creating a full snapshot from scratch.");
+      console.log("   No in-progress snapshot found. Creating a new one.");
       console.log(`   - Migration ID: ${migration_id}`);
       console.log(`   - Record Time: ${record_time}`);
-      console.log(`   - Using /v0/state/acs endpoint`);
-      console.log("=".repeat(80) + "\n");
-      
-      startTime = Date.now();
-      result = await fetchAllACS(BASE_URL, migration_id, record_time, null);
     }
-
-    const { eventCount, amuletTotal, lockedTotal, canonicalPkg } = result;
-    const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+    console.log("=".repeat(80) + "\n");
     
+    const startTime = Date.now();
+    const { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates } =
+      await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
+
+    const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
     console.log("\n" + "=".repeat(80));
     console.log("✅ SNAPSHOT COMPLETED SUCCESSFULLY");
     console.log("=".repeat(80));
-    console.log(`   - Total Events: ${eventCount.toLocaleString()}`);
+    console.log(`   - Total Events: ${allEvents.length.toLocaleString()}`);
     console.log(`   - Canonical Package: ${canonicalPkg}`);
     console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
     console.log(`   - Locked Total: ${lockedTotal.toString()}`);

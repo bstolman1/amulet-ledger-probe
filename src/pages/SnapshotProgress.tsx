@@ -9,9 +9,6 @@ import { Clock, Database, FileText, Activity, CheckCircle, XCircle, Trash2 } fro
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { TriggerACSSnapshotButton } from "@/components/TriggerACSSnapshotButton";
-import { RealtimeSnapshotStatus } from "@/components/RealtimeSnapshotStatus";
-import { TemplateActivitySection } from "@/components/TemplateActivitySection";
-import { useDeleteACSSnapshot } from "@/hooks/use-acs-snapshots";
 
 interface Snapshot {
   id: string;
@@ -29,9 +26,6 @@ interface Snapshot {
   pages_per_minute: number;
   template_batch_updates?: number;
   last_batch_info?: any;
-  is_delta?: boolean;
-  snapshot_type?: string;
-  previous_snapshot_id?: string;
 }
 
 interface TemplateStats {
@@ -49,7 +43,6 @@ const SnapshotProgress = () => {
   const [loading, setLoading] = useState(true);
   const [isPurging, setIsPurging] = useState(false);
   const { toast } = useToast();
-  const { mutate: deleteSnapshot, isPending: isDeleting } = useDeleteACSSnapshot();
 
   useEffect(() => {
     // Initial fetch
@@ -202,13 +195,6 @@ const SnapshotProgress = () => {
     }
   };
 
-  const handleDeleteSnapshot = (snapshotId: string, migrationId: number) => {
-    if (!confirm(`Are you sure you want to delete snapshot for migration #${migrationId}? This action cannot be undone.`)) {
-      return;
-    }
-    deleteSnapshot(snapshotId);
-  };
-
   if (loading) {
     return (
       <DashboardLayout>
@@ -241,10 +227,6 @@ const SnapshotProgress = () => {
           </div>
         </div>
 
-        <RealtimeSnapshotStatus />
-
-        <TemplateActivitySection />
-
         {snapshots.map((snapshot) => (
           <Card key={snapshot.id} className="glass-card">
             <CardHeader>
@@ -258,23 +240,7 @@ const SnapshotProgress = () => {
                     Started {formatDistanceToNow(new Date(snapshot.started_at), { addSuffix: true })}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  {(snapshot.snapshot_type === 'incremental' || snapshot.is_delta) && (
-                    <Badge variant="secondary">
-                      Incremental
-                    </Badge>
-                  )}
-                  {getStatusBadge(snapshot.status)}
-                  <Button
-                    onClick={() => handleDeleteSnapshot(snapshot.id, snapshot.migration_id)}
-                    disabled={isDeleting}
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                {getStatusBadge(snapshot.status)}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

@@ -3,7 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, Lock, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useRealtimeAggregatedTemplateData } from "@/hooks/use-realtime-aggregated-template-data";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -25,17 +26,21 @@ interface HolderBalance {
 
 const Balances = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  
+  const { data: snapshot } = useLatestACSSnapshot();
 
-  // Fetch Amulet contracts - aggregated across baseline + ALL incremental snapshots for real-time data
-  const { data: amuletData, isLoading: amuletLoading } = useRealtimeAggregatedTemplateData(
+  // Fetch Amulet contracts - aggregated across ALL packages
+  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
+    snapshot?.id,
     "Splice:Amulet:Amulet",
-    true
+    !!snapshot
   );
 
-  // Fetch LockedAmulet contracts - aggregated across baseline + ALL incremental snapshots for real-time data
-  const { data: lockedData, isLoading: lockedLoading } = useRealtimeAggregatedTemplateData(
+  // Fetch LockedAmulet contracts - aggregated across ALL packages
+  const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
+    snapshot?.id,
     "Splice:Amulet:LockedAmulet",
-    true
+    !!snapshot
   );
 
   const isLoading = amuletLoading || lockedLoading;
@@ -104,18 +109,6 @@ const Balances = () => {
           <p className="text-muted-foreground">
             Top CC holders and balance distribution
           </p>
-          {amuletData && (
-            <div className="flex items-center gap-2 mt-2">
-              <Badge variant="outline" className="text-xs">
-                Real-time: {amuletData.snapshotCount} snapshot{amuletData.snapshotCount !== 1 ? 's' : ''} aggregated
-              </Badge>
-              {amuletData.incrementalIds.length > 0 && (
-                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-500 border-green-500/20">
-                  +{amuletData.incrementalIds.length} incremental update{amuletData.incrementalIds.length !== 1 ? 's' : ''}
-                </Badge>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Summary Cards */}
@@ -236,7 +229,7 @@ const Balances = () => {
         </Card>
 
         <DataSourcesFooter
-          snapshotId={amuletData?.baselineId}
+          snapshotId={snapshot?.id}
           templateSuffixes={["Splice:Amulet:Amulet", "Splice:Amulet:LockedAmulet"]}
           isProcessing={false}
         />

@@ -55,8 +55,6 @@ export function useLatestACSSnapshot() {
         .from("acs_snapshots")
         .select("*")
         .eq("status", "completed")
-        // Prefer latest FULL snapshot for data pages (incremental snapshots may not have template stats yet)
-        .or("is_delta.eq.false,snapshot_type.eq.full")
         .order("timestamp", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -146,30 +144,6 @@ export function useTriggerACSSnapshot() {
     },
     onError: (error: Error) => {
       toast.error("Failed to start ACS snapshot", {
-        description: error.message,
-      });
-    },
-  });
-}
-
-export function useDeleteACSSnapshot() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (snapshotId: string) => {
-      const { data, error } = await supabase.functions.invoke("delete-acs-snapshot", {
-        body: { snapshot_id: snapshotId }
-      });
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Snapshot deleted successfully");
-      queryClient.invalidateQueries({ queryKey: ["acsSnapshots"] });
-    },
-    onError: (error: Error) => {
-      toast.error("Failed to delete snapshot", {
         description: error.message,
       });
     },

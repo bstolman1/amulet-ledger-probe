@@ -14,6 +14,3 @@ verify_jwt = false
 
 [functions.aggregate-template-sum]
 verify_jwt = false
-
-[functions.delete-acs-snapshot]
-verify_jwt = false
