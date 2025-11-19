@@ -158,14 +158,19 @@ export function useRealtimeAggregatedTemplateData(
       let contractsMap = new Map<string, any>();
       let totalTemplateCount = 0;
 
+      const templateFilters = [
+        `template_id.ilike.%:${templateSuffix}`,
+        `template_id.ilike.%:${dotVariant}`,
+        `template_id.ilike.%${templateSuffix}`,
+        `template_id.ilike.%${dotVariant}`
+      ].join(",");
+
       // Process baseline snapshot - contains actual contract states
       const { data: baselineTemplates, error: baselineError } = await supabase
         .from("acs_template_stats")
         .select("template_id, storage_path, contract_count")
         .eq("snapshot_id", snapshots.baseline.id)
-        .or(
-          `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
-        );
+        .or(templateFilters);
 
       if (baselineError) {
         console.error(`❌ Error loading baseline templates:`, baselineError);
@@ -219,9 +224,7 @@ export function useRealtimeAggregatedTemplateData(
           .from("acs_template_stats")
           .select("template_id, storage_path, contract_count")
           .eq("snapshot_id", incrementalSnapshot.id)
-          .or(
-            `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
-          );
+          .or(templateFilters);
 
         if (incrementalError) {
           console.error(`❌ Error loading incremental templates for snapshot ${incrementalSnapshot.id}:`, incrementalError);
