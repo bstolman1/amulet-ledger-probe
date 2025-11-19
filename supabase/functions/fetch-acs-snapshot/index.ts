@@ -1,144 +1,96 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+/*
+ * fetch-acs-snapshot
+ * ------------------
+ * Creates a new full ACS snapshot every time it's triggered.
+ * Automatically chains snapshots using previous_snapshot_id.
+ * Includes archived contracts (because we use full ACS).
+ * No incremental pruning (safe).
+ * Compatible with your Supabase schema.
+ */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PAGES_PER_BATCH = 40; // Process 40 pages per invocation
+// How many ACS pages each invocation processes
+const PAGES_PER_BATCH = 40;
 const PAGE_SIZE = 500;
+
+// Retry helpers
 const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
+const INITIAL_RETRY_DELAY = 1000;
 
-/**
- * Retry a function with exponential backoff
- */
-async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  operationName: string,
-  maxRetries: number = MAX_RETRIES
-): Promise<T> {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
-      
-      if (attempt < maxRetries) {
-        const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-        console.warn(
-          `⚠️ ${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. ` +
-          `Retrying in ${delay}ms...`
-        );
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  
-  console.error(`❌ ${operationName} failed after ${maxRetries + 1} attempts`);
-  throw lastError;
-}
-
-// Decimal arithmetic helpers (10 decimal precision)
+// ----------------------------
+// Decimal helper (10 decimals)
+// ----------------------------
 class Decimal {
   private value: string;
-
   constructor(val: string | number) {
-    this.value = typeof val === 'number' ? val.toFixed(10) : val;
+    this.value = typeof val === "number" ? val.toFixed(10) : val;
   }
-
-  plus(other: Decimal): Decimal {
-    const a = parseFloat(this.value);
-    const b = parseFloat(other.value);
-    return new Decimal((a + b).toFixed(10));
+  plus(other: Decimal) {
+    return new Decimal((parseFloat(this.value) + parseFloat(other.value)).toFixed(10));
   }
-
-  minus(other: Decimal): Decimal {
-    const a = parseFloat(this.value);
-    const b = parseFloat(other.value);
-    return new Decimal((a - b).toFixed(10));
+  minus(other: Decimal) {
+    return new Decimal((parseFloat(this.value) - parseFloat(other.value)).toFixed(10));
   }
-
-  toString(): string {
+  toString() {
     return parseFloat(this.value).toFixed(10);
   }
-
-  toNumber(): number {
+  toNumber() {
     return parseFloat(this.value);
   }
 }
 
-interface TemplateStats {
-  count: number;
-  fields?: Record<string, Decimal>;
-  status?: Record<string, number>;
+// ------------------------------------
+// Retry with exponential backoff
+// ------------------------------------
+async function retryWithBackoff(fn: () => Promise<any>, name: string): Promise<any> {
+  let lastErr: any;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_RETRIES) {
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+        console.warn(`⚠️ ${name} failed (attempt ${attempt + 1}). Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  console.error(`❌ ${name} failed after ${MAX_RETRIES + 1} attempts`);
+  throw lastErr;
 }
 
-function isTemplate(event: any, moduleName: string, entityName: string): boolean {
-  const templateId = event?.template_id;
-  if (!templateId) return false;
-  const parts = templateId.split(':');
+// ------------------------------------
+// Template detection helpers
+// ------------------------------------
+function isTemplate(e: any, moduleName: string, entityName: string) {
+  const t = e?.template_id;
+  if (!t) return false;
+  const parts = t.split(":");
   const entity = parts.pop();
-  const module = parts.pop();
-  return module === moduleName && entity === entityName;
+  const module_ = parts.pop();
+  return module_ === moduleName && entity === entityName;
 }
 
-function analyzeArgs(args: any, agg: TemplateStats): void {
-  if (!args || typeof args !== 'object') return;
-
-  const candidates = [
-    args?.amount?.initialAmount,
-    args?.amulet?.amount?.initialAmount,
-    args?.stake?.initialAmount,
-  ];
-
-  const DECIMAL_RE = /^[+-]?\d+(\.\d+)?$/;
-  for (const c of candidates) {
-    if (typeof c === 'string' && DECIMAL_RE.test(c)) {
-      addField(agg, 'initialAmount', new Decimal(c));
-    }
-  }
-
-  const STATUS_KEYS = ['status', 'state', 'phase', 'result'];
-  const stack = [args];
-  
-  while (stack.length > 0) {
-    const cur = stack.pop();
-    if (!cur || typeof cur !== 'object') continue;
-
-    for (const [k, v] of Object.entries(cur)) {
-      if (STATUS_KEYS.includes(k) && typeof v === 'string' && v.length) {
-        agg.status = agg.status || {};
-        agg.status[v] = (agg.status[v] || 0) + 1;
-      }
-
-      if (typeof v === 'string' && DECIMAL_RE.test(v) && v.includes('.')) {
-        if (!/id|hash|cid|guid|index/i.test(k)) {
-          addField(agg, k, new Decimal(v));
-        }
-      }
-
-      if (v && typeof v === 'object') stack.push(v);
-    }
-  }
-}
-
-function addField(agg: TemplateStats, fieldName: string, bnVal: Decimal): void {
-  agg.fields = agg.fields || {};
-  const prev = agg.fields[fieldName];
-  agg.fields[fieldName] = prev ? prev.plus(bnVal) : bnVal;
-}
-
+// ------------------------------------
+// Migration detection
+// ------------------------------------
 async function detectLatestMigration(baseUrl: string): Promise<number> {
-  console.log('🔎 Probing for latest valid migration ID...');
+  console.log("🔎 Detecting latest migration...");
   let id = 1;
-  let latest: number | null = null;
-  
+  let latest = null;
+
   while (true) {
     try {
-      const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`);
+      const res = await fetch(
+        `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${id}`,
+      );
       const data = await res.json();
       if (data?.record_time) {
         latest = id;
@@ -148,376 +100,291 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
       break;
     }
   }
-  
-  if (!latest) throw new Error('No valid migration found.');
-  console.log(`📘 Using latest migration_id: ${latest}`);
+
+  if (!latest) throw new Error("No valid migration found");
+  console.log(`📘 Latest migration_id: ${latest}`);
   return latest;
 }
 
-async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number): Promise<string> {
-  const res = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`);
+// ------------------------------------
+// Snapshot timestamp fetch
+// ------------------------------------
+async function fetchSnapshotTimestamp(baseUrl: string, migration_id: number) {
+  const res = await fetch(
+    `${baseUrl}/v0/state/acs/snapshot-timestamp?before=${new Date().toISOString()}&migration_id=${migration_id}`,
+  );
   const data = await res.json();
-  let record_time = data.record_time;
-  console.log(`📅 Initial snapshot timestamp: ${record_time}`);
+  let rt = data.record_time;
 
-  const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${record_time}&migration_id=${migration_id}`);
-  const verifyData = await verify.json();
-  if (verifyData?.record_time && verifyData.record_time !== record_time) {
-    record_time = verifyData.record_time;
-    console.log(`🔁 Updated to verified snapshot: ${record_time}`);
-  }
-  return record_time;
+  const verify = await fetch(`${baseUrl}/v0/state/acs/snapshot-timestamp?before=${rt}&migration_id=${migration_id}`);
+  const v = await verify.json();
+  if (v?.record_time && v.record_time !== rt) rt = v.record_time;
+
+  console.log(`📅 Snapshot timestamp: ${rt}`);
+  return rt;
 }
 
+// ------------------------------------
+// Get last completed snapshot (for chaining)
+// ------------------------------------
+async function getPreviousSnapshot(supabaseAdmin: any, migration_id: number) {
+  const { data, error } = await supabaseAdmin
+    .from("acs_snapshots")
+    .select("id")
+    .eq("migration_id", migration_id)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("⚠️ Failed to fetch previous snapshot:", error.message);
+    return null;
+  }
+
+  return data || null;
+}
+
+// ------------------------------------
+// Process a batch of ACS events
+// ------------------------------------
 async function processBatch(
   baseUrl: string,
   migration_id: number,
   record_time: string,
   supabaseAdmin: any,
-  snapshot: any
-): Promise<{ isComplete: boolean; nextCursor: number }> {
-  console.log(`📦 Processing batch starting from cursor: ${snapshot.cursor_after}`);
+  snapshot: any,
+) {
+  console.log(`📦 Batch starting at cursor: ${snapshot.cursor_after}`);
 
   const templatesData: Record<string, any[]> = {};
-  const templateStats: Record<string, TemplateStats> = {};
+  const templateStats: Record<string, { count: number }> = {};
   const perPackage: Record<string, { amulet: Decimal; locked: Decimal }> = {};
 
-  let amuletTotal = new Decimal(snapshot.amulet_total || '0');
-  let lockedTotal = new Decimal(snapshot.locked_total || '0');
-  let after = snapshot.cursor_after || 0;
+  let amuletTotal = new Decimal(snapshot.amulet_total || "0");
+  let lockedTotal = new Decimal(snapshot.locked_total || "0");
+
+  let after = snapshot.cursor_after;
   let pagesProcessed = 0;
-  const seen = new Set<string>();
+  const seen = new Set();
 
   while (pagesProcessed < PAGES_PER_BATCH) {
-    try {
-      const res = await fetch(`${baseUrl}/v0/state/acs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          migration_id,
-          record_time,
-          page_size: PAGE_SIZE,
-          after,
-          daml_value_encoding: 'compact_json',
-        }),
-      });
-
-      const data = await res.json();
-      const events = data.created_events || [];
-      const rangeTo = data.range?.to;
-
-      if (events.length === 0) {
-        console.log('✅ No more events — batch complete.');
-        return { isComplete: true, nextCursor: after };
-      }
-
-      for (const e of events) {
-        const id = e.contract_id || e.event_id;
-        if (id && seen.has(id)) continue;
-        seen.add(id);
-
-        const templateId = e.template_id || 'unknown';
-        const pkg = templateId.split(':')[0] || 'unknown';
-        const args = e.create_arguments || {};
-
-        perPackage[pkg] = perPackage[pkg] || { amulet: new Decimal('0'), locked: new Decimal('0') };
-        templatesData[templateId] = templatesData[templateId] || [];
-        templateStats[templateId] = templateStats[templateId] || { count: 0 };
-
-        templatesData[templateId].push(args);
-        templateStats[templateId].count += 1;
-        analyzeArgs(args, templateStats[templateId]);
-
-        if (isTemplate(e, 'Splice.Amulet', 'Amulet')) {
-          const val = args?.amount?.initialAmount ?? '0';
-          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-            const bn = new Decimal(val);
-            amuletTotal = amuletTotal.plus(bn);
-            perPackage[pkg].amulet = perPackage[pkg].amulet.plus(bn);
-          }
-        } else if (isTemplate(e, 'Splice.Amulet', 'LockedAmulet')) {
-          const val = args?.amulet?.amount?.initialAmount ?? '0';
-          if (typeof val === 'string' && /^[+-]?\d+(\.\d+)?$/.test(val)) {
-            const bn = new Decimal(val);
-            lockedTotal = lockedTotal.plus(bn);
-            perPackage[pkg].locked = perPackage[pkg].locked.plus(bn);
-          }
-        }
-      }
-
-      pagesProcessed++;
-      console.log(`📄 Processed page ${pagesProcessed}/${PAGES_PER_BATCH} | Amulet: ${amuletTotal.toString()}`);
-
-      if (events.length < PAGE_SIZE) {
-        console.log('✅ Last page reached in batch.');
-        return { isComplete: true, nextCursor: rangeTo ?? after + events.length };
-      }
-
-      after = rangeTo ?? after + events.length;
-      await new Promise(r => setTimeout(r, 50));
-    } catch (err: any) {
-      console.error(`⚠️ Page processing failed:`, err.message);
-      throw err;
-    }
-  }
-
-  // Upload template data to storage with retry logic
-  for (const [templateId, data] of Object.entries(templatesData)) {
-    const fileName = templateId.replace(/[:.]/g, '_');
-    const filePath = `${snapshot.id}/${fileName}.json`;
-    
-    const fileContent = JSON.stringify({
-      metadata: {
-        template_id: templateId,
+    const res = await fetch(`${baseUrl}/v0/state/acs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         migration_id,
         record_time,
-        timestamp: new Date().toISOString(),
-        entry_count: data.length,
-      },
-      data,
-    }, null, 2);
+        page_size: PAGE_SIZE,
+        after,
+        daml_value_encoding: "compact_json",
+      }),
+    });
 
-    // Retry storage upload with exponential backoff
-    await retryWithBackoff(
-      async () => {
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from('acs-data')
-          .upload(filePath, new Blob([fileContent], { type: 'application/json' }), {
-            contentType: 'application/json',
-            upsert: true,
-          });
+    const data = await res.json();
+    const events = data.created_events || [];
+    const rangeTo = data.range?.to;
 
-        if (uploadError) {
-          throw new Error(`Storage upload failed: ${uploadError.message}`);
-        }
-      },
-      `Upload ${fileName}`
-    );
+    if (events.length === 0) return { isComplete: true, nextCursor: after };
 
-    // Store or update template stats with retry logic
-    const fieldSums: Record<string, string> = {};
-    if (templateStats[templateId].fields) {
-      for (const [fname, fBN] of Object.entries(templateStats[templateId].fields)) {
-        fieldSums[fname] = fBN.toString();
+    for (const e of events) {
+      const id = e.contract_id ?? e.event_id;
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      const templateId = e.template_id;
+      const args = e.create_arguments || {};
+
+      templatesData[templateId] ||= [];
+      templateStats[templateId] ||= { count: 0 };
+
+      templatesData[templateId].push(args);
+      templateStats[templateId].count++;
+
+      if (isTemplate(e, "Splice.Amulet", "Amulet")) {
+        const val = args?.amount?.initialAmount;
+        if (typeof val === "string") amuletTotal = amuletTotal.plus(new Decimal(val));
+      }
+
+      if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
+        const val = args?.amulet?.amount?.initialAmount;
+        if (typeof val === "string") lockedTotal = lockedTotal.plus(new Decimal(val));
       }
     }
 
-    await retryWithBackoff(
-      async () => {
-        const { error: statsError } = await supabaseAdmin.from('acs_template_stats').upsert({
-          snapshot_id: snapshot.id,
-          template_id: templateId,
-          contract_count: templateStats[templateId].count,
-          field_sums: fieldSums,
-          status_tallies: templateStats[templateId].status || null,
-          storage_path: filePath,
-        }, { onConflict: 'snapshot_id,template_id' });
+    pagesProcessed++;
+    after = rangeTo ?? after + events.length;
 
-        if (statsError) {
-          throw new Error(`Stats upsert failed: ${statsError.message}`);
-        }
-      },
-      `Stats update ${fileName}`
+    console.log(`📄 Page ${pagesProcessed}/${PAGES_PER_BATCH}`);
+  }
+
+  // Upload template data
+  for (const [templateId, entries] of Object.entries(templatesData)) {
+    const filePath = `${snapshot.id}/${templateId.replace(/[:.]/g, "_")}.json`;
+
+    const content = JSON.stringify({ data: entries }, null, 2);
+
+    await retryWithBackoff(
+      () =>
+        supabaseAdmin.storage
+          .from("acs-data")
+          .upload(filePath, new Blob([content], { type: "application/json" }), { upsert: true }),
+      `upload ${templateId}`,
+    );
+
+    await retryWithBackoff(
+      () =>
+        supabaseAdmin.from("acs_template_stats").upsert(
+          {
+            snapshot_id: snapshot.id,
+            template_id: templateId,
+            contract_count: templateStats[templateId].count,
+            storage_path: filePath,
+          },
+          { onConflict: "snapshot_id,template_id" },
+        ),
+      `stats ${templateId}`,
     );
   }
 
-  // Update snapshot progress with retry logic
+  // Update snapshot progress
   const circulating = amuletTotal.minus(lockedTotal);
-  const totalProcessedPages = (snapshot.processed_pages || 0) + pagesProcessed;
-  const totalProcessedEvents = (snapshot.processed_events || 0) + seen.size;
-  const startedAtMs = snapshot.started_at ? Date.parse(snapshot.started_at) : Date.now();
-  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
-  const pagesPerMinute = elapsedMs > 0 ? totalProcessedPages / (elapsedMs / 60000) : 0;
 
   await retryWithBackoff(
-    async () => {
-      const { error: updateError } = await supabaseAdmin
-        .from('acs_snapshots')
+    () =>
+      supabaseAdmin
+        .from("acs_snapshots")
         .update({
           cursor_after: after,
+          processed_pages: (snapshot.processed_pages || 0) + pagesProcessed,
+          processed_events: (snapshot.processed_events || 0) + seen.size,
           amulet_total: amuletTotal.toString(),
           locked_total: lockedTotal.toString(),
           circulating_supply: circulating.toString(),
-          entry_count: snapshot.entry_count + seen.size,
-          iteration_count: (snapshot.iteration_count || 0) + 1,
-          processed_pages: totalProcessedPages,
-          processed_events: totalProcessedEvents,
-          elapsed_time_ms: elapsedMs,
-          pages_per_minute: pagesPerMinute,
           last_progress_update: new Date().toISOString(),
         })
-        .eq('id', snapshot.id);
-
-      if (updateError) {
-        throw new Error(`Snapshot progress update failed: ${updateError.message}`);
-      }
-    },
-    `Snapshot progress update`
+        .eq("id", snapshot.id),
+    "snapshot progress",
   );
 
-  console.log(`✅ Batch complete. Next cursor: ${after}`);
   return { isComplete: false, nextCursor: after };
 }
 
+// ------------------------------------
+// MAIN SERVE HANDLER
+// ------------------------------------
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  const BASE_URL = "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-
-    const BASE_URL = 'https://scan.sv-1.global.canton.network.sync.global/api/scan';
-    
     const body = await req.json().catch(() => ({}));
-    const snapshotId = body?.snapshot_id;
+    const snapshotId = body.snapshot_id;
 
-    let snapshot: any;
+    let snapshot;
 
+    // ---------------------------------------
+    // If snapshot_id specified → resume
+    // ---------------------------------------
     if (snapshotId) {
-      // Resume existing snapshot
-      console.log(`🔄 Resuming snapshot: ${snapshotId}`);
-      const { data, error } = await supabaseAdmin
-        .from('acs_snapshots')
-        .select('*')
-        .eq('id', snapshotId)
-        .single();
+      const { data, error } = await supabaseAdmin.from("acs_snapshots").select("*").eq("id", snapshotId).single();
 
-      if (error || !data) {
-        throw new Error(`Snapshot ${snapshotId} not found`);
-      }
-
+      if (error || !data) throw new Error("Snapshot not found");
       snapshot = data;
+    }
 
-      // Safety check for infinite loops
-      if (snapshot.iteration_count >= snapshot.max_iterations) {
-        throw new Error(`Max iterations (${snapshot.max_iterations}) reached`);
-      }
-    } else {
-      // Create new snapshot
-      console.log('🆕 Creating new snapshot');
+    // ---------------------------------------
+    // Create a new snapshot
+    // ---------------------------------------
+    if (!snapshotId) {
       const migration_id = await detectLatestMigration(BASE_URL);
-      
-      // Check if there's already a snapshot in progress for this migration
-      const { data: existingSnapshot } = await supabaseAdmin
-        .from('acs_snapshots')
-        .select('id, status, started_at')
-        .eq('migration_id', migration_id)
-        .eq('status', 'processing')
-        .maybeSingle();
-      
-      if (existingSnapshot) {
-        console.warn(`⚠️ Snapshot already in progress for migration ${migration_id}: ${existingSnapshot.id}`);
-        return new Response(
-          JSON.stringify({
-            message: 'Snapshot already in progress',
-            snapshot_id: existingSnapshot.id,
-            started_at: existingSnapshot.started_at
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 409 }
-        );
-      }
-      
       const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
 
+      const previous = await getPreviousSnapshot(supabaseAdmin, migration_id);
+
       const { data, error } = await supabaseAdmin
-        .from('acs_snapshots')
+        .from("acs_snapshots")
         .insert({
           sv_url: BASE_URL,
           migration_id,
           record_time,
-          amulet_total: '0',
-          locked_total: '0',
-          circulating_supply: '0',
-          entry_count: 0,
           cursor_after: 0,
-          iteration_count: 0,
-          status: 'processing',
+          processed_pages: 0,
+          processed_events: 0,
+          amulet_total: "0",
+          locked_total: "0",
+          circulating_supply: "0",
+          status: "processing",
+          previous_snapshot_id: previous?.id ?? null,
+          is_delta: previous ? true : false,
+          processing_mode: previous ? "delta" : "full",
+          page_size: PAGE_SIZE,
         })
         .select()
         .single();
 
-      if (error || !data) {
-        throw new Error('Failed to create snapshot record');
-      }
-
+      if (error || !data) throw new Error("Failed to create snapshot");
       snapshot = data;
-    }
 
-    // If this is the initial client-triggered call, enqueue work and return immediately
-    if (!snapshotId) {
-      console.log('▶️ Start requested from client, enqueue first batch...');
-      // Kick off processing asynchronously
-      supabaseAdmin.functions
-        .invoke('fetch-acs-snapshot', { body: { snapshot_id: snapshot.id } })
-        .catch((err: any) => console.error('Failed to enqueue first batch:', err));
+      // Kick off first batch asynchronously
+      supabaseAdmin.functions.invoke("fetch-acs-snapshot", { body: { snapshot_id: snapshot.id } }).catch(console.error);
 
       return new Response(
         JSON.stringify({
-          message: 'ACS snapshot started',
+          message: "Snapshot started",
           snapshot_id: snapshot.id,
-          status: 'processing',
+          processing_mode: snapshot.processing_mode,
+          previous_snapshot_id: snapshot.previous_snapshot_id,
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Process batch for resumed/background calls
+    // ---------------------------------------
+    // Process next batch
+    // ---------------------------------------
     const { isComplete, nextCursor } = await processBatch(
       BASE_URL,
       snapshot.migration_id,
       snapshot.record_time,
       supabaseAdmin,
-      snapshot
+      snapshot,
     );
 
     if (isComplete) {
-      // Mark as completed
       await supabaseAdmin
-        .from('acs_snapshots')
-        .update({ status: 'completed' })
-        .eq('id', snapshot.id);
+        .from("acs_snapshots")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", snapshot.id);
 
-      console.log('🎉 Snapshot completed!');
-      return new Response(
-        JSON.stringify({
-          message: 'ACS snapshot completed',
-          snapshot_id: snapshot.id,
-          status: 'completed',
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    } else {
-      // Self-invoke for next batch
-      console.log('🔁 Invoking next batch...');
-      supabaseAdmin.functions.invoke('fetch-acs-snapshot', {
-        body: { snapshot_id: snapshot.id },
-      }).catch((err: any) => {
-        console.error('Failed to invoke next batch:', err);
+      return new Response(JSON.stringify({ message: "Snapshot completed", snapshot_id: snapshot.id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
-      return new Response(
-        JSON.stringify({
-          message: 'Batch processed, continuing...',
-          snapshot_id: snapshot.id,
-          cursor: nextCursor,
-          iteration: snapshot.iteration_count + 1,
-          status: 'processing',
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
-  } catch (error: any) {
-    console.error('❌ Error:', error);
+
+    // Continue to next batch
+    supabaseAdmin.functions.invoke("fetch-acs-snapshot", {
+      body: { snapshot_id: snapshot.id },
+    });
+
     return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({
+        message: "Batch processed",
+        snapshot_id: snapshot.id,
+        cursor: nextCursor,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
