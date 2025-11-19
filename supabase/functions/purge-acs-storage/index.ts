@@ -1,42 +1,77 @@
-import { serve } from "https://deno.land/std/http/server.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+
+interface PurgeRequest {
+  snapshot_id?: string;
+  purge_all?: boolean;
+  webhookSecret?: string;
+}
 
 serve(async (req) => {
   try {
-    const { purge_all, snapshot_id, webhookSecret } = await req.json();
+    const request: PurgeRequest = await req.json();
 
-    if (webhookSecret !== Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")) {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const webhookKey = Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")!;
+
+    if (request.webhookSecret !== webhookKey) {
       return new Response("Unauthorized", { status: 403 });
     }
 
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const bucket = "acs-data";
     let deletedFiles = 0;
     let deletedStats = 0;
 
-    // -----------------------------------
-    // BREAK SNAPSHOT FK CHAINS
-    // -----------------------------------
+    console.log("🧹 Starting ACS purge...");
+
+    // -------------------------------------------------------
+    // STEP 1 — Break stuck snapshots (processing → failed)
+    // -------------------------------------------------------
+    console.log("🔧 Resetting snapshots stuck in 'processing'...");
+
+    await supabase
+      .from("acs_snapshots")
+      .update({
+        status: "failed",
+        error_message: "Purged due to stuck processing state",
+      })
+      .in("status", ["processing"]);
+
+    // -------------------------------------------------------
+    // STEP 2 — Break snapshot foreign-key parent chains
+    // -------------------------------------------------------
+    console.log("🔗 Removing snapshot FK chains...");
+
     await supabase.from("acs_snapshots").update({ previous_snapshot_id: null }).not("previous_snapshot_id", "is", null);
 
-    // -----------------------------------
-    // CLEAR DEPENDENT TABLES
-    // -----------------------------------
+    // -------------------------------------------------------
+    // STEP 3 — Delete dependent tables FIRST
+    // -------------------------------------------------------
+    console.log("🗑️ Clearing contract state...");
+
     await supabase.from("acs_contract_state").delete().neq("contract_id", "");
+
+    console.log("🗑️ Clearing snapshot chunks...");
+
+    await supabase.from("acs_snapshot_chunks").delete().neq("id", "");
+
+    console.log("🗑️ Clearing template stats...");
 
     const { count: statsCount } = await supabase.from("acs_template_stats").delete({ count: "exact" }).neq("id", "");
 
     deletedStats = statsCount || 0;
 
-    // -----------------------------------
-    // RECURSIVE STORAGE DELETE
-    // -----------------------------------
+    // -------------------------------------------------------
+    // STEP 4 — Recursive storage deletion
+    // -------------------------------------------------------
     async function deletePrefix(prefix: string = ""): Promise<void> {
       const { data: entries, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
 
       if (error) {
-        console.error("List error:", error);
+        console.error("Storage list error:", error);
         return;
       }
 
@@ -48,30 +83,43 @@ serve(async (req) => {
           await supabase.storage.from(bucket).remove([fullPath]);
           deletedFiles++;
         } else {
-          // Subfolder
+          // Folder (must delete contents first)
           await deletePrefix(fullPath);
           await supabase.storage.from(bucket).remove([fullPath]);
         }
       }
     }
 
-    if (purge_all) {
+    if (request.purge_all) {
+      console.log("🗑️ Purging ALL storage files...");
       await deletePrefix("");
-    } else if (snapshot_id) {
-      await deletePrefix(snapshot_id);
+    } else if (request.snapshot_id) {
+      console.log(`🗑️ Purging storage for snapshot: ${request.snapshot_id}`);
+      await deletePrefix(request.snapshot_id);
+    } else {
+      console.log("🗑️ Purging incomplete snapshot storage...");
+      const { data: incomplete } = await supabase.from("acs_snapshots").select("id").in("status", ["failed"]);
+
+      for (const snap of incomplete ?? []) {
+        await deletePrefix(snap.id);
+      }
     }
 
-    // -----------------------------------
-    // DELETE ALL SNAPSHOTS
-    // -----------------------------------
+    // -------------------------------------------------------
+    // STEP 5 — Delete snapshot rows themselves
+    // -------------------------------------------------------
+    console.log("🗑️ Deleting snapshot rows...");
+
     await supabase.from("acs_snapshots").delete().neq("id", "");
+
+    console.log("✅ ACS purge complete.");
 
     return new Response(
       JSON.stringify({
         success: true,
         deleted_files: deletedFiles,
         deleted_stats: deletedStats,
-        snapshot_id: purge_all ? "all" : snapshot_id,
+        snapshot_id: request.purge_all ? "all" : (request.snapshot_id ?? "all_incomplete"),
       }),
       {
         status: 200,
@@ -79,10 +127,9 @@ serve(async (req) => {
       },
     );
   } catch (err) {
-    console.error("Purge failed:", err);
+    console.error("💥 Purge failed:", err);
 
-    // Properly narrow `unknown`
-    const message = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error occurred";
+    const message = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
 
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
