@@ -1,283 +1,84 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { serve } from "https://deno.land/std/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface PurgeRequest {
-  snapshot_id?: string; // Optional - if provided, only purge this snapshot's data
-  purge_all?: boolean; // Optional - if true, purge ALL storage data
-  webhookSecret?: string; // Optional - required if not using admin auth
-}
-
-Deno.serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+serve(async (req) => {
   try {
-    const request: PurgeRequest = await req.json();
-    
-    // Initialize Supabase clients
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    
-    // DEMO MODE: public access (no auth). WARNING: Do not use in production.
-    console.warn('purge-acs-storage called in DEMO MODE (no auth enforced)');
+    const { purge_all, snapshot_id, webhookSecret } = await req.json();
 
-    // Use service role client for actual operations
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // Auth guard
+    if (webhookSecret !== Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")) {
+      return new Response("Unauthorized", { status: 403 });
+    }
 
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    const bucket = "acs-data";
     let deletedFiles = 0;
     let deletedStats = 0;
 
-    if (request.purge_all) {
-      // Purge ALL storage data and database records
-      console.log('Purging ALL ACS data from storage and database...');
-      
-      // Delete all template stats
-      const { count: statsCount, error: statsError } = await supabase
-        .from('acs_template_stats')
-        .delete({ count: 'exact' })
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all rows
+    // ---------------------------
+    // BREAK ALL SNAPSHOT FK CHAINS
+    // ---------------------------
+    await supabase.from("acs_snapshots").update({ previous_snapshot_id: null }).not("previous_snapshot_id", "is", null);
 
-      if (statsError) {
-        console.error('Error deleting all template stats:', statsError);
-        throw statsError;
+    // ---------------------------
+    // DELETE ALL DEPENDENT TABLES
+    // ---------------------------
+    await supabase.from("acs_contract_state").delete().neq("contract_id", "");
+    await supabase.from("acs_snapshot_chunks").delete().neq("id", "");
+
+    const { count: statsCount } = await supabase.from("acs_template_stats").delete({ count: "exact" }).neq("id", "");
+
+    deletedStats = statsCount || 0;
+
+    // ---------------------------
+    // RECURSIVE STORAGE DELETE
+    // ---------------------------
+    async function deletePrefix(prefix: string = "") {
+      const { data: entries, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
+
+      if (error) {
+        console.error("List error:", error);
+        return;
       }
-      
-      deletedStats = statsCount || 0;
 
-      // Recursively delete all files from the storage bucket
-      console.log('Listing all files in storage bucket...');
+      for (const entry of entries ?? []) {
+        const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
-      // Helper: recursively collect all file paths under a prefix
-      const collectAllFiles = async (prefix: string): Promise<string[]> => {
-        const all: string[] = [];
-        let offset = 0;
-        const limit = 1000;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data: entries, error } = await supabase.storage
-            .from('acs-data')
-            .list(prefix, { limit, offset, sortBy: { column: 'name', order: 'asc' } });
-
-          if (error) {
-            console.error(`Error listing at prefix '${prefix}':`, error);
-            break;
-          }
-
-          if (!entries || entries.length === 0) {
-            hasMore = false;
-            break;
-          }
-
-          for (const entry of entries) {
-            const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-            // Supabase lists: files have an 'id', folders do not
-            if ((entry as any).id) {
-              all.push(path); // file
-            } else {
-              const nested = await collectAllFiles(path); // folder
-              all.push(...nested);
-            }
-          }
-
-          if (entries.length < limit) {
-            hasMore = false;
-          } else {
-            offset += limit;
-          }
-        }
-
-        return all;
-      };
-
-      const allFilePaths = await collectAllFiles('');
-      console.log(`Total files to delete: ${allFilePaths.length}`);
-
-      // Delete files in batches of 100 (Supabase limit)
-      const batchSize = 100;
-      for (let i = 0; i < allFilePaths.length; i += batchSize) {
-        const batch = allFilePaths.slice(i, i + batchSize);
-        console.log(`Deleting batch ${Math.floor(i / batchSize) + 1} (${batch.length} files)`);
-        const { error: deleteError } = await supabase.storage
-          .from('acs-data')
-          .remove(batch);
-        if (deleteError) {
-          console.error(`Error deleting batch ${Math.floor(i / batchSize) + 1}:`, deleteError);
+        if (entry.metadata) {
+          // File
+          await supabase.storage.from(bucket).remove([fullPath]);
+          deletedFiles++;
         } else {
-          deletedFiles += batch.length;
-        }
-      }
-
-      console.log(`Successfully deleted ${deletedFiles} files from storage`);
-
-      // Delete all snapshot records
-      const { error: deleteSnapshotsError } = await supabase
-        .from('acs_snapshots')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all rows
-
-      if (deleteSnapshotsError) {
-        console.error('Error deleting all snapshots:', deleteSnapshotsError);
-        throw deleteSnapshotsError;
-      }
-      
-      console.log('All snapshot records deleted from database');
-
-    } else if (request.snapshot_id) {
-      // Purge specific snapshot
-      console.log(`Purging data for snapshot: ${request.snapshot_id}`);
-      
-      // Delete template stats for this snapshot
-      const { count: statsCount, error: statsError } = await supabase
-        .from('acs_template_stats')
-        .delete({ count: 'exact' })
-        .eq('snapshot_id', request.snapshot_id);
-
-      if (statsError) {
-        console.error('Error deleting template stats:', statsError);
-        throw statsError;
-      }
-      
-      deletedStats = statsCount || 0;
-
-      // List and delete storage files for this snapshot
-      const { data: files, error: listError } = await supabase.storage
-        .from('acs-data')
-        .list(request.snapshot_id);
-
-      if (listError) {
-        console.error('Error listing files:', listError);
-        throw listError;
-      }
-
-      if (files && files.length > 0) {
-        const filePaths = files.map(file => `${request.snapshot_id}/${file.name}`);
-        
-        const { error: deleteError } = await supabase.storage
-          .from('acs-data')
-          .remove(filePaths);
-
-        if (deleteError) {
-          console.error('Error deleting files:', deleteError);
-          throw deleteError;
-        }
-
-        deletedFiles = files.length;
-      }
-
-      // Update snapshot status to failed
-      const { error: updateError } = await supabase
-        .from('acs_snapshots')
-        .update({ status: 'failed', error_message: 'Upload incomplete - storage purged' })
-        .eq('id', request.snapshot_id);
-
-      if (updateError) {
-        console.error('Error updating snapshot status:', updateError);
-        throw updateError;
-      }
-
-    } else {
-      // Purge all processing/failed snapshots and their data
-      console.log('Purging all incomplete snapshot data...');
-      
-      // Get all processing/failed snapshots
-      const { data: incompleteSnapshots, error: snapshotError } = await supabase
-        .from('acs_snapshots')
-        .select('id')
-        .in('status', ['processing', 'failed']);
-
-      if (snapshotError) {
-        console.error('Error fetching incomplete snapshots:', snapshotError);
-        throw snapshotError;
-      }
-
-      if (incompleteSnapshots && incompleteSnapshots.length > 0) {
-        const snapshotIds = incompleteSnapshots.map(s => s.id);
-        
-        // Delete all template stats for these snapshots
-        const { count: statsCount, error: statsError } = await supabase
-          .from('acs_template_stats')
-          .delete({ count: 'exact' })
-          .in('snapshot_id', snapshotIds);
-
-        if (statsError) {
-          console.error('Error deleting template stats:', statsError);
-          throw statsError;
-        }
-        
-        deletedStats = statsCount || 0;
-
-        // Delete storage files for each snapshot
-        for (const snapshot of incompleteSnapshots) {
-          const { data: files, error: listError } = await supabase.storage
-            .from('acs-data')
-            .list(snapshot.id);
-
-          if (listError) {
-            console.error(`Error listing files for ${snapshot.id}:`, listError);
-            continue;
-          }
-
-          if (files && files.length > 0) {
-            const filePaths = files.map(file => `${snapshot.id}/${file.name}`);
-            
-            const { error: deleteError } = await supabase.storage
-              .from('acs-data')
-              .remove(filePaths);
-
-            if (deleteError) {
-              console.error(`Error deleting files for ${snapshot.id}:`, deleteError);
-              continue;
-            }
-
-            deletedFiles += files.length;
-          }
-        }
-
-        // Update all incomplete snapshots to failed
-        const { error: updateError } = await supabase
-          .from('acs_snapshots')
-          .update({ status: 'failed', error_message: 'Upload incomplete - storage purged' })
-          .in('id', snapshotIds);
-
-        if (updateError) {
-          console.error('Error updating snapshot statuses:', updateError);
-          throw updateError;
+          // Folder
+          await deletePrefix(fullPath);
+          await supabase.storage.from(bucket).remove([fullPath]);
         }
       }
     }
 
-    console.log(`Purge complete: ${deletedFiles} files and ${deletedStats} stats records deleted`);
+    if (purge_all) {
+      await deletePrefix("");
+    } else if (snapshot_id) {
+      await deletePrefix(snapshot_id);
+    }
+
+    // ---------------------------
+    // DELETE ALL SNAPSHOTS
+    // ---------------------------
+    await supabase.from("acs_snapshots").delete().neq("id", "");
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: true,
         deleted_files: deletedFiles,
         deleted_stats: deletedStats,
-        snapshot_id: request.purge_all ? 'all' : (request.snapshot_id || 'all_incomplete')
+        snapshot_id: purge_all ? "all" : snapshot_id,
       }),
-      { 
-        status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
+      { status: 200, headers: { "Content-Type": "application/json" } },
     );
-
-  } catch (error) {
-    console.error('Purge failed:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+  } catch (err) {
+    console.error("Purge failed:", err);
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 });
