@@ -1,11 +1,10 @@
 import { serve } from "https://deno.land/std/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 serve(async (req) => {
   try {
     const { purge_all, snapshot_id, webhookSecret } = await req.json();
 
-    // Auth guard
     if (webhookSecret !== Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")) {
       return new Response("Unauthorized", { status: 403 });
     }
@@ -16,25 +15,24 @@ serve(async (req) => {
     let deletedFiles = 0;
     let deletedStats = 0;
 
-    // ---------------------------
-    // BREAK ALL SNAPSHOT FK CHAINS
-    // ---------------------------
+    // -----------------------------------
+    // BREAK SNAPSHOT FK CHAINS
+    // -----------------------------------
     await supabase.from("acs_snapshots").update({ previous_snapshot_id: null }).not("previous_snapshot_id", "is", null);
 
-    // ---------------------------
-    // DELETE ALL DEPENDENT TABLES
-    // ---------------------------
+    // -----------------------------------
+    // CLEAR DEPENDENT TABLES
+    // -----------------------------------
     await supabase.from("acs_contract_state").delete().neq("contract_id", "");
-    await supabase.from("acs_snapshot_chunks").delete().neq("id", "");
 
     const { count: statsCount } = await supabase.from("acs_template_stats").delete({ count: "exact" }).neq("id", "");
 
     deletedStats = statsCount || 0;
 
-    // ---------------------------
+    // -----------------------------------
     // RECURSIVE STORAGE DELETE
-    // ---------------------------
-    async function deletePrefix(prefix: string = "") {
+    // -----------------------------------
+    async function deletePrefix(prefix: string = ""): Promise<void> {
       const { data: entries, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
 
       if (error) {
@@ -50,7 +48,7 @@ serve(async (req) => {
           await supabase.storage.from(bucket).remove([fullPath]);
           deletedFiles++;
         } else {
-          // Folder
+          // Subfolder
           await deletePrefix(fullPath);
           await supabase.storage.from(bucket).remove([fullPath]);
         }
@@ -63,9 +61,9 @@ serve(async (req) => {
       await deletePrefix(snapshot_id);
     }
 
-    // ---------------------------
+    // -----------------------------------
     // DELETE ALL SNAPSHOTS
-    // ---------------------------
+    // -----------------------------------
     await supabase.from("acs_snapshots").delete().neq("id", "");
 
     return new Response(
@@ -75,10 +73,20 @@ serve(async (req) => {
         deleted_stats: deletedStats,
         snapshot_id: purge_all ? "all" : snapshot_id,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
     );
   } catch (err) {
     console.error("Purge failed:", err);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+
+    // Properly narrow `unknown`
+    const message = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error occurred";
+
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 });
