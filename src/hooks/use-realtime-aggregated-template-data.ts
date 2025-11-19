@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeSnapshots } from "./use-realtime-snapshots";
+import { buildBaselineState, applyIncrementalChunk } from "@/lib/ledgerDeltaEngine";
 
 interface ChunkManifest {
   templateId: string;
@@ -152,60 +153,115 @@ export function useRealtimeAggregatedTemplateData(
         ? templateSuffix.slice(0, firstColon) + "." + templateSuffix.slice(firstColon + 1)
         : templateSuffix;
 
-      // Collect data from all snapshots
-      const contractsMap = new Map<string, any>();
+      // Step 1: Build baseline state from the full snapshot
+      console.log(`📊 Building baseline state from snapshot ${snapshots.baseline.id}`);
+      let contractsMap = new Map<string, any>();
       let totalTemplateCount = 0;
 
-      for (const snapshot of snapshots.allSnapshots) {
-        // Find all templates matching the suffix for this snapshot
-        // Handle both "Splice:Amulet:Amulet" and "Splice.Amulet:Amulet" formats
-        const { data: templateStats, error: statsError } = await supabase
+      // Process baseline snapshot - contains actual contract states
+      const { data: baselineTemplates, error: baselineError } = await supabase
+        .from("acs_template_stats")
+        .select("template_id, storage_path, contract_count")
+        .eq("snapshot_id", snapshots.baseline.id)
+        .or(
+          `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
+        );
+
+      if (baselineError) {
+        console.error(`❌ Error loading baseline templates:`, baselineError);
+        throw baselineError;
+      }
+
+      if (!baselineTemplates || baselineTemplates.length === 0) {
+        console.warn(`⚠️ No baseline templates found for ${templateSuffix}`);
+        return {
+          data: [],
+          templateCount: 0,
+          totalContracts: 0,
+          snapshotCount: snapshots.allSnapshots.length,
+          baselineId: snapshots.baseline.id,
+          incrementalIds: snapshots.incrementals.map(i => i.id)
+        };
+      }
+
+      console.log(`✅ Found ${baselineTemplates.length} baseline templates`, baselineTemplates.map(t => t.template_id));
+      totalTemplateCount = baselineTemplates.length;
+
+      // Load all baseline contracts and build initial state
+      for (const template of baselineTemplates) {
+        try {
+          const contractsArray = await fetchTemplateData(template.storage_path);
+          console.log(`📦 Loading ${contractsArray.length} contracts from baseline template ${template.template_id}`);
+          
+          // Build baseline state (contracts are actual contract objects with create_arguments)
+          const templateState = buildBaselineState(contractsArray);
+          
+          // Merge into main state
+          for (const [contractId, contract] of templateState.entries()) {
+            contractsMap.set(contractId, contract);
+          }
+          
+          console.log(`✅ Baseline: Loaded ${contractsArray.length} contracts, total state now has ${contractsMap.size} contracts`);
+        } catch (error) {
+          console.error(`❌ Error loading baseline template ${template.template_id}:`, error);
+        }
+      }
+
+      console.log(`✅ Baseline state built: ${contractsMap.size} contracts`);
+
+      // Step 2: Apply incremental updates from all incremental snapshots
+      console.log(`📊 Applying ${snapshots.incrementals.length} incremental snapshots`);
+      
+      for (const incrementalSnapshot of snapshots.incrementals) {
+        console.log(`📥 Processing incremental snapshot ${incrementalSnapshot.id}`);
+        
+        const { data: incrementalTemplates, error: incrementalError } = await supabase
           .from("acs_template_stats")
           .select("template_id, storage_path, contract_count")
-          .eq("snapshot_id", snapshot.id)
+          .eq("snapshot_id", incrementalSnapshot.id)
           .or(
             `template_id.ilike.%:${templateSuffix},template_id.ilike.%:${dotVariant},template_id.ilike.${dotVariant}`
           );
 
-        if (statsError) {
-          console.error(`❌ Error loading templates for snapshot ${snapshot.id}:`, statsError);
+        if (incrementalError) {
+          console.error(`❌ Error loading incremental templates for snapshot ${incrementalSnapshot.id}:`, incrementalError);
           continue;
         }
 
-        if (!templateStats || templateStats.length === 0) {
-          console.log(`⚠️ No templates found for snapshot ${snapshot.id}`);
+        if (!incrementalTemplates || incrementalTemplates.length === 0) {
+          console.log(`⚠️ No templates found in incremental snapshot ${incrementalSnapshot.id}`);
           continue;
         }
 
-        console.log(`✅ Found ${templateStats.length} templates in snapshot ${snapshot.id}`, templateStats.map(t => t.template_id));
-        totalTemplateCount = Math.max(totalTemplateCount, templateStats.length);
+        console.log(`✅ Found ${incrementalTemplates.length} templates in incremental snapshot`);
 
-        // Fetch data from all matching templates in this snapshot
-        for (const template of templateStats) {
+        // Load all event chunks from this incremental snapshot
+        const allEvents: any[] = [];
+        for (const template of incrementalTemplates) {
           try {
-            const contractsArray = await fetchTemplateData(template.storage_path);
-            
-            // For baseline snapshots: contracts are just payload objects without IDs
-            // We'll generate a stable ID from the contract data for deduplication
-            for (const contract of contractsArray) {
-              // Try to extract ID from various possible locations
-              const contractId = 
-                contract.contract?.contractId || 
-                contract.contractId || 
-                contract.contract_id ||
-                contract.payload?.contractId ||
-                contract.payload?.contract_id;
-              
-              // If no ID found, generate one from contract data
-              const id = contractId || JSON.stringify(contract);
-              contractsMap.set(id, contract);
-            }
-            
-            console.log(`📊 Snapshot ${snapshot.id}: Template ${template.template_id} added ${contractsArray.length} contracts, map now has ${contractsMap.size}`);
+            const eventsArray = await fetchTemplateData(template.storage_path);
+            console.log(`📦 Loaded ${eventsArray.length} events from template ${template.template_id}`);
+            allEvents.push(...eventsArray);
           } catch (error) {
-            console.error(`❌ Error loading template ${template.template_id} from snapshot ${snapshot.id}:`, error);
+            console.error(`❌ Error loading incremental template ${template.template_id}:`, error);
           }
         }
+
+        // Transform flat event array into chunks with created/archived structure
+        const eventChunk = {
+          created: allEvents.filter(e => e.event_type === "created_event"),
+          archived: allEvents.filter(e => e.event_type === "exercised_event" && e.consuming === true)
+        };
+
+        // Apply events from this incremental snapshot to the state
+        const beforeSize = contractsMap.size;
+        applyIncrementalChunk(contractsMap, eventChunk);
+        const afterSize = contractsMap.size;
+        
+        console.log(`✅ Applied events from snapshot ${incrementalSnapshot.id}:`);
+        console.log(`   - ${eventChunk.created.length} created events`);
+        console.log(`   - ${eventChunk.archived.length} archived events`);
+        console.log(`   - State changed: ${beforeSize} -> ${afterSize} contracts (${afterSize - beforeSize > 0 ? '+' : ''}${afterSize - beforeSize})`);
       }
 
       const mergedData = Array.from(contractsMap.values());
