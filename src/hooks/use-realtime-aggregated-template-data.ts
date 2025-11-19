@@ -185,9 +185,10 @@ export function useRealtimeAggregatedTemplateData(
           try {
             const contractsArray = await fetchTemplateData(template.storage_path);
             
-            // Merge contracts, using latest version (from most recent snapshot)
+            // For baseline snapshots: contracts are just payload objects without IDs
+            // We'll generate a stable ID from the contract data for deduplication
             for (const contract of contractsArray) {
-              // Handle multiple possible field name variations for contract ID
+              // Try to extract ID from various possible locations
               const contractId = 
                 contract.contract?.contractId || 
                 contract.contractId || 
@@ -195,12 +196,9 @@ export function useRealtimeAggregatedTemplateData(
                 contract.payload?.contractId ||
                 contract.payload?.contract_id;
               
-              if (!contractId) {
-                console.warn("⚠️ Contract entry missing contract ID:", Object.keys(contract));
-                continue;
-              }
-              
-              contractsMap.set(contractId, contract);
+              // If no ID found, generate one from contract data
+              const id = contractId || JSON.stringify(contract);
+              contractsMap.set(id, contract);
             }
             
             console.log(`📊 Snapshot ${snapshot.id}: Template ${template.template_id} added ${contractsArray.length} contracts, map now has ${contractsMap.size}`);
