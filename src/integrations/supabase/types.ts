@@ -132,6 +132,7 @@ export type Database = {
           progress: Json | null
           progress_percentage: number | null
           record_time: string
+          snapshot_type: string
           started_at: string | null
           status: string
           sv_url: string
@@ -172,6 +173,7 @@ export type Database = {
           progress?: Json | null
           progress_percentage?: number | null
           record_time: string
+          snapshot_type?: string
           started_at?: string | null
           status?: string
           sv_url: string
@@ -212,6 +214,7 @@ export type Database = {
           progress?: Json | null
           progress_percentage?: number | null
           record_time?: string
+          snapshot_type?: string
           started_at?: string | null
           status?: string
           sv_url?: string
