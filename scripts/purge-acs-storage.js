@@ -1,53 +1,99 @@
-/**
- * Purge ACS storage data via Edge Function
- */
+import { serve } from "https://deno.land/std/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-const edgeFunctionUrl = process.env.PURGE_FUNCTION_URL || process.env.EDGE_FUNCTION_URL?.replace('upload-acs-data', 'purge-acs-storage');
-const webhookSecret = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-const snapshotId = process.argv[2]; // Optional snapshot ID or 'all' to purge everything
-
-if (!edgeFunctionUrl || !webhookSecret) {
-  console.error("❌ Missing PURGE_FUNCTION_URL/EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET");
-  console.log("Usage: node scripts/purge-acs-storage.js [snapshot_id|all]");
-  console.log("  - No argument: purges all incomplete uploads");
-  console.log("  - 'all': purges ALL data (complete wipe)");
-  console.log("  - <snapshot_id>: purges only that snapshot's data");
-  process.exit(1);
-}
-
-async function purgeStorage() {
+serve(async (req) => {
   try {
-    const purgeAll = snapshotId === 'all';
-    const targetMsg = purgeAll ? 'ALL data' : (snapshotId ? `snapshot: ${snapshotId}` : 'all incomplete');
-    console.log(`🗑️ Purging ACS storage data (${targetMsg})...`);
-    
-    const response = await fetch(edgeFunctionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        purge_all: purgeAll,
-        snapshot_id: purgeAll ? undefined : snapshotId,
-        webhookSecret: webhookSecret
-      }),
-    });
+    const { purge_all, snapshot_id, webhookSecret } = await req.json();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Purge failed (${response.status}): ${errorText}`);
+    // Auth guard
+    if (webhookSecret !== Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")) {
+      return new Response("Unauthorized", { status: 403 });
     }
 
-    const result = await response.json();
-    console.log(`✅ Purge complete!`);
-    console.log(`   Files deleted: ${result.deleted_files}`);
-    console.log(`   Stats deleted: ${result.deleted_stats}`);
-    console.log(`   Target: ${result.snapshot_id}`);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const bucket = "acs-data";
+    let deletedFiles = 0;
+    let deletedStats = 0;
+
+    // ---------------------------
+    // BREAK ALL SNAPSHOT FK CHAINS
+    // ---------------------------
+    await supabase
+      .from("acs_snapshots")
+      .update({ previous_snapshot_id: null })
+      .not("previous_snapshot_id", "is", null);
+
+    // ---------------------------
+    // DELETE ALL DEPENDENT TABLES
+    // ---------------------------
+    await supabase.from("acs_contract_state").delete().neq("contract_id", "");
+    await supabase.from("acs_snapshot_chunks").delete().neq("id", "");
+    
+    const { count: statsCount } = await supabase
+      .from("acs_template_stats")
+      .delete({ count: "exact" })
+      .neq("id", "");
+
+    deletedStats = statsCount || 0;
+
+    // ---------------------------
+    // RECURSIVE STORAGE DELETE
+    // ---------------------------
+    async function deletePrefix(prefix: string = "") {
+      const { data: entries, error } = await supabase.storage
+        .from(bucket)
+        .list(prefix, { limit: 1000 });
+
+      if (error) {
+        console.error("List error:", error);
+        return;
+      }
+
+      for (const entry of entries ?? []) {
+        const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+        if (entry.metadata) {
+          // File
+          await supabase.storage.from(bucket).remove([fullPath]);
+          deletedFiles++;
+        } else {
+          // Folder
+          await deletePrefix(fullPath);
+          await supabase.storage.from(bucket).remove([fullPath]);
+        }
+      }
+    }
+
+    if (purge_all) {
+      await deletePrefix("");
+    } else if (snapshot_id) {
+      await deletePrefix(snapshot_id);
+    }
+
+    // ---------------------------
+    // DELETE ALL SNAPSHOTS
+    // ---------------------------
+    await supabase.from("acs_snapshots").delete().neq("id", "");
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        deleted_files: deletedFiles,
+        deleted_stats: deletedStats,
+        snapshot_id: purge_all ? "all" : snapshot_id,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
 
   } catch (err) {
-    console.error("\n❌ Purge failed:", err.message);
-    process.exit(1);
+    console.error("Purge failed:", err);
+    return new Response(
+      JSON.stringify({ error: err.message }),
+      { status: 500 }
+    );
   }
-}
-
-purgeStorage();
+});
