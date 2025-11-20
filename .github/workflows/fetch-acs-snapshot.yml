@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC
 
+# Prevent overlapping snapshot runs
+concurrency:
+  group: fetch-acs-snapshot
+  cancel-in-progress: false
+
 jobs:
   fetch-and-upload:
     runs-on: self-hosted
