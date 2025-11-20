@@ -395,6 +395,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   );
   const JITTER_MS = 500;
 
+  let lastPage = false;
+  
   while (true) {
     let retryCount = 0;
     let cooldowns = 0;
@@ -423,6 +425,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         if (!events.length) {
           console.log("\n✅ No more events — finished.");
           pageSuccess = true;
+          lastPage = true;
           break;
         }
 
@@ -598,6 +601,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         if (events.length < PAGE_SIZE) {
           console.log("\n✅ Last page reached.");
           pageSuccess = true;
+          lastPage = true;
           break;
         }
 
@@ -667,6 +671,11 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
 
     if (!pageSuccess) {
       console.error("❌ Stopping due to repeated page failures.");
+      break;
+    }
+    
+    if (lastPage) {
+      console.log("✅ Reached last page, exiting main loop.");
       break;
     }
   }
