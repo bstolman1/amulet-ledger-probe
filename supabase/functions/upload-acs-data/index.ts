@@ -1,261 +1,436 @@
-// Deno / Supabase Edge Function
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
-import { serve } from "https://deno.land/std/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WEBHOOK_SECRET = Deno.env.get("ACS_UPLOAD_WEBHOOK_SECRET")!; // set in Supabase env
-const BUCKET = "acs-data";
-
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+interface TemplateFile {
+  filename: string;
+  content: string;
+  templateId?: string;
+  chunkIndex?: number;
+  totalChunks?: number;
+  isChunked?: boolean;
 }
 
-async function handleStart(body: any) {
-  const summary = body.summary ?? {};
-  const { data, error } = await supabase
-    .from("acs_snapshots")
-    .insert({
-      status: "processing",
-      sv_url: summary.sv_url ?? null,
-      migration_id: summary.migration_id ?? null,
-      record_time: summary.record_time ?? null,
-      canonical_package: summary.canonical_package ?? "unknown",
-      amulet_total: "0",
-      locked_total: "0",
-      circulating_total: "0",
-      entry_count: 0,
-      processed_pages: 0,
-      processed_events: 0,
-    })
-    .select("id")
-    .single();
+interface StartRequest {
+  mode: 'start';
+  summary: {
+    sv_url: string;
+    migration_id: number;
+    record_time: string;
+    canonical_package: string;
+    totals: {
+      amulet: string;
+      locked: string;
+      circulating: string;
+    };
+    entry_count: number;
+  };
+  webhookSecret: string;
+}
 
-  if (error) {
-    console.error("acs_snapshots insert error:", error);
-    return jsonResponse({ error: error.message }, 500);
+interface AppendRequest {
+  mode: 'append';
+  snapshot_id: string;
+  templates: TemplateFile[];
+  webhookSecret: string;
+}
+
+interface CompleteRequest {
+  mode: 'complete';
+  snapshot_id: string;
+  webhookSecret: string;
+  summary?: {
+    totals: {
+      amulet: string;
+      locked: string;
+      circulating: string;
+    };
+    entry_count: number;
+    canonical_package: string;
+  };
+}
+
+interface ProgressRequest {
+  mode: 'progress';
+  snapshot_id: string;
+  webhookSecret: string;
+  progress: {
+    processed_pages: number;
+    processed_events: number;
+    elapsed_time_ms: number;
+    pages_per_minute: number;
+  };
+}
+
+type UploadRequest = StartRequest | AppendRequest | CompleteRequest | ProgressRequest;
+
+/**
+ * Process a single template chunk with memory optimization and error handling
+ */
+async function processTemplateChunk(
+  supabase: any,
+  snapshot_id: string,
+  template: TemplateFile
+): Promise<number> {
+  const isChunked = template.isChunked || false;
+  const templateId = template.templateId || template.filename.replace(/\.json$/, '').replace(/_/g, ':');
+  const chunkIndex = template.chunkIndex || 0;
+  const totalChunks = template.totalChunks || 1;
+  
+  // Determine storage path based on chunking
+  let storagePath: string;
+  if (isChunked) {
+    storagePath = `${snapshot_id}/chunks/${template.filename}`;
+  } else {
+    storagePath = `${snapshot_id}/templates/${template.filename}`;
+  }
+  
+  // Upload the file to storage
+  const fileContent = new TextEncoder().encode(template.content);
+  const { error: uploadError } = await supabase.storage
+    .from('acs-data')
+    .upload(storagePath, fileContent, {
+      contentType: 'application/json',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error(`Failed to upload ${template.filename}:`, uploadError);
+    throw uploadError;
   }
 
-  return jsonResponse({ snapshot_id: data.id }, 200);
-}
+  // Parse JSON only to count contracts, then immediately release
+  let contractCount: number;
+  {
+    const data = JSON.parse(template.content);
+    contractCount = data.length;
+    // data goes out of scope here and can be garbage collected
+  }
 
-async function uploadTemplateChunks(snapshotId: string, templates: any[]) {
-  for (const t of templates) {
-    const filename: string = t.filename;
-    const content: string = t.content;
-    const isChunked: boolean = !!t.isChunked;
+  // Handle chunked vs non-chunked storage
+  if (isChunked) {
+    // For chunked uploads, accumulate stats
+    const { data: existingStats } = await supabase
+      .from('acs_template_stats')
+      .select('contract_count')
+      .eq('snapshot_id', snapshot_id)
+      .eq('template_id', templateId)
+      .maybeSingle();
 
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const folder = isChunked ? "chunks" : "templates";
-    const path = `${snapshotId}/${folder}/${safeName}`;
+    const newContractCount = (existingStats?.contract_count || 0) + contractCount;
+    
+    // Update manifest with chunk info
+    const manifestPath = `${snapshot_id}/manifests/${templateId.replace(/:/g, '_')}_manifest.json`;
+    const { data: existingManifestFile } = await supabase.storage
+      .from('acs-data')
+      .download(manifestPath)
+      .catch(() => ({ data: null }));
 
-    const { error } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, new TextEncoder().encode(content), {
-        upsert: true,
-        contentType: "application/json",
+    interface ChunkManifest {
+      chunks: Array<{ chunkIndex: number; contractCount: number; storagePath: string }>;
+      totalEntries: number;
+      totalChunks: number;
+    }
+
+    let manifest: ChunkManifest = { chunks: [], totalEntries: 0, totalChunks };
+    if (existingManifestFile) {
+      const text = await existingManifestFile.text();
+      manifest = JSON.parse(text);
+    }
+    
+    manifest.chunks.push({ chunkIndex, contractCount, storagePath });
+    manifest.totalEntries += contractCount;
+
+    const manifestContent = new TextEncoder().encode(JSON.stringify(manifest, null, 2));
+    await supabase.storage
+      .from('acs-data')
+      .upload(manifestPath, manifestContent, { 
+        contentType: 'application/json', 
+        upsert: true 
       });
 
-    if (error) {
-      console.error("storage upload error:", path, error);
-      throw error;
-    }
+    // Update stats to point to manifest
+    await supabase
+      .from('acs_template_stats')
+      .upsert({
+        snapshot_id,
+        template_id: templateId,
+        contract_count: newContractCount,
+        storage_path: manifestPath,
+      }, {
+        onConflict: 'snapshot_id,template_id'
+      });
+      
+    console.log(`  Chunk ${chunkIndex + 1}/${totalChunks}: ${contractCount} contracts (total: ${newContractCount})`);
+  } else {
+    // For non-chunked uploads, simple insert/update
+    await supabase
+      .from('acs_template_stats')
+      .upsert({
+        snapshot_id,
+        template_id: templateId,
+        contract_count: contractCount,
+        storage_path: storagePath,
+      }, {
+        onConflict: 'snapshot_id,template_id'
+      });
   }
 
-  // Optional: write a simple manifest for debugging
-  const manifestPath = `${snapshotId}/manifests/${Date.now()}.json`;
-  const manifestContent = JSON.stringify(
-    {
-      templates: templates.map((t) => ({
-        filename: t.filename,
-        templateId: t.templateId,
-        chunkIndex: t.chunkIndex,
-        totalChunks: t.totalChunks,
-      })),
-      at: new Date().toISOString(),
-    },
-    null,
-    2
-  );
+  return contractCount;
+}
 
-  const { error: manifestError } = await supabase.storage
-    .from(BUCKET)
-    .upload(
-      manifestPath,
-      new TextEncoder().encode(manifestContent),
-      { upsert: true, contentType: "application/json" },
+Deno.serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const request: UploadRequest = await req.json();
+    
+    // Verify webhook secret
+    const expectedSecret = Deno.env.get('ACS_UPLOAD_WEBHOOK_SECRET');
+    if (!expectedSecret || request.webhookSecret !== expectedSecret) {
+      console.error('Invalid webhook secret');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Initialize Supabase client with service role key
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Handle different modes
+    if (request.mode === 'start') {
+      console.log('Creating snapshot record...');
+      
+      const { data: snapshot, error: snapshotError } = await supabase
+        .from('acs_snapshots')
+        .insert({
+          sv_url: request.summary.sv_url,
+          migration_id: request.summary.migration_id,
+          record_time: request.summary.record_time,
+          canonical_package: request.summary.canonical_package,
+          amulet_total: request.summary.totals.amulet,
+          locked_total: request.summary.totals.locked,
+          circulating_supply: request.summary.totals.circulating,
+          entry_count: request.summary.entry_count,
+          status: 'processing',
+        })
+        .select()
+        .single();
+
+      if (snapshotError) {
+        console.error('Snapshot creation error:', snapshotError);
+        throw snapshotError;
+      }
+
+      console.log(`Created snapshot: ${snapshot.id}`);
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          snapshot_id: snapshot.id
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    if (request.mode === 'append') {
+      const { snapshot_id, templates } = request;
+      console.log(`Processing batch of ${templates.length} templates for snapshot ${snapshot_id}`);
+
+      let processed = 0;
+      let totalContractsAdded = 0;
+      const errors = [];
+
+      // Process templates sequentially with memory optimization
+      for (let i = 0; i < templates.length; i++) {
+        const template = templates[i];
+        console.log(`Processing template ${i + 1}/${templates.length}: ${template.filename}`);
+        
+        try {
+          // Process this template in isolation to allow garbage collection
+          const contractCount = await processTemplateChunk(
+            supabase,
+            snapshot_id,
+            template
+          );
+          
+          totalContractsAdded += contractCount;
+          processed++;
+          
+          console.log(`Completed ${template.filename}: ${contractCount} contracts`);
+        } catch (error) {
+          console.error(`Failed to process ${template.filename}:`, error);
+          errors.push({ 
+            filename: template.filename, 
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+        
+        // Explicit cleanup - allow GC to collect template data
+        templates[i] = null as any;
+      }
+
+      // If we had any errors, return 546 with details
+      if (errors.length > 0) {
+        console.error(`Batch completed with ${errors.length}/${templates.length} errors`);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Partial upload failure',
+            processed,
+            failed: errors.length,
+            total: templates.length,
+            errors: errors.slice(0, 5), // Return first 5 errors for debugging
+          }),
+          { 
+            status: 546, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Update template batch counter and last batch info
+      const { data: currentSnapshot, error: fetchError } = await supabase
+        .from('acs_snapshots')
+        .select('template_batch_updates')
+        .eq('id', snapshot_id)
+        .single();
+
+      if (!fetchError && currentSnapshot) {
+        const { error: batchUpdateError } = await supabase
+          .from('acs_snapshots')
+          .update({
+            template_batch_updates: (currentSnapshot.template_batch_updates || 0) + 1,
+            last_batch_info: {
+              templates_updated: processed,
+              contracts_added: totalContractsAdded,
+              timestamp: new Date().toISOString()
+            }
+          })
+          .eq('id', snapshot_id);
+
+        if (batchUpdateError) {
+          console.error('Failed to update batch counter:', batchUpdateError);
+        }
+      }
+
+      console.log(`Processed ${processed} templates, ${totalContractsAdded} contracts`);
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          processed: processed,
+          contracts_added: totalContractsAdded
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    if (request.mode === 'progress') {
+      const { snapshot_id, progress } = request;
+      console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events`);
+
+      const { error: updateError } = await supabase
+        .from('acs_snapshots')
+        .update({
+          processed_pages: progress.processed_pages,
+          processed_events: progress.processed_events,
+          elapsed_time_ms: progress.elapsed_time_ms,
+          pages_per_minute: progress.pages_per_minute,
+          progress_percentage: 0, // Will be calculated based on events later
+        })
+        .eq('id', snapshot_id);
+
+      if (updateError) {
+        console.error('Failed to update snapshot progress:', updateError);
+        throw updateError;
+      }
+
+      console.log('Progress updated successfully');
+
+      return new Response(
+        JSON.stringify({ 
+          success: true
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    if (request.mode === 'complete') {
+      const { snapshot_id, summary } = request;
+      console.log(`Marking snapshot ${snapshot_id} as completed`);
+
+      const updateData: any = { 
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      };
+
+      // Update with final totals if summary is provided
+      if (summary) {
+        updateData.amulet_total = summary.totals.amulet;
+        updateData.locked_total = summary.totals.locked;
+        updateData.circulating_supply = summary.totals.circulating;
+        updateData.entry_count = summary.entry_count;
+        updateData.canonical_package = summary.canonical_package;
+      }
+
+      const { error: updateError } = await supabase
+        .from('acs_snapshots')
+        .update(updateData)
+        .eq('id', snapshot_id);
+
+      if (updateError) {
+        console.error('Failed to mark snapshot as completed:', updateError);
+        throw updateError;
+      }
+
+      console.log('Snapshot marked as completed with final totals');
+
+      return new Response(
+        JSON.stringify({ 
+          success: true
+        }),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({ error: 'Invalid mode' }),
+      { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
     );
 
-  if (manifestError) {
-    console.error("manifest upload error:", manifestPath, manifestError);
-    // non-fatal
-  }
-}
-
-async function handleAppend(body: any) {
-  const snapshotId: string = body.snapshot_id;
-  const templates: any[] = body.templates || [];
-
-  if (!snapshotId) {
-    return jsonResponse({ error: "snapshot_id is required" }, 400);
-  }
-
-  if (!templates.length) {
-    return jsonResponse({ ok: true, message: "nothing to append" }, 200);
-  }
-
-  await uploadTemplateChunks(snapshotId, templates);
-  return jsonResponse({ ok: true, appended: templates.length }, 200);
-}
-
-async function handleProgress(body: any) {
-  const snapshotId: string = body.snapshot_id;
-  const progress = body.progress || {};
-
-  if (!snapshotId) {
-    return jsonResponse({ error: "snapshot_id is required" }, 400);
-  }
-
-  const update: Record<string, unknown> = {};
-  if (progress.processed_pages != null) {
-    update.processed_pages = progress.processed_pages;
-  }
-  if (progress.processed_events != null) {
-    update.processed_events = progress.processed_events;
-  }
-  if (progress.pages_per_minute != null) {
-    update.pages_per_minute = progress.pages_per_minute;
-  }
-  if (progress.elapsed_time_ms != null) {
-    update.elapsed_time_ms = progress.elapsed_time_ms;
-  }
-
-  if (Object.keys(update).length === 0) {
-    return jsonResponse({ ok: true, message: "nothing to update" }, 200);
-  }
-
-  const { error } = await supabase
-    .from("acs_snapshots")
-    .update(update)
-    .eq("id", snapshotId);
-
-  if (error) {
-    console.error("progress update error:", error);
-    return jsonResponse({ error: error.message }, 500);
-  }
-
-  return jsonResponse({ ok: true }, 200);
-}
-
-async function handleComplete(body: any) {
-  const snapshotId: string = body.snapshot_id;
-  const summary = body.summary || {};
-  const totals = summary.totals || {};
-
-  if (!snapshotId) {
-    return jsonResponse({ error: "snapshot_id is required" }, 400);
-  }
-
-  const { error } = await supabase
-    .from("acs_snapshots")
-    .update({
-      status: "completed",
-      amulet_total: totals.amulet ?? null,
-      locked_total: totals.locked ?? null,
-      circulating_total: totals.circulating ?? null,
-      entry_count: summary.entry_count ?? null,
-      canonical_package: summary.canonical_package ?? null,
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", snapshotId);
-
-  if (error) {
-    console.error("complete update error:", error);
-    return jsonResponse({ error: error.message }, 500);
-  }
-
-  return jsonResponse({ ok: true }, 200);
-}
-
-async function handlePurgeAll() {
-  console.log("🚨 PURGE_ALL requested – deleting ACS data");
-
-  // 1) Delete storage objects from bucket
-  const { data: files, error: listError } = await supabase.storage
-    .from(BUCKET)
-    .list("", { limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } });
-
-  if (listError) {
-    console.error("list storage error:", listError);
-  } else if (files && files.length > 0) {
-    const paths = files.map((f) => f.name);
-    const { error: removeError } = await supabase.storage
-      .from(BUCKET)
-      .remove(paths);
-    if (removeError) {
-      console.error("remove storage error:", removeError);
-    }
-  }
-
-  // 2) Truncate acs_snapshots table (or soft-delete)
-  const { error: deleteError } = await supabase
-    .from("acs_snapshots")
-    .delete()
-    .neq("id", "00000000-0000-0000-0000-000000000000"); // silly guard
-
-  if (deleteError) {
-    console.error("delete acs_snapshots error:", deleteError);
-  }
-
-  return jsonResponse({ ok: true, message: "ACS data purged" }, 200);
-}
-
-serve(async (req: Request) => {
-  if (req.method !== "POST") {
-    return jsonResponse({ error: "POST only" }, 405);
-  }
-
-  const headerSecret = req.headers.get("x-webhook-secret") || "";
-  if (!WEBHOOK_SECRET || headerSecret !== WEBHOOK_SECRET) {
-    console.warn("Unauthorized webhook attempt");
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: "invalid JSON body" }, 400);
-  }
-
-  const mode = body.mode;
-  console.log("Received mode:", mode);
-
-  try {
-    switch (mode) {
-      case "start":
-        return await handleStart(body);
-      case "append":
-        return await handleAppend(body);
-      case "progress":
-        return await handleProgress(body);
-      case "complete":
-        return await handleComplete(body);
-      case "purge_all":
-        return await handlePurgeAll();
-      default:
-        return jsonResponse({ error: `unknown mode: ${mode}` }, 400);
-    }
-  } catch (err) {
-    console.error("Edge function error:", err);
-    return jsonResponse({ error: "internal error" }, 546); // we keep 546 to signal worker limit/etc.
+  } catch (error) {
+    console.error('Upload failed:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    return new Response(
+      JSON.stringify({ error: errorMessage }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
   }
 });
