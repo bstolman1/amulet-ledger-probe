@@ -27,7 +27,7 @@ async function run() {
 
     await cleanupSubfolder(snapshotId, "templates");
     await cleanupSubfolder(snapshotId, "chunks");
-    await cleanupSubfolder(snapshotId, "manifest");
+    await cleanupSubfolder(snapshotId, "manifests");
   }
 
   console.log("\n✔ Cleanup complete!");
