@@ -249,6 +249,52 @@ Deno.serve(async (req) => {
       const { snapshot_id, templates } = request;
       console.log(`Processing batch of ${templates.length} templates for snapshot ${snapshot_id}`);
 
+      // Check if snapshot is still active (not stale)
+      const { data: snapshot, error: snapshotCheckError } = await supabase
+        .from('acs_snapshots')
+        .select('status, updated_at, last_progress_update')
+        .eq('id', snapshot_id)
+        .single();
+
+      if (snapshotCheckError) {
+        console.error('Failed to check snapshot status:', snapshotCheckError);
+        return new Response(
+          JSON.stringify({ error: 'Snapshot not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Reject if snapshot is failed or completed
+      if (snapshot.status === 'failed' || snapshot.status === 'completed') {
+        console.warn(`Rejecting append to ${snapshot.status} snapshot ${snapshot_id}`);
+        return new Response(
+          JSON.stringify({ error: `Snapshot is ${snapshot.status}`, snapshot_id }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Check staleness (10 minutes without update)
+      const lastUpdate = new Date(snapshot.last_progress_update || snapshot.updated_at);
+      const staleness = Date.now() - lastUpdate.getTime();
+      const STALENESS_THRESHOLD = 10 * 60 * 1000; // 10 minutes
+      
+      if (staleness > STALENESS_THRESHOLD) {
+        console.warn(`Snapshot ${snapshot_id} is stale (${Math.round(staleness / 60000)} minutes old), marking as failed`);
+        
+        await supabase
+          .from('acs_snapshots')
+          .update({ 
+            status: 'failed',
+            error_message: `Snapshot marked as failed due to staleness (no updates for ${Math.round(staleness / 60000)} minutes)`
+          })
+          .eq('id', snapshot_id);
+
+        return new Response(
+          JSON.stringify({ error: 'Snapshot is stale and has been marked as failed', snapshot_id }),
+          { status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       let processed = 0;
       let totalContractsAdded = 0;
       const errors = [];
@@ -343,6 +389,30 @@ Deno.serve(async (req) => {
     if (request.mode === 'progress') {
       const { snapshot_id, progress } = request;
       console.log(`Updating progress for snapshot ${snapshot_id}: ${progress.processed_pages} pages, ${progress.processed_events} events`);
+
+      // Check if snapshot is still active
+      const { data: snapshot, error: snapshotCheckError } = await supabase
+        .from('acs_snapshots')
+        .select('status')
+        .eq('id', snapshot_id)
+        .single();
+
+      if (snapshotCheckError) {
+        console.error('Failed to check snapshot status:', snapshotCheckError);
+        return new Response(
+          JSON.stringify({ error: 'Snapshot not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Reject if snapshot is failed or completed
+      if (snapshot.status === 'failed' || snapshot.status === 'completed') {
+        console.warn(`Rejecting progress update to ${snapshot.status} snapshot ${snapshot_id}`);
+        return new Response(
+          JSON.stringify({ error: `Snapshot is ${snapshot.status}`, snapshot_id }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       const { error: updateError } = await supabase
         .from('acs_snapshots')

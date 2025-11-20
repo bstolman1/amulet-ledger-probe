@@ -832,7 +832,7 @@ async function run() {
     console.log("=".repeat(80) + "\n");
 
     const startTime = Date.now();
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } =
+    const { allEvents, amuletTotal, lockedTotal, canonicalPkg, snapshotId } =
       await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
 
     const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
@@ -866,6 +866,38 @@ async function run() {
       }
     }
     console.error("=".repeat(80) + "\n");
+
+    // Try to mark snapshot as failed if we have a snapshot ID
+    if (supabase) {
+      try {
+        // Try to get the snapshot ID from the existing snapshot check
+        const migration_id = await detectLatestMigration(BASE_URL);
+        const { data: failedSnapshot } = await supabase
+          .from('acs_snapshots')
+          .select('id')
+          .eq('migration_id', migration_id)
+          .eq('status', 'processing')
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (failedSnapshot?.id) {
+          console.error(`🔄 Marking snapshot ${failedSnapshot.id} as failed...`);
+          await supabase
+            .from('acs_snapshots')
+            .update({
+              status: 'failed',
+              error_message: `Workflow failed: ${err.message}`,
+              completed_at: new Date().toISOString()
+            })
+            .eq('id', failedSnapshot.id);
+          console.error(`✅ Snapshot ${failedSnapshot.id} marked as failed`);
+        }
+      } catch (updateErr) {
+        console.error('Failed to mark snapshot as failed:', updateErr.message);
+      }
+    }
+
     process.exit(1);
   }
 }
