@@ -3,17 +3,12 @@ name: Fetch ACS Snapshot
 on:
   workflow_dispatch: # Manual trigger
   schedule:
-    - cron: '0 */3 * * *' # Every 3 hours starting at 00:00 UTC
-
-# Prevent overlapping snapshot runs
-concurrency:
-  group: fetch-acs-snapshot
-  cancel-in-progress: false
+    - cron: '0 */2 * * *' # Every 2 hours to allow resuming before 6-hour timeout
 
 jobs:
   fetch-and-upload:
     runs-on: self-hosted
-    timeout-minutes: 330 # Prevent 6-hour timeout
+    timeout-minutes: 330 # 5.5 hours - leave buffer before 6-hour hard limit
     
     steps:
       - name: Checkout code
@@ -42,8 +37,7 @@ jobs:
           UPLOAD_DELAY_MS: '200'
           RETRY_COOLDOWN_MS: '15000'
           MAX_INFLIGHT_UPLOADS: '1'
-
-      # Optional backup – safe to delete if you don't want artifacts
+      
       - name: Upload artifacts (backup)
         uses: actions/upload-artifact@v4
         with:
