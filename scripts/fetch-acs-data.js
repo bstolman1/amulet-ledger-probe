@@ -124,8 +124,10 @@ async function uploadToEdgeFunction(phase, data, retryCount = 0) {
         console.log(`⚠️  Reduced chunk size to ${UPLOAD_CHUNK_SIZE} due to 546 error`);
       }
       
-      // Exponential backoff: 2s, 4s, 8s, 16s, 32s
-      const backoffMs = Math.min(2000 * Math.pow(2, retryCount), 32000);
+      // Exponential backoff with jitter: 2s, 4s, 8s, 16s, 32s (±25%)
+      const baseBackoff = Math.min(2000 * Math.pow(2, retryCount), 32000);
+      const jitter = baseBackoff * (0.75 + Math.random() * 0.5); // 75%-125% of base delay
+      const backoffMs = Math.floor(jitter);
       console.log(`⏳ Waiting ${backoffMs}ms before retry ${retryCount + 1}/${MAX_RETRIES}...`);
       await sleep(backoffMs);
       

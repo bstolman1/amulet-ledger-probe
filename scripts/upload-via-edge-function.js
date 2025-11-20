@@ -106,16 +106,21 @@ export async function uploadBatch({ templatesData, snapshotId, summary, isComple
             CHUNK_SIZE = Math.min(maxChunkSize, CHUNK_SIZE + 1);
           }
 
-          // Add delay between chunks to avoid overwhelming the worker
+          // Add delay with jitter between chunks to avoid overwhelming the worker
           if (i + CHUNK_SIZE < templates.length) {
-            await new Promise(resolve => setTimeout(resolve, UPLOAD_DELAY_MS));
+            const jitter = UPLOAD_DELAY_MS * (0.8 + Math.random() * 0.4);
+            await new Promise(resolve => setTimeout(resolve, Math.floor(jitter)));
           }
 
         } catch (error) {
           retries++;
           if (retries < MAX_RETRIES) {
-            console.log(`   ⚠️ Retry ${retries}/${MAX_RETRIES} for chunk ${chunkNum}...`);
-            await new Promise(resolve => setTimeout(resolve, 2000 * retries)); // Exponential backoff
+            // Exponential backoff with jitter to prevent thundering herd
+            const baseDelay = 2000 * Math.pow(2, retries - 1);
+            const jitter = baseDelay * (0.5 + Math.random() * 0.5);
+            const delayMs = Math.floor(jitter);
+            console.log(`   ⚠️ Retry ${retries}/${MAX_RETRIES} for chunk ${chunkNum} after ${delayMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
           } else {
             throw error;
           }
