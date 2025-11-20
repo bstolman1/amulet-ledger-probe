@@ -73,7 +73,9 @@ console.log(
 console.log(
   `   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? "✅ Configured" : "❌ Not configured"}`
 );
-console.log(`   - Supabase Client: ${supabase ? "✅ Initialized" : "❌ Not initialized"}`);
+console.log(
+  `   - Supabase Client: ${supabase ? "✅ Initialized" : "❌ Not initialized"}`
+);
 console.log(`   - Page Size: ${PAGE_SIZE}`);
 console.log(
   `   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE})`
@@ -151,61 +153,106 @@ async function safeProgress(snapshotId, progress) {
 }
 
 // ---------- Generic upload helper (for start/append/complete) ----------
+// Hardened: infinite retry for retryable errors, dynamic chunk size for 546/WORKER_LIMIT
 
-async function uploadToEdgeFunction(phase, data, retryCount = 0) {
+function isRetryableUploadError(err) {
+  const status = err.response?.status;
+  const code = err.code;
+  if (
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === 546
+  ) {
+    return true;
+  }
+  if (
+    code === "ECONNRESET" ||
+    code === "ECONNABORTED" ||
+    code === "ETIMEDOUT" ||
+    code === "EAI_AGAIN" ||
+    code === "ENOTFOUND" ||
+    code === "EHOSTUNREACH" ||
+    code === "EPIPE"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+async function uploadToEdgeFunction(phase, data) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) return null;
 
-  const MAX_RETRIES = 5;
-  const is546Error = (error) =>
-    error.response?.status === 546 || error.message?.includes("546");
+  let attempt = 0;
+  const MAX_BACKOFF_MS = 60000;
 
-  try {
-    const res = await axios.post(EDGE_FUNCTION_URL, data, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-webhook-secret": WEBHOOK_SECRET,
-      },
-      timeout: 300000, // up to 5 minutes for big batches
-    });
+  // attach secret defensively
+  data.webhookSecret = WEBHOOK_SECRET;
 
-    // On successful append, we can gently ramp chunk size back up
-    if (phase === "append" && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
-      UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
-      console.log(
-        `✅ Upload successful - increased template batch size to ${UPLOAD_CHUNK_SIZE}`
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      const res = await axios.post(EDGE_FUNCTION_URL, data, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-webhook-secret": WEBHOOK_SECRET,
+        },
+        timeout: 300000, // up to 5 minutes for big batches
+      });
+
+      // On successful append, gently ramp chunk size back up
+      if (phase === "append" && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
+        UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
+        console.log(
+          `✅ Upload successful - increased template batch size to ${UPLOAD_CHUNK_SIZE}`
+        );
+      }
+
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const bodyCode = err.response?.data?.code;
+      const retryable = isRetryableUploadError(err);
+
+      console.error(
+        `❌ Upload failed (${phase}, attempt ${attempt + 1}): ${err.message} (status: ${
+          status || err.code || "unknown"
+        })`
       );
-    }
 
-    return res.data;
-  } catch (err) {
-    const status = err.response?.status;
-    console.error(
-      `❌ Upload failed (${phase}): ${err.message} (status: ${status || "unknown"})`
-    );
-
-    // Special handling for 546 (Supabase worker limit)
-    if (phase === "append" && is546Error(err) && retryCount < MAX_RETRIES) {
-      if (UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE) {
+      // Dynamic down-scaling on Supabase worker limit
+      if (
+        phase === "append" &&
+        (status === 546 || bodyCode === "WORKER_LIMIT") &&
+        UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE
+      ) {
         UPLOAD_CHUNK_SIZE = Math.max(
           MIN_CHUNK_SIZE,
           Math.floor(UPLOAD_CHUNK_SIZE / 2)
         );
         console.log(
-          `⚠️  Reduced template batch size to ${UPLOAD_CHUNK_SIZE} due to 546 WORKER_LIMIT`
+          `⚠️  Reduced template batch size to ${UPLOAD_CHUNK_SIZE} due to worker limit`
         );
       }
 
-      const backoffMs = Math.min(2000 * Math.pow(2, retryCount), 32000);
+      if (!retryable) {
+        console.error("💥 Non-retryable upload error, aborting.");
+        throw err;
+      }
+
+      attempt += 1;
+      const backoffMs = Math.min(
+        2000 * Math.pow(2, attempt - 1),
+        MAX_BACKOFF_MS
+      );
       console.log(
-        `⏳ Waiting ${backoffMs}ms before retry ${retryCount + 1}/${MAX_RETRIES}...`
+        `⏳ Retrying ${phase} in ${backoffMs}ms (attempt ${attempt})...`
       );
       await sleep(backoffMs);
-
-      return uploadToEdgeFunction(phase, data, retryCount + 1);
+      // loop continues
     }
-
-    // For start/complete or non-546 append failures: fail hard
-    throw err;
   }
 }
 
@@ -365,7 +412,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     console.log("🚀".repeat(40));
     const startResult = await uploadToEdgeFunction("start", {
       mode: "start",
-      webhookSecret: WEBHOOK_SECRET,
       summary: {
         sv_url: baseUrl,
         migration_id,
@@ -396,7 +442,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   const JITTER_MS = 500;
 
   let lastPage = false;
-  
+
   while (true) {
     let retryCount = 0;
     let cooldowns = 0;
@@ -438,7 +484,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
 
           const templateId = e.template_id || "unknown";
           const pkg = templateId.split(":")[0] || "unknown";
-          perPackage[pkg] ||= { amulet: new BigNumber(0), locked: new BigNumber(0) };
+          perPackage[pkg] ||= {
+            amulet: new BigNumber(0),
+            locked: new BigNumber(0),
+          };
           templatesByPackage[pkg] ||= new Set();
           templatesData[templateId] ||= [];
 
@@ -471,7 +520,10 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         }
 
         // Throttled pipelined uploads
-        if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE) {
+        if (
+          snapshotId &&
+          Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE
+        ) {
           // Respect max inflight uploads
           while (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
             await Promise.race(inflightUploads);
@@ -532,7 +584,6 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
             try {
               await uploadToEdgeFunction("append", {
                 mode: "append",
-                webhookSecret: WEBHOOK_SECRET,
                 snapshot_id: snapshotId,
                 templates: chunkedTemplates,
               });
@@ -542,7 +593,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
               );
             } catch (err) {
               console.error(
-                `❌ Batch upload failed (append): ${err.message}. Re-queuing templates.`
+                `❌ Batch upload failed (append, will re-queue templates): ${err.message}`
               );
               Object.assign(pendingUploads, uploadSnapshot);
             }
@@ -569,8 +620,12 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           console.log(`📊 STATUS UPDATE - Page ${page}`);
           console.log("-".repeat(80));
           console.log(`   - Snapshot ID: ${snapshotId || "N/A"}`);
-          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
-          console.log(`   - Elapsed Time: ${elapsedMinutes.toFixed(1)} minutes`);
+          console.log(
+            `   - Events Processed: ${allEvents.length.toLocaleString()}`
+          );
+          console.log(
+            `   - Elapsed Time: ${elapsedMinutes.toFixed(1)} minutes`
+          );
           console.log(
             `   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`
           );
@@ -673,7 +728,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
       console.error("❌ Stopping due to repeated page failures.");
       break;
     }
-    
+
     if (lastPage) {
       console.log("✅ Reached last page, exiting main loop.");
       break;
@@ -726,9 +781,9 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
       }
     }
 
+    // This uses the hardened infinite-retry uploader, so this *cannot* fail permanently
     await uploadToEdgeFunction("append", {
       mode: "append",
-      webhookSecret: WEBHOOK_SECRET,
       snapshot_id: snapshotId,
       templates: chunkedTemplates,
     });
@@ -771,12 +826,11 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   );
   console.log("📄 Wrote summary to circulating-supply-single-sv.json\n");
 
-  // Mark snapshot complete
+  // Mark snapshot complete (also hardened by infinite retry)
   if (snapshotId) {
     console.log("🏁 Marking snapshot as complete...");
     await uploadToEdgeFunction("complete", {
       mode: "complete",
-      webhookSecret: WEBHOOK_SECRET,
       snapshot_id: snapshotId,
       summary: {
         totals: {
@@ -795,7 +849,14 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     );
   }
 
-  return { allEvents, amuletTotal, lockedTotal, canonicalPkg, canonicalTemplates, snapshotId };
+  return {
+    allEvents,
+    amuletTotal,
+    lockedTotal,
+    canonicalPkg,
+    canonicalTemplates,
+    snapshotId,
+  };
 }
 
 // ---------- Entrypoint ----------
@@ -841,7 +902,7 @@ async function run() {
     console.log("=".repeat(80) + "\n");
 
     const startTime = Date.now();
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg, snapshotId } =
+    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } =
       await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
 
     const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
@@ -879,31 +940,33 @@ async function run() {
     // Try to mark snapshot as failed if we have a snapshot ID
     if (supabase) {
       try {
-        // Try to get the snapshot ID from the existing snapshot check
         const migration_id = await detectLatestMigration(BASE_URL);
         const { data: failedSnapshot } = await supabase
-          .from('acs_snapshots')
-          .select('id')
-          .eq('migration_id', migration_id)
-          .eq('status', 'processing')
-          .order('started_at', { ascending: false })
+          .from("acs_snapshots")
+          .select("id")
+          .eq("migration_id", migration_id)
+          .eq("status", "processing")
+          .order("started_at", { ascending: false })
           .limit(1)
           .single();
 
         if (failedSnapshot?.id) {
           console.error(`🔄 Marking snapshot ${failedSnapshot.id} as failed...`);
           await supabase
-            .from('acs_snapshots')
+            .from("acs_snapshots")
             .update({
-              status: 'failed',
+              status: "failed",
               error_message: `Workflow failed: ${err.message}`,
-              completed_at: new Date().toISOString()
+              completed_at: new Date().toISOString(),
             })
-            .eq('id', failedSnapshot.id);
+            .eq("id", failedSnapshot.id);
           console.error(`✅ Snapshot ${failedSnapshot.id} marked as failed`);
         }
       } catch (updateErr) {
-        console.error('Failed to mark snapshot as failed:', updateErr.message);
+        console.error(
+          "Failed to mark snapshot as failed:",
+          updateErr.message
+        );
       }
     }
 
