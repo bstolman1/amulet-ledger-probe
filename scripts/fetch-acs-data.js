@@ -28,24 +28,16 @@ const cantonClient = axios.create({
 });
 
 // Env / config
-const BASE_URL =
-  process.env.BASE_URL ||
-  "https://scan.sv-1.global.canton.network.sync.global/api/scan";
+const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
 const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
 const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
 
 let UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
 const MIN_CHUNK_SIZE = 1;
 const MAX_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
-const ENTRIES_PER_CHUNK = parseInt(
-  process.env.ENTRIES_PER_CHUNK || "5000",
-  10
-);
+const ENTRIES_PER_CHUNK = parseInt(process.env.ENTRIES_PER_CHUNK || "5000", 10);
 const PAGE_SIZE = parseInt(process.env.PAGE_SIZE || "500", 10);
-const MAX_INFLIGHT_UPLOADS = parseInt(
-  process.env.MAX_INFLIGHT_UPLOADS || "2",
-  10
-);
+const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
 
 // Supabase (for resume)
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -61,28 +53,14 @@ console.log("🚀 Hardened ACS Data Fetcher - Starting");
 console.log("=".repeat(80));
 console.log("⚙️  Configuration:");
 console.log(`   - Base URL: ${BASE_URL}`);
-console.log(
-  `   - Edge Function URL: ${EDGE_FUNCTION_URL ? "✅ Configured" : "❌ Not configured"}`
-);
-console.log(
-  `   - Webhook Secret: ${WEBHOOK_SECRET ? "✅ Configured" : "❌ Not configured"}`
-);
-console.log(
-  `   - Supabase URL: ${SUPABASE_URL ? "✅ Configured" : "❌ Not configured"}`
-);
-console.log(
-  `   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? "✅ Configured" : "❌ Not configured"}`
-);
-console.log(
-  `   - Supabase Client: ${supabase ? "✅ Initialized" : "❌ Not initialized"}`
-);
+console.log(`   - Edge Function URL: ${EDGE_FUNCTION_URL ? "✅ Configured" : "❌ Not configured"}`);
+console.log(`   - Webhook Secret: ${WEBHOOK_SECRET ? "✅ Configured" : "❌ Not configured"}`);
+console.log(`   - Supabase URL: ${SUPABASE_URL ? "✅ Configured" : "❌ Not configured"}`);
+console.log(`   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? "✅ Configured" : "❌ Not configured"}`);
+console.log(`   - Supabase Client: ${supabase ? "✅ Initialized" : "❌ Not initialized"}`);
 console.log(`   - Page Size: ${PAGE_SIZE}`);
-console.log(
-  `   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE})`
-);
-console.log(
-  `   - Entries Per Chunk: ${ENTRIES_PER_CHUNK} (templates split if larger)`
-);
+console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE})`);
+console.log(`   - Entries Per Chunk: ${ENTRIES_PER_CHUNK} (templates split if larger)`);
 console.log(`   - Max In-Flight Uploads: ${MAX_INFLIGHT_UPLOADS}`);
 console.log("=".repeat(80) + "\n");
 
@@ -104,6 +82,7 @@ function chunkTemplateEntries(templateId, entries) {
       chunkIndex: chunks.length,
       totalChunks: Math.ceil(entries.length / ENTRIES_PER_CHUNK),
       entries: entries.slice(i, i + ENTRIES_PER_CHUNK),
+      isChunked: true,
     });
   }
   return chunks;
@@ -142,9 +121,7 @@ async function safeProgress(snapshotId, progress) {
       return; // success
     } catch (err) {
       const status = err.response?.status;
-      console.log(
-        `⚠️ Progress attempt ${attempt}/3 failed (status: ${status || "n/a"}): ${err.message}`
-      );
+      console.log(`⚠️ Progress attempt ${attempt}/3 failed (status: ${status || "n/a"}): ${err.message}`);
       await sleep(2000 * attempt);
     }
   }
@@ -153,106 +130,49 @@ async function safeProgress(snapshotId, progress) {
 }
 
 // ---------- Generic upload helper (for start/append/complete) ----------
-// Hardened: infinite retry for retryable errors, dynamic chunk size for 546/WORKER_LIMIT
 
-function isRetryableUploadError(err) {
-  const status = err.response?.status;
-  const code = err.code;
-  if (
-    status === 429 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504 ||
-    status === 546
-  ) {
-    return true;
-  }
-  if (
-    code === "ECONNRESET" ||
-    code === "ECONNABORTED" ||
-    code === "ETIMEDOUT" ||
-    code === "EAI_AGAIN" ||
-    code === "ENOTFOUND" ||
-    code === "EHOSTUNREACH" ||
-    code === "EPIPE"
-  ) {
-    return true;
-  }
-  return false;
-}
-
-async function uploadToEdgeFunction(phase, data) {
+async function uploadToEdgeFunction(phase, data, retryCount = 0) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) return null;
 
-  let attempt = 0;
-  const MAX_BACKOFF_MS = 60000;
+  const MAX_RETRIES = 5;
+  const is546Error = (error) => error.response?.status === 546 || error.message?.includes("546");
 
-  // attach secret defensively
-  data.webhookSecret = WEBHOOK_SECRET;
+  try {
+    const res = await axios.post(EDGE_FUNCTION_URL, data, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-secret": WEBHOOK_SECRET,
+      },
+      timeout: 300000, // up to 5 minutes for big batches
+    });
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      const res = await axios.post(EDGE_FUNCTION_URL, data, {
-        headers: {
-          "Content-Type": "application/json",
-          "x-webhook-secret": WEBHOOK_SECRET,
-        },
-        timeout: 300000, // up to 5 minutes for big batches
-      });
-
-      // On successful append, gently ramp chunk size back up
-      if (phase === "append" && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
-        UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
-        console.log(
-          `✅ Upload successful - increased template batch size to ${UPLOAD_CHUNK_SIZE}`
-        );
-      }
-
-      return res.data;
-    } catch (err) {
-      const status = err.response?.status;
-      const bodyCode = err.response?.data?.code;
-      const retryable = isRetryableUploadError(err);
-
-      console.error(
-        `❌ Upload failed (${phase}, attempt ${attempt + 1}): ${err.message} (status: ${
-          status || err.code || "unknown"
-        })`
-      );
-
-      // Dynamic down-scaling on Supabase worker limit
-      if (
-        phase === "append" &&
-        (status === 546 || bodyCode === "WORKER_LIMIT") &&
-        UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE
-      ) {
-        UPLOAD_CHUNK_SIZE = Math.max(
-          MIN_CHUNK_SIZE,
-          Math.floor(UPLOAD_CHUNK_SIZE / 2)
-        );
-        console.log(
-          `⚠️  Reduced template batch size to ${UPLOAD_CHUNK_SIZE} due to worker limit`
-        );
-      }
-
-      if (!retryable) {
-        console.error("💥 Non-retryable upload error, aborting.");
-        throw err;
-      }
-
-      attempt += 1;
-      const backoffMs = Math.min(
-        2000 * Math.pow(2, attempt - 1),
-        MAX_BACKOFF_MS
-      );
-      console.log(
-        `⏳ Retrying ${phase} in ${backoffMs}ms (attempt ${attempt})...`
-      );
-      await sleep(backoffMs);
-      // loop continues
+    // On successful append, we can gently ramp chunk size back up
+    if (phase === "append" && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
+      UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
+      console.log(`✅ Upload successful - increased template batch size to ${UPLOAD_CHUNK_SIZE}`);
     }
+
+    return res.data;
+  } catch (err) {
+    const status = err.response?.status;
+    console.error(`❌ Upload failed (${phase}): ${err.message} (status: ${status || "unknown"})`);
+
+    // Special handling for 546 (Supabase worker limit)
+    if (phase === "append" && is546Error(err) && retryCount < MAX_RETRIES) {
+      if (UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE) {
+        UPLOAD_CHUNK_SIZE = Math.max(MIN_CHUNK_SIZE, Math.floor(UPLOAD_CHUNK_SIZE / 2));
+        console.log(`⚠️  Reduced template batch size to ${UPLOAD_CHUNK_SIZE} due to 546 WORKER_LIMIT`);
+      }
+
+      const backoffMs = Math.min(2000 * Math.pow(2, retryCount), 32000);
+      console.log(`⏳ Waiting ${backoffMs}ms before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+      await sleep(backoffMs);
+
+      return uploadToEdgeFunction(phase, data, retryCount + 1);
+    }
+
+    // For start/complete or non-546 append failures: fail hard
+    throw err;
   }
 }
 
@@ -265,12 +185,9 @@ async function detectLatestMigration(baseUrl) {
 
   while (true) {
     try {
-      const res = await cantonClient.get(
-        `${baseUrl}/v0/state/acs/snapshot-timestamp`,
-        {
-          params: { before: new Date().toISOString(), migration_id: id },
-        }
-      );
+      const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+        params: { before: new Date().toISOString(), migration_id: id },
+      });
       if (res.data?.record_time) {
         latest = id;
         id++;
@@ -288,22 +205,16 @@ async function detectLatestMigration(baseUrl) {
 }
 
 async function fetchSnapshotTimestamp(baseUrl, migration_id) {
-  const res = await cantonClient.get(
-    `${baseUrl}/v0/state/acs/snapshot-timestamp`,
-    {
-      params: { before: new Date().toISOString(), migration_id },
-    }
-  );
+  const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+    params: { before: new Date().toISOString(), migration_id },
+  });
 
   let record_time = res.data.record_time;
   console.log(`📅 Initial snapshot timestamp: ${record_time}`);
 
-  const verify = await cantonClient.get(
-    `${baseUrl}/v0/state/acs/snapshot-timestamp`,
-    {
-      params: { before: record_time, migration_id },
-    }
-  );
+  const verify = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+    params: { before: record_time, migration_id },
+  });
 
   if (verify.data?.record_time && verify.data.record_time !== record_time) {
     record_time = verify.data.record_time;
@@ -317,17 +228,13 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
 
 async function checkForExistingSnapshot(migration_id) {
   if (!supabase) {
-    console.log(
-      "\n⚠️  Supabase not configured - cannot resume existing snapshots. Will always start new."
-    );
+    console.log("\n⚠️  Supabase not configured - cannot resume existing snapshots. Will always start new.");
     return null;
   }
 
   console.log("\n" + "-".repeat(80));
   console.log("🔍 Checking for existing in-progress snapshots...");
-  console.log(
-    `   - Query: acs_snapshots WHERE migration_id=${migration_id} AND status='processing'`
-  );
+  console.log(`   - Query: acs_snapshots WHERE migration_id=${migration_id} AND status='processing'`);
 
   const { data, error } = await supabase
     .from("acs_snapshots")
@@ -385,7 +292,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   const pendingUploads = {};
 
   const outputDir = "./acs_full";
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+  if (!fs.existsSync(outputDir)) fs.mkdirkdir(outputDir);
 
   // Snapshot metadata
   let snapshotId = existingSnapshot?.id || null;
@@ -412,6 +319,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     console.log("🚀".repeat(40));
     const startResult = await uploadToEdgeFunction("start", {
       mode: "start",
+      webhookSecret: WEBHOOK_SECRET,
       summary: {
         sv_url: baseUrl,
         migration_id,
@@ -435,10 +343,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   const MAX_RETRIES = 8;
   const BASE_DELAY = 3000;
   const MAX_PAGE_COOLDOWNS = 2;
-  const COOLDOWN_AFTER_FAIL_MS = parseInt(
-    process.env.RETRY_COOLDOWN_MS || "15000",
-    10
-  );
+  const COOLDOWN_AFTER_FAIL_MS = parseInt(process.env.RETRY_COOLDOWN_MS || "15000", 10);
   const JITTER_MS = 500;
 
   let lastPage = false;
@@ -462,7 +367,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           {
             headers: { "Content-Type": "application/json" },
             timeout: 120000,
-          }
+          },
         );
 
         const events = res.data.created_events || [];
@@ -498,15 +403,11 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           templatesData[templateId].push(create_arguments || {});
 
           if (isTemplate(e, "Splice.Amulet", "Amulet")) {
-            const amt = new BigNumber(
-              create_arguments?.amount?.initialAmount ?? "0"
-            );
+            const amt = new BigNumber(create_arguments?.amount?.initialAmount ?? "0");
             amuletTotal = amuletTotal.plus(amt);
             perPackage[pkg].amulet = perPackage[pkg].amulet.plus(amt);
           } else if (isTemplate(e, "Splice.Amulet", "LockedAmulet")) {
-            const amt = new BigNumber(
-              create_arguments?.amulet?.amount?.initialAmount ?? "0"
-            );
+            const amt = new BigNumber(create_arguments?.amulet?.amount?.initialAmount ?? "0");
             lockedTotal = lockedTotal.plus(amt);
             perPackage[pkg].locked = perPackage[pkg].locked.plus(amt);
           }
@@ -519,11 +420,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           pendingUploads[templateId] = templatesData[templateId];
         }
 
-        // Throttled pipelined uploads
-        if (
-          snapshotId &&
-          Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE
-        ) {
+        // Throttled pipelined uploads (now one chunk per append)
+        if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE) {
           // Respect max inflight uploads
           while (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
             await Promise.race(inflightUploads);
@@ -541,21 +439,17 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
             const count = entries.length;
 
             if (count > ENTRIES_PER_CHUNK) {
-              console.log(
-                `📦 Splitting ${templateId} (${count} entries) into chunks of ${ENTRIES_PER_CHUNK}...`
-              );
+              console.log(`📦 Splitting ${templateId} (${count} entries) into chunks of ${ENTRIES_PER_CHUNK}...`);
               const chunks = chunkTemplateEntries(templateId, entries);
               chunkedTemplates.push(
                 ...chunks.map((chunk) => ({
-                  filename: `${safeFileName(
-                    chunk.templateId
-                  )}_chunk_${chunk.chunkIndex}.json`,
+                  filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
                   content: JSON.stringify(chunk.entries, null, 2),
                   templateId: chunk.templateId,
                   chunkIndex: chunk.chunkIndex,
                   totalChunks: chunk.totalChunks,
                   isChunked: true,
-                }))
+                })),
               );
             } else {
               chunkedTemplates.push({
@@ -570,7 +464,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           }
 
           console.log(
-            `📤 Starting upload of ${chunkedTemplates.length} chunks from ${batchKeys.length} templates (template batch size: ${UPLOAD_CHUNK_SIZE})...`
+            `📤 Starting upload of ${chunkedTemplates.length} chunks from ${batchKeys.length} templates (template batch size: ${UPLOAD_CHUNK_SIZE})...`,
           );
 
           // Snapshot the batch so we can re-queue on failure
@@ -582,19 +476,19 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
 
           const uploadPromise = (async () => {
             try {
-              await uploadToEdgeFunction("append", {
-                mode: "append",
-                snapshot_id: snapshotId,
-                templates: chunkedTemplates,
-              });
+              // NEW: one chunk per append call
+              for (const tmpl of chunkedTemplates) {
+                await uploadToEdgeFunction("append", {
+                  mode: "append",
+                  webhookSecret: WEBHOOK_SECRET,
+                  snapshot_id: snapshotId,
+                  templates: [tmpl],
+                });
+              }
 
-              console.log(
-                `✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`
-              );
+              console.log(`✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`);
             } catch (err) {
-              console.error(
-                `❌ Batch upload failed (append, will re-queue templates): ${err.message}`
-              );
+              console.error(`❌ Batch upload failed (append): ${err.message}. Re-queuing templates.`);
               Object.assign(pendingUploads, uploadSnapshot);
             }
             uploadPromise.settled = true;
@@ -609,10 +503,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         const now = Date.now();
         const elapsedMs = now - startTime;
         const elapsedMinutes = elapsedMs / 1000 / 60;
-        const pagesPerMin =
-          elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : "0.00";
-        const eventsPerPage =
-          page > 0 ? Math.round(allEvents.length / page) : 0;
+        const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : "0.00";
+        const eventsPerPage = page > 0 ? Math.round(allEvents.length / page) : 0;
 
         // Console status every 10 pages
         if (page % 10 === 0) {
@@ -620,27 +512,18 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           console.log(`📊 STATUS UPDATE - Page ${page}`);
           console.log("-".repeat(80));
           console.log(`   - Snapshot ID: ${snapshotId || "N/A"}`);
-          console.log(
-            `   - Events Processed: ${allEvents.length.toLocaleString()}`
-          );
-          console.log(
-            `   - Elapsed Time: ${elapsedMinutes.toFixed(1)} minutes`
-          );
-          console.log(
-            `   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`
-          );
+          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
+          console.log(`   - Elapsed Time: ${elapsedMinutes.toFixed(1)} minutes`);
+          console.log(`   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`);
           console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
           console.log(`   - Locked Total: ${lockedTotal.toString()}`);
-          console.log(
-            `   - In-flight Uploads: ${inflightUploads.length}/${MAX_INFLIGHT_UPLOADS}`
-          );
+          console.log(`   - In-flight Uploads: ${inflightUploads.length}/${MAX_INFLIGHT_UPLOADS}`);
           console.log("-".repeat(80) + "\n");
           lastProgressLog = now;
         }
 
         // Throttled progress to Supabase (safe & non-fatal)
-        const shouldSendProgress =
-          now - lastProgressSent >= 60000 || page % 20 === 0;
+        const shouldSendProgress = now - lastProgressSent >= 60000 || page % 20 === 0;
 
         if (snapshotId && shouldSendProgress) {
           await safeProgress(snapshotId, {
@@ -696,12 +579,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           retryCount++;
           const delay = BASE_DELAY * Math.pow(2, retryCount - 1);
           const jitter = Math.floor(Math.random() * JITTER_MS);
-          console.warn(
-            `⚠️ Page ${page} failed (status ${statusCode || err.code}): ${msg}`
-          );
-          console.log(
-            `🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay + jitter}ms...`
-          );
+          console.warn(`⚠️ Page ${page} failed (status ${statusCode || err.code}): ${msg}`);
+          console.log(`🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay + jitter}ms...`);
           await sleep(delay + jitter);
           continue;
         }
@@ -710,16 +589,14 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           cooldowns++;
           const cooldownDelay = COOLDOWN_AFTER_FAIL_MS * cooldowns;
           console.warn(
-            `⏳ Page ${page} still failing. Cooling down ${cooldownDelay}ms (${cooldowns}/${MAX_PAGE_COOLDOWNS})...`
+            `⏳ Page ${page} still failing. Cooling down ${cooldownDelay}ms (${cooldowns}/${MAX_PAGE_COOLDOWNS})...`,
           );
           await sleep(cooldownDelay);
           retryCount = 0;
           continue;
         }
 
-        console.error(
-          `❌ Page ${page} failed after ${retryCount + 1} attempts: ${msg}`
-        );
+        console.error(`❌ Page ${page} failed after ${retryCount + 1} attempts: ${msg}`);
         throw err;
       }
     }
@@ -743,50 +620,76 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     await Promise.all(inflightUploads);
   }
 
-  // Final templates upload (whatever remains in pendingUploads)
+  // ---------------------------------------------------------------------------
+  // FIXED FINAL UPLOAD — ONE CHUNK PER APPEND CALL
+  // ---------------------------------------------------------------------------
   if (snapshotId && Object.keys(pendingUploads).length > 0) {
-    console.log(
-      `📤 Uploading final ${Object.keys(pendingUploads).length} templates...`
-    );
-    const chunkedTemplates = [];
+    console.log(`📤 Uploading final ${Object.keys(pendingUploads).length} templates (one chunk per call)...`);
 
     for (const [templateId, entries] of Object.entries(pendingUploads)) {
-      const count = entries.length;
-      if (count > ENTRIES_PER_CHUNK) {
-        console.log(
-          `📦 Splitting ${templateId} (${count} entries) into chunks of ${ENTRIES_PER_CHUNK}...`
-        );
-        const chunks = chunkTemplateEntries(templateId, entries);
-        chunkedTemplates.push(
-          ...chunks.map((chunk) => ({
-            filename: `${safeFileName(
-              chunk.templateId
-            )}_chunk_${chunk.chunkIndex}.json`,
-            content: JSON.stringify(chunk.entries, null, 2),
-            templateId: chunk.templateId,
-            chunkIndex: chunk.chunkIndex,
-            totalChunks: chunk.totalChunks,
-            isChunked: true,
-          }))
-        );
-      } else {
-        chunkedTemplates.push({
-          filename: `${safeFileName(templateId)}.json`,
-          content: JSON.stringify(entries, null, 2),
-          templateId,
-          chunkIndex: 0,
-          totalChunks: 1,
-          isChunked: false,
-        });
+      const total = entries.length;
+
+      const chunks =
+        total > ENTRIES_PER_CHUNK
+          ? chunkTemplateEntries(templateId, entries)
+          : [
+              {
+                templateId,
+                chunkIndex: 0,
+                totalChunks: 1,
+                entries,
+                isChunked: false,
+              },
+            ];
+
+      console.log(`📦 ${templateId}: ${total} entries → ${chunks.length} chunk(s)`);
+
+      for (const chunk of chunks) {
+        const payload = {
+          mode: "append",
+          webhookSecret: WEBHOOK_SECRET,
+          snapshot_id: snapshotId,
+          templates: [
+            {
+              filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+              content: JSON.stringify(chunk.entries, null, 2),
+              templateId: chunk.templateId,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: chunk.totalChunks,
+              isChunked: chunk.isChunked,
+            },
+          ],
+        };
+
+        let attempts = 0;
+        let success = false;
+        const MAX_RETRIES = 10;
+
+        while (!success && attempts < MAX_RETRIES) {
+          attempts++;
+
+          try {
+            console.log(`   → Uploading chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (attempt ${attempts})...`);
+
+            await uploadToEdgeFunction("append", payload);
+
+            console.log(`     ✓ Chunk uploaded successfully`);
+            success = true;
+          } catch (err) {
+            console.log(`     ⚠️ Chunk failed (attempt ${attempts}): ${err.message}`);
+
+            if (attempts >= MAX_RETRIES) {
+              console.log(`     ❌ Giving up on chunk — too many failures`);
+              throw err;
+            }
+
+            const delay = 2000 * Math.pow(2, attempts);
+            console.log(`     ⏳ Retrying in ${delay}ms...`);
+            await sleep(delay);
+          }
+        }
       }
     }
-
-    // This uses the hardened infinite-retry uploader, so this *cannot* fail permanently
-    await uploadToEdgeFunction("append", {
-      mode: "append",
-      snapshot_id: snapshotId,
-      templates: chunkedTemplates,
-    });
   }
 
   // Write local per-template backup
@@ -794,19 +697,13 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
     fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
   }
-  console.log(
-    `📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`
-  );
+  console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
 
   // Determine canonical package & templates
-  const canonicalPkgEntry = Object.entries(perPackage).sort((a, b) =>
-    b[1].amulet.minus(a[1].amulet)
-  )[0];
+  const canonicalPkgEntry = Object.entries(perPackage).sort((a, b) => b[1].amulet.minus(a[1].amulet))[0];
   canonicalPkg = canonicalPkgEntry ? canonicalPkgEntry[0] : "unknown";
 
-  const canonicalTemplates = templatesByPackage[canonicalPkg]
-    ? Array.from(templatesByPackage[canonicalPkg])
-    : [];
+  const canonicalTemplates = templatesByPackage[canonicalPkg] ? Array.from(templatesByPackage[canonicalPkg]) : [];
 
   const circulatingSupply = amuletTotal.plus(lockedTotal);
 
@@ -820,17 +717,15 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     record_time,
   };
 
-  fs.writeFileSync(
-    "./circulating-supply-single-sv.json",
-    JSON.stringify(summary, null, 2)
-  );
+  fs.writeFileSync("./circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
   console.log("📄 Wrote summary to circulating-supply-single-sv.json\n");
 
-  // Mark snapshot complete (also hardened by infinite retry)
+  // Mark snapshot complete
   if (snapshotId) {
     console.log("🏁 Marking snapshot as complete...");
     await uploadToEdgeFunction("complete", {
       mode: "complete",
+      webhookSecret: WEBHOOK_SECRET,
       snapshot_id: snapshotId,
       summary: {
         totals: {
@@ -844,9 +739,7 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     });
     console.log("✅ Snapshot completed!");
   } else {
-    console.log(
-      "⚠️ No snapshot record created (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET)."
-    );
+    console.log("⚠️ No snapshot record created (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET).");
   }
 
   return {
@@ -882,16 +775,10 @@ async function run() {
     if (existingSnapshot) {
       console.log("🔄 DECISION: RESUMING EXISTING SNAPSHOT");
       console.log("=".repeat(80));
-      console.log(
-        "   This GitHub Actions run is continuing a previous snapshot (long-running cron)."
-      );
+      console.log("   This GitHub Actions run is continuing a previous snapshot (long-running cron).");
       console.log(`   - Snapshot: ${existingSnapshot.id}`);
-      console.log(
-        `   - Resume from page: ${existingSnapshot.processed_pages || 1}`
-      );
-      console.log(
-        `   - Resume from cursor: ${existingSnapshot.cursor_after || 0}`
-      );
+      console.log(`   - Resume from page: ${existingSnapshot.processed_pages || 1}`);
+      console.log(`   - Resume from cursor: ${existingSnapshot.cursor_after || 0}`);
     } else {
       console.log("🆕 DECISION: STARTING NEW SNAPSHOT");
       console.log("=".repeat(80));
@@ -902,8 +789,12 @@ async function run() {
     console.log("=".repeat(80) + "\n");
 
     const startTime = Date.now();
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } =
-      await fetchAllACS(BASE_URL, migration_id, record_time, existingSnapshot);
+    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } = await fetchAllACS(
+      BASE_URL,
+      migration_id,
+      record_time,
+      existingSnapshot,
+    );
 
     const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
 
@@ -927,9 +818,7 @@ async function run() {
       try {
         console.error(
           "Response Data:",
-          typeof err.response.data === "string"
-            ? err.response.data
-            : JSON.stringify(err.response.data, null, 2)
+          typeof err.response.data === "string" ? err.response.data : JSON.stringify(err.response.data, null, 2),
         );
       } catch {
         console.error("Response Data: [unserializable]");
@@ -963,10 +852,7 @@ async function run() {
           console.error(`✅ Snapshot ${failedSnapshot.id} marked as failed`);
         }
       } catch (updateErr) {
-        console.error(
-          "Failed to mark snapshot as failed:",
-          updateErr.message
-        );
+        console.error("Failed to mark snapshot as failed:", updateErr.message);
       }
     }
 
