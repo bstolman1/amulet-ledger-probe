@@ -20,20 +20,29 @@ export const templatePageMap: Record<TemplateSuffix, string[]> = {
   'Splice:DsoRules:DsoRules': ['Governance'],
   'Splice:DsoRules:VoteRequest': ['Governance'],
   'Splice:DSO:AmuletPrice:AmuletPriceVote': ['Governance'],
+  'Splice:DsoRules:Confirmation': ['Governance'],
+  'Splice:AmuletRules:AmuletRules': ['Governance'],
 
   // Unclaimed SV Rewards
   'Splice:Amulet:ValidatorRewardCoupon': ['Unclaimed SV Rewards'],
+  'Splice:Amulet:SvRewardCoupon': ['Unclaimed SV Rewards'],
+  'Splice:Amulet:AppRewardCoupon': ['Unclaimed SV Rewards'],
+  'Splice:Amulet:UnclaimedReward': ['Unclaimed SV Rewards'],
 
   // Apps
   'Splice:Amulet:FeaturedAppRight': ['Apps'],
+  'Splice:Amulet:FeaturedAppActivityMarker': ['Apps'],
 
   // ANS
   'Splice:Ans:AnsEntry': ['ANS'],
   'Splice:Ans:AnsEntryContext': ['ANS'],
+  'Splice:Ans:AmuletConversionRateFeed:AmuletConversionRateFeed': ['ANS'],
 
   // Validator Licenses
   'Splice:ValidatorLicense:ValidatorLicense': ['Validator Licenses'],
   'Splice:ValidatorLicense:ValidatorFaucetCoupon': ['Validator Licenses'],
+  'Splice:ValidatorLicense:ValidatorLivenessActivityRecord': ['Validator Licenses'],
+  'Splice:Amulet:ValidatorRight': ['Validator Licenses'],
 
   // DSO State
   'DSO:SvState:SvNodeState': ['DSO State'],

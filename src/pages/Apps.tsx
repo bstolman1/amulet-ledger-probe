@@ -13,9 +13,11 @@ const Apps = () => {
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
   const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
+  const activityQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppActivityMarker", !!latestSnapshot);
 
-  const isLoading = appsQuery.isLoading;
+  const isLoading = appsQuery.isLoading || activityQuery.isLoading;
   const apps = appsQuery.data?.data || [];
+  const activities = activityQuery.data?.data || [];
 
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
@@ -104,7 +106,7 @@ const Apps = () => {
 
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
-          templateSuffixes={["Splice:Amulet:FeaturedAppRight"]}
+          templateSuffixes={["Splice:Amulet:FeaturedAppRight", "Splice:Amulet:FeaturedAppActivityMarker"]}
           isProcessing={false}
         />
       </div>

@@ -238,6 +238,16 @@ const MiningRounds = () => {
             </div>
           )}
         </div>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={[
+            "Splice:Round:OpenMiningRound",
+            "Splice:Round:IssuingMiningRound",
+            "Splice:Round:ClosedMiningRound"
+          ]}
+          isProcessing={false}
+        />
       </div>
     </DashboardLayout>
   );
