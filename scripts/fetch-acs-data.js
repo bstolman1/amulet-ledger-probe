@@ -1,20 +1,56 @@
 /**
- * Hardened ACS Fetcher
- * - Throttled progress (about once per minute / every 20 pages)
- * - Progress failures NEVER crash the job
- * - Adaptive chunk sizing (handles 546 WORKER_LIMIT)
- * - Resumable snapshots via Supabase
- * - Range handling / retry for Canton ACS
+ * Production-grade ACS Fetcher & Uploader
+ * - Snapshot detection (migration + timestamp)
+ * - Resumable via Supabase acs_snapshots (status='processing')
+ * - Streaming ACS fetch with retries and backoff
+ * - Amulet / Locked totals with BigNumber
+ * - Per-package stats & canonical package
+ * - Local per-template JSON export (acs_full/)
+ * - Summary JSON (circulating-supply-single-sv.json)
+ * - Edge Function integration: start / append / progress / complete
+ * - CRITICAL: one-chunk-per-append to avoid Supabase WORKER_LIMIT (546)
  */
 
 import axios from "axios";
 import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import fs from "fs";
+import path from "path";
 import BigNumber from "bignumber.js";
 import { createClient } from "@supabase/supabase-js";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+// -----------------------------------------------------------------------------
+// CONFIG
+// -----------------------------------------------------------------------------
+
+const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
+
+const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
+const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
+
+const PAGE_SIZE = parseInt(process.env.PAGE_SIZE || "500", 10);
+const ENTRIES_PER_CHUNK = parseInt(process.env.ENTRIES_PER_CHUNK || "5000", 10);
+
+// This no longer controls "how many templates per request" — we always send
+// one chunk per append — but we still use it to decide when to flush pending.
+const UPLOAD_TEMPLATE_FLUSH_THRESHOLD = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
+
+const MAX_PAGE_RETRIES = 8;
+const PAGE_RETRY_BASE_DELAY_MS = 3000;
+const PAGE_COOLDOWN_MS = parseInt(process.env.RETRY_COOLDOWN_MS || "15000", 10);
+
+const MAX_UPLOAD_RETRIES = 10;
+const UPLOAD_RETRY_BASE_DELAY_MS = 2000;
+
+const OUTPUT_DIR = "./acs_full";
+
+// Supabase (for resume + failure marking)
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // Canton client with keepalive
 const cantonClient = axios.create({
@@ -27,44 +63,9 @@ const cantonClient = axios.create({
   timeout: 120000,
 });
 
-// Env / config
-const BASE_URL = process.env.BASE_URL || "https://scan.sv-1.global.canton.network.sync.global/api/scan";
-const EDGE_FUNCTION_URL = process.env.EDGE_FUNCTION_URL;
-const WEBHOOK_SECRET = process.env.ACS_UPLOAD_WEBHOOK_SECRET;
-
-let UPLOAD_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
-const MIN_CHUNK_SIZE = 1;
-const MAX_CHUNK_SIZE = parseInt(process.env.UPLOAD_CHUNK_SIZE || "5", 10);
-const ENTRIES_PER_CHUNK = parseInt(process.env.ENTRIES_PER_CHUNK || "5000", 10);
-const PAGE_SIZE = parseInt(process.env.PAGE_SIZE || "500", 10);
-const MAX_INFLIGHT_UPLOADS = parseInt(process.env.MAX_INFLIGHT_UPLOADS || "2", 10);
-
-// Supabase (for resume)
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-}
-
-// Startup logging
-console.log("\n" + "=".repeat(80));
-console.log("🚀 Hardened ACS Data Fetcher - Starting");
-console.log("=".repeat(80));
-console.log("⚙️  Configuration:");
-console.log(`   - Base URL: ${BASE_URL}`);
-console.log(`   - Edge Function URL: ${EDGE_FUNCTION_URL ? "✅ Configured" : "❌ Not configured"}`);
-console.log(`   - Webhook Secret: ${WEBHOOK_SECRET ? "✅ Configured" : "❌ Not configured"}`);
-console.log(`   - Supabase URL: ${SUPABASE_URL ? "✅ Configured" : "❌ Not configured"}`);
-console.log(`   - Supabase Anon Key: ${SUPABASE_ANON_KEY ? "✅ Configured" : "❌ Not configured"}`);
-console.log(`   - Supabase Client: ${supabase ? "✅ Initialized" : "❌ Not initialized"}`);
-console.log(`   - Page Size: ${PAGE_SIZE}`);
-console.log(`   - Upload Chunk Size: ${UPLOAD_CHUNK_SIZE} (min: ${MIN_CHUNK_SIZE}, max: ${MAX_CHUNK_SIZE})`);
-console.log(`   - Entries Per Chunk: ${ENTRIES_PER_CHUNK} (templates split if larger)`);
-console.log(`   - Max In-Flight Uploads: ${MAX_INFLIGHT_UPLOADS}`);
-console.log("=".repeat(80) + "\n");
-
-// ---------- Utility helpers ----------
+// -----------------------------------------------------------------------------
+// UTILS
+// -----------------------------------------------------------------------------
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,15 +77,17 @@ function safeFileName(templateId) {
 
 function chunkTemplateEntries(templateId, entries) {
   const chunks = [];
+  const totalChunks = Math.ceil(entries.length / ENTRIES_PER_CHUNK);
+
   for (let i = 0; i < entries.length; i += ENTRIES_PER_CHUNK) {
     chunks.push({
       templateId,
-      chunkIndex: chunks.length,
-      totalChunks: Math.ceil(entries.length / ENTRIES_PER_CHUNK),
       entries: entries.slice(i, i + ENTRIES_PER_CHUNK),
-      isChunked: true,
+      chunkIndex: chunks.length,
+      totalChunks,
     });
   }
+
   return chunks;
 }
 
@@ -97,7 +100,9 @@ function isTemplate(e, moduleName, entityName) {
   return module_ === moduleName && entity === entityName;
 }
 
-// ---------- SAFE progress sender (never throws) ----------
+// -----------------------------------------------------------------------------
+// SAFE PROGRESS (never throws)
+// -----------------------------------------------------------------------------
 
 async function safeProgress(snapshotId, progress) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET || !snapshotId) return;
@@ -118,7 +123,7 @@ async function safeProgress(snapshotId, progress) {
         },
         timeout: 15000,
       });
-      return; // success
+      return;
     } catch (err) {
       const status = err.response?.status;
       console.log(`⚠️ Progress attempt ${attempt}/3 failed (status: ${status || "n/a"}): ${err.message}`);
@@ -129,54 +134,150 @@ async function safeProgress(snapshotId, progress) {
   console.log("❗ Progress permanently failed — continuing snapshot anyway.");
 }
 
-// ---------- Generic upload helper (for start/append/complete) ----------
+// -----------------------------------------------------------------------------
+// EDGE FUNCTION HELPERS
+// -----------------------------------------------------------------------------
 
-async function uploadToEdgeFunction(phase, data, retryCount = 0) {
-  if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) return null;
+async function edgeCall(data, timeoutMs = 300000) {
+  if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) {
+    console.log("⚠️ EDGE_FUNCTION_URL or WEBHOOK_SECRET not configured.");
+    return null;
+  }
 
-  const MAX_RETRIES = 5;
-  const is546Error = (error) => error.response?.status === 546 || error.message?.includes("546");
+  const payload = { ...data, webhookSecret: WEBHOOK_SECRET };
 
-  try {
-    const res = await axios.post(EDGE_FUNCTION_URL, data, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-webhook-secret": WEBHOOK_SECRET,
+  const res = await axios.post(EDGE_FUNCTION_URL, payload, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-webhook-secret": WEBHOOK_SECRET,
+    },
+    timeout: timeoutMs,
+  });
+
+  return res.data;
+}
+
+async function createSnapshot(summary) {
+  console.log("\n" + "🚀".repeat(40));
+  console.log("🚀 CREATING NEW SNAPSHOT");
+  console.log("🚀".repeat(40));
+
+  const res = await edgeCall({
+    mode: "start",
+    summary,
+  });
+
+  const snapshotId = res?.snapshot_id;
+  console.log(`   ✅ New Snapshot Created: ${snapshotId}`);
+  console.log("🚀".repeat(40) + "\n");
+
+  return snapshotId;
+}
+
+async function completeSnapshot(snapshotId, summary) {
+  if (!snapshotId) return;
+
+  console.log("🏁 Marking snapshot as complete...");
+  await edgeCall({
+    mode: "complete",
+    snapshot_id: snapshotId,
+    summary,
+  });
+  console.log("✅ Snapshot completed!");
+}
+
+// One-chunk-per-append uploader with strong retries (handles 546, network, etc)
+async function uploadChunk(snapshotId, chunk) {
+  if (!snapshotId) return; // no-op if not using edge
+
+  const payload = {
+    mode: "append",
+    snapshot_id: snapshotId,
+    templates: [
+      {
+        filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
+        content: JSON.stringify(chunk.entries, null, 2),
+        templateId: chunk.templateId,
+        chunkIndex: chunk.chunkIndex,
+        totalChunks: chunk.totalChunks,
+        isChunked: chunk.totalChunks > 1,
       },
-      timeout: 300000, // up to 5 minutes for big batches
-    });
+    ],
+  };
 
-    // On successful append, we can gently ramp chunk size back up
-    if (phase === "append" && UPLOAD_CHUNK_SIZE < MAX_CHUNK_SIZE) {
-      UPLOAD_CHUNK_SIZE = Math.min(UPLOAD_CHUNK_SIZE + 1, MAX_CHUNK_SIZE);
-      console.log(`✅ Upload successful - increased template batch size to ${UPLOAD_CHUNK_SIZE}`);
-    }
+  for (let attempt = 1; attempt <= MAX_UPLOAD_RETRIES; attempt++) {
+    try {
+      await edgeCall(payload, 300000);
+      return;
+    } catch (err) {
+      const status = err.response?.status;
+      console.error(`❌ Upload failed (append, attempt ${attempt}): ${err.message} (status: ${status || "unknown"})`);
 
-    return res.data;
-  } catch (err) {
-    const status = err.response?.status;
-    console.error(`❌ Upload failed (${phase}): ${err.message} (status: ${status || "unknown"})`);
+      // 546 WORKER_LIMIT or transient errors -> backoff and retry
+      const isWorkerLimit = status === 546 || err.message?.includes("546");
+      const isRetryable =
+        isWorkerLimit ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        status === 429 ||
+        err.code === "ECONNRESET" ||
+        err.code === "ETIMEDOUT" ||
+        err.code === "ENOTFOUND" ||
+        err.code === "ECONNABORTED" ||
+        err.code === "EAI_AGAIN" ||
+        err.code === "EHOSTUNREACH" ||
+        err.code === "EPIPE";
 
-    // Special handling for 546 (Supabase worker limit)
-    if (phase === "append" && is546Error(err) && retryCount < MAX_RETRIES) {
-      if (UPLOAD_CHUNK_SIZE > MIN_CHUNK_SIZE) {
-        UPLOAD_CHUNK_SIZE = Math.max(MIN_CHUNK_SIZE, Math.floor(UPLOAD_CHUNK_SIZE / 2));
-        console.log(`⚠️  Reduced template batch size to ${UPLOAD_CHUNK_SIZE} due to 546 WORKER_LIMIT`);
+      if (!isRetryable || attempt === MAX_UPLOAD_RETRIES) {
+        console.error(`❌ Giving up on this chunk after ${attempt} attempts (status: ${status || "unknown"}).`);
+        throw err;
       }
 
-      const backoffMs = Math.min(2000 * Math.pow(2, retryCount), 32000);
-      console.log(`⏳ Waiting ${backoffMs}ms before retry ${retryCount + 1}/${MAX_RETRIES}...`);
-      await sleep(backoffMs);
-
-      return uploadToEdgeFunction(phase, data, retryCount + 1);
+      const backoff = Math.min(UPLOAD_RETRY_BASE_DELAY_MS * Math.pow(2, attempt), 120000);
+      console.log(`⏳ Retrying append in ${backoff}ms (attempt ${attempt})...`);
+      await sleep(backoff);
     }
-
-    // For start/complete or non-546 append failures: fail hard
-    throw err;
   }
 }
 
-// ---------- Migration & snapshot timestamp ----------
+// Flush all pending templates to Edge, one chunk at a time.
+async function flushPendingTemplates(snapshotId, pendingUploads) {
+  const templateIds = Object.keys(pendingUploads);
+  if (!snapshotId || templateIds.length === 0) return;
+
+  console.log(`📤 Flushing ${templateIds.length} templates (one chunk per append)...`);
+
+  for (const templateId of templateIds) {
+    const entries = pendingUploads[templateId];
+    const count = entries.length;
+
+    const chunks =
+      count > ENTRIES_PER_CHUNK
+        ? chunkTemplateEntries(templateId, entries)
+        : [
+            {
+              templateId,
+              entries,
+              chunkIndex: 0,
+              totalChunks: 1,
+            },
+          ];
+
+    console.log(`📦 ${templateId}: ${count} entries → ${chunks.length} chunk(s)`);
+
+    for (const chunk of chunks) {
+      await uploadChunk(snapshotId, chunk);
+    }
+
+    // Once uploaded, remove from pending
+    delete pendingUploads[templateId];
+  }
+}
+
+// -----------------------------------------------------------------------------
+// MIGRATION & SNAPSHOT TIMESTAMP
+// -----------------------------------------------------------------------------
 
 async function detectLatestMigration(baseUrl) {
   console.log("🔎 Probing for latest valid migration ID...");
@@ -224,7 +325,9 @@ async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   return record_time;
 }
 
-// ---------- Resume support via Supabase ----------
+// -----------------------------------------------------------------------------
+// RESUME SUPPORT VIA acs_snapshots
+// -----------------------------------------------------------------------------
 
 async function checkForExistingSnapshot(migration_id) {
   if (!supabase) {
@@ -273,14 +376,20 @@ async function checkForExistingSnapshot(migration_id) {
   return snapshot;
 }
 
-// ---------- Main fetch loop ----------
+// -----------------------------------------------------------------------------
+// MAIN FETCH LOOP
+// -----------------------------------------------------------------------------
 
 async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
-  const allEvents = [];
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  // State
   let after = existingSnapshot?.cursor_after || 0;
   let page = existingSnapshot?.processed_pages || 1;
+  let totalEvents = existingSnapshot?.processed_events || 0;
+
   const seen = new Set();
 
   let amuletTotal = new BigNumber(existingSnapshot?.amulet_total || 0);
@@ -291,18 +400,31 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   const templatesData = {};
   const pendingUploads = {};
 
-  const outputDir = "./acs_full";
-  if (!fs.existsSync(outputDir)) fs.mkdirkdir(outputDir);
-
   // Snapshot metadata
   let snapshotId = existingSnapshot?.id || null;
   let canonicalPkg = existingSnapshot?.canonical_package || "unknown";
 
   const startTime = Date.now();
-  let lastProgressLog = startTime;
   let lastProgressSent = startTime;
 
-  // Start or resume snapshot
+  // Create snapshot if not resuming
+  if (!snapshotId && EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
+    const summary = {
+      sv_url: baseUrl,
+      migration_id,
+      record_time,
+      canonical_package: canonicalPkg,
+      totals: {
+        amulet: amuletTotal.toString(),
+        locked: lockedTotal.toString(),
+        circulating: amuletTotal.plus(lockedTotal).toString(),
+      },
+      entry_count: totalEvents,
+    };
+
+    snapshotId = await createSnapshot(summary);
+  }
+
   if (existingSnapshot) {
     console.log("\n" + "🔄".repeat(40));
     console.log("🔄 RESUMING EXISTING SNAPSHOT");
@@ -313,47 +435,16 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
     console.log(`   - Previous Amulet Total: ${amuletTotal.toString()}`);
     console.log(`   - Previous Locked Total: ${lockedTotal.toString()}`);
     console.log("🔄".repeat(40) + "\n");
-  } else if (EDGE_FUNCTION_URL && WEBHOOK_SECRET) {
-    console.log("\n" + "🚀".repeat(40));
-    console.log("🚀 CREATING NEW SNAPSHOT");
-    console.log("🚀".repeat(40));
-    const startResult = await uploadToEdgeFunction("start", {
-      mode: "start",
-      webhookSecret: WEBHOOK_SECRET,
-      summary: {
-        sv_url: baseUrl,
-        migration_id,
-        record_time,
-        canonical_package: canonicalPkg,
-        totals: {
-          amulet: "0",
-          locked: "0",
-          circulating: "0",
-        },
-        entry_count: 0,
-      },
-    });
-    snapshotId = startResult?.snapshot_id;
-    console.log(`   ✅ New Snapshot Created: ${snapshotId}`);
-    console.log("🚀".repeat(40) + "\n");
   }
 
-  const inflightUploads = [];
+  let done = false;
 
-  const MAX_RETRIES = 8;
-  const BASE_DELAY = 3000;
-  const MAX_PAGE_COOLDOWNS = 2;
-  const COOLDOWN_AFTER_FAIL_MS = parseInt(process.env.RETRY_COOLDOWN_MS || "15000", 10);
-  const JITTER_MS = 500;
-
-  let lastPage = false;
-
-  while (true) {
+  while (!done) {
     let retryCount = 0;
     let cooldowns = 0;
     let pageSuccess = false;
 
-    while (retryCount < MAX_RETRIES && !pageSuccess) {
+    while (retryCount < MAX_PAGE_RETRIES && !pageSuccess) {
       try {
         const res = await cantonClient.post(
           `${baseUrl}/v0/state/acs`,
@@ -375,8 +466,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
 
         if (!events.length) {
           console.log("\n✅ No more events — finished.");
+          done = true;
           pageSuccess = true;
-          lastPage = true;
           break;
         }
 
@@ -413,124 +504,48 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
           }
         }
 
-        allEvents.push(...events);
+        totalEvents += events.length;
 
         // Add templates from this page into pending upload buffer
         for (const templateId of pageTemplates) {
           pendingUploads[templateId] = templatesData[templateId];
         }
 
-        // Throttled pipelined uploads (now one chunk per append)
-        if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_CHUNK_SIZE) {
-          // Respect max inflight uploads
-          while (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
-            await Promise.race(inflightUploads);
-            for (let i = inflightUploads.length - 1; i >= 0; i--) {
-              if (inflightUploads[i].settled) inflightUploads.splice(i, 1);
-            }
-          }
-
-          const allKeys = Object.keys(pendingUploads);
-          const batchKeys = allKeys.slice(0, UPLOAD_CHUNK_SIZE);
-
-          const chunkedTemplates = [];
-          for (const templateId of batchKeys) {
-            const entries = pendingUploads[templateId];
-            const count = entries.length;
-
-            if (count > ENTRIES_PER_CHUNK) {
-              console.log(`📦 Splitting ${templateId} (${count} entries) into chunks of ${ENTRIES_PER_CHUNK}...`);
-              const chunks = chunkTemplateEntries(templateId, entries);
-              chunkedTemplates.push(
-                ...chunks.map((chunk) => ({
-                  filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
-                  content: JSON.stringify(chunk.entries, null, 2),
-                  templateId: chunk.templateId,
-                  chunkIndex: chunk.chunkIndex,
-                  totalChunks: chunk.totalChunks,
-                  isChunked: true,
-                })),
-              );
-            } else {
-              chunkedTemplates.push({
-                filename: `${safeFileName(templateId)}.json`,
-                content: JSON.stringify(entries, null, 2),
-                templateId,
-                chunkIndex: 0,
-                totalChunks: 1,
-                isChunked: false,
-              });
-            }
-          }
-
-          console.log(
-            `📤 Starting upload of ${chunkedTemplates.length} chunks from ${batchKeys.length} templates (template batch size: ${UPLOAD_CHUNK_SIZE})...`,
-          );
-
-          // Snapshot the batch so we can re-queue on failure
-          const uploadSnapshot = {};
-          batchKeys.forEach((k) => {
-            uploadSnapshot[k] = pendingUploads[k];
-            delete pendingUploads[k];
-          });
-
-          const uploadPromise = (async () => {
-            try {
-              // NEW: one chunk per append call
-              for (const tmpl of chunkedTemplates) {
-                await uploadToEdgeFunction("append", {
-                  mode: "append",
-                  webhookSecret: WEBHOOK_SECRET,
-                  snapshot_id: snapshotId,
-                  templates: [tmpl],
-                });
-              }
-
-              console.log(`✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`);
-            } catch (err) {
-              console.error(`❌ Batch upload failed (append): ${err.message}. Re-queuing templates.`);
-              Object.assign(pendingUploads, uploadSnapshot);
-            }
-            uploadPromise.settled = true;
-          })();
-
-          inflightUploads.push(uploadPromise);
-        }
-
-        // Page-level logging
         console.log(`📄 Page ${page} fetched (${events.length} events)`);
 
+        // Flush pending templates when threshold reached
+        if (snapshotId && Object.keys(pendingUploads).length >= UPLOAD_TEMPLATE_FLUSH_THRESHOLD) {
+          await flushPendingTemplates(snapshotId, pendingUploads);
+        }
+
+        // Progress logging / Supabase progress updates every ~minute or 20 pages
         const now = Date.now();
         const elapsedMs = now - startTime;
         const elapsedMinutes = elapsedMs / 1000 / 60;
         const pagesPerMin = elapsedMinutes > 0 ? (page / elapsedMinutes).toFixed(2) : "0.00";
-        const eventsPerPage = page > 0 ? Math.round(allEvents.length / page) : 0;
 
-        // Console status every 10 pages
         if (page % 10 === 0) {
           console.log("\n" + "-".repeat(80));
           console.log(`📊 STATUS UPDATE - Page ${page}`);
           console.log("-".repeat(80));
           console.log(`   - Snapshot ID: ${snapshotId || "N/A"}`);
-          console.log(`   - Events Processed: ${allEvents.length.toLocaleString()}`);
+          console.log(`   - Events Processed: ${totalEvents.toLocaleString()}`);
           console.log(`   - Elapsed Time: ${elapsedMinutes.toFixed(1)} minutes`);
-          console.log(`   - Processing Speed: ${pagesPerMin} pages/min, ${eventsPerPage} events/page`);
+          console.log(`   - Processing Speed: ${pagesPerMin} pages/min`);
           console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
           console.log(`   - Locked Total: ${lockedTotal.toString()}`);
-          console.log(`   - In-flight Uploads: ${inflightUploads.length}/${MAX_INFLIGHT_UPLOADS}`);
           console.log("-".repeat(80) + "\n");
-          lastProgressLog = now;
         }
 
-        // Throttled progress to Supabase (safe & non-fatal)
         const shouldSendProgress = now - lastProgressSent >= 60000 || page % 20 === 0;
 
         if (snapshotId && shouldSendProgress) {
           await safeProgress(snapshotId, {
             processed_pages: page,
-            processed_events: allEvents.length,
+            processed_events: totalEvents,
             elapsed_time_ms: elapsedMs,
             pages_per_minute: parseFloat(pagesPerMin),
+            cursor_after: after,
           });
           lastProgressSent = now;
         }
@@ -538,8 +553,8 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         // Pagination
         if (events.length < PAGE_SIZE) {
           console.log("\n✅ Last page reached.");
+          done = true;
           pageSuccess = true;
-          lastPage = true;
           break;
         }
 
@@ -567,30 +582,26 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
         const rangeMatch = msg.match(/range\s*\((\d+)\s*to\s*(\d+)\)/i);
         if (rangeMatch) {
           const minRange = parseInt(rangeMatch[1]);
-          const maxRange = parseInt(rangeMatch[2]);
-          console.log(`📘 Detected snapshot range: ${minRange}–${maxRange}`);
+          console.log(`📘 Detected snapshot range: ${rangeMatch[1]}–${rangeMatch[2]}`);
           after = minRange;
           console.log(`🔁 Restarting from offset ${after}…`);
           pageSuccess = true;
           break;
         }
 
-        if (isRetryable && retryCount < MAX_RETRIES - 1) {
+        if (isRetryable && retryCount < MAX_PAGE_RETRIES - 1) {
           retryCount++;
-          const delay = BASE_DELAY * Math.pow(2, retryCount - 1);
-          const jitter = Math.floor(Math.random() * JITTER_MS);
+          const delay = PAGE_RETRY_BASE_DELAY_MS * Math.pow(2, retryCount - 1);
           console.warn(`⚠️ Page ${page} failed (status ${statusCode || err.code}): ${msg}`);
-          console.log(`🔄 Retry ${retryCount}/${MAX_RETRIES} in ${delay + jitter}ms...`);
-          await sleep(delay + jitter);
+          console.log(`🔄 Retry ${retryCount}/${MAX_PAGE_RETRIES} in ${delay}ms...`);
+          await sleep(delay);
           continue;
         }
 
-        if (isRetryable && cooldowns < MAX_PAGE_COOLDOWNS) {
+        if (isRetryable && cooldowns < 2) {
           cooldowns++;
-          const cooldownDelay = COOLDOWN_AFTER_FAIL_MS * cooldowns;
-          console.warn(
-            `⏳ Page ${page} still failing. Cooling down ${cooldownDelay}ms (${cooldowns}/${MAX_PAGE_COOLDOWNS})...`,
-          );
+          const cooldownDelay = PAGE_COOLDOWN_MS * cooldowns;
+          console.warn(`⏳ Page ${page} still failing. Cooling down ${cooldownDelay}ms (${cooldowns}/2)...`);
           await sleep(cooldownDelay);
           retryCount = 0;
           continue;
@@ -605,99 +616,19 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
       console.error("❌ Stopping due to repeated page failures.");
       break;
     }
-
-    if (lastPage) {
-      console.log("✅ Reached last page, exiting main loop.");
-      break;
-    }
   }
 
-  console.log(`\n✅ Fetched ${allEvents.length.toLocaleString()} ACS entries.`);
-
-  // Wait for in-flight uploads to finish
-  if (inflightUploads.length > 0) {
-    console.log(`⏳ Waiting for ${inflightUploads.length} in-flight uploads...`);
-    await Promise.all(inflightUploads);
-  }
-
-  // ---------------------------------------------------------------------------
-  // FIXED FINAL UPLOAD — ONE CHUNK PER APPEND CALL
-  // ---------------------------------------------------------------------------
+  // Final flush of any remaining pending templates
   if (snapshotId && Object.keys(pendingUploads).length > 0) {
-    console.log(`📤 Uploading final ${Object.keys(pendingUploads).length} templates (one chunk per call)...`);
-
-    for (const [templateId, entries] of Object.entries(pendingUploads)) {
-      const total = entries.length;
-
-      const chunks =
-        total > ENTRIES_PER_CHUNK
-          ? chunkTemplateEntries(templateId, entries)
-          : [
-              {
-                templateId,
-                chunkIndex: 0,
-                totalChunks: 1,
-                entries,
-                isChunked: false,
-              },
-            ];
-
-      console.log(`📦 ${templateId}: ${total} entries → ${chunks.length} chunk(s)`);
-
-      for (const chunk of chunks) {
-        const payload = {
-          mode: "append",
-          webhookSecret: WEBHOOK_SECRET,
-          snapshot_id: snapshotId,
-          templates: [
-            {
-              filename: `${safeFileName(chunk.templateId)}_chunk_${chunk.chunkIndex}.json`,
-              content: JSON.stringify(chunk.entries, null, 2),
-              templateId: chunk.templateId,
-              chunkIndex: chunk.chunkIndex,
-              totalChunks: chunk.totalChunks,
-              isChunked: chunk.isChunked,
-            },
-          ],
-        };
-
-        let attempts = 0;
-        let success = false;
-        const MAX_RETRIES = 10;
-
-        while (!success && attempts < MAX_RETRIES) {
-          attempts++;
-
-          try {
-            console.log(`   → Uploading chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (attempt ${attempts})...`);
-
-            await uploadToEdgeFunction("append", payload);
-
-            console.log(`     ✓ Chunk uploaded successfully`);
-            success = true;
-          } catch (err) {
-            console.log(`     ⚠️ Chunk failed (attempt ${attempts}): ${err.message}`);
-
-            if (attempts >= MAX_RETRIES) {
-              console.log(`     ❌ Giving up on chunk — too many failures`);
-              throw err;
-            }
-
-            const delay = 2000 * Math.pow(2, attempts);
-            console.log(`     ⏳ Retrying in ${delay}ms...`);
-            await sleep(delay);
-          }
-        }
-      }
-    }
+    await flushPendingTemplates(snapshotId, pendingUploads);
   }
 
-  // Write local per-template backup
+  // Local per-template backup
   for (const [templateId, data] of Object.entries(templatesData)) {
-    const fileName = `${outputDir}/${safeFileName(templateId)}.json`;
+    const fileName = path.join(OUTPUT_DIR, `${safeFileName(templateId)}.json`);
     fs.writeFileSync(fileName, JSON.stringify(data, null, 2));
   }
-  console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${outputDir}/`);
+  console.log(`📂 Exported ${Object.keys(templatesData).length} template files to ${OUTPUT_DIR}/`);
 
   // Determine canonical package & templates
   const canonicalPkgEntry = Object.entries(perPackage).sort((a, b) => b[1].amulet.minus(a[1].amulet))[0];
@@ -720,42 +651,45 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
   fs.writeFileSync("./circulating-supply-single-sv.json", JSON.stringify(summary, null, 2));
   console.log("📄 Wrote summary to circulating-supply-single-sv.json\n");
 
-  // Mark snapshot complete
+  // Final snapshot completion
   if (snapshotId) {
-    console.log("🏁 Marking snapshot as complete...");
-    await uploadToEdgeFunction("complete", {
-      mode: "complete",
-      webhookSecret: WEBHOOK_SECRET,
-      snapshot_id: snapshotId,
-      summary: {
-        totals: {
-          amulet: amuletTotal.toString(),
-          locked: lockedTotal.toString(),
-          circulating: circulatingSupply.toString(),
-        },
-        entry_count: allEvents.length,
-        canonical_package: canonicalPkg,
+    await completeSnapshot(snapshotId, {
+      totals: {
+        amulet: amuletTotal.toString(),
+        locked: lockedTotal.toString(),
+        circulating: circulatingSupply.toString(),
       },
+      entry_count: totalEvents,
+      canonical_package: canonicalPkg,
     });
-    console.log("✅ Snapshot completed!");
   } else {
     console.log("⚠️ No snapshot record created (missing EDGE_FUNCTION_URL or ACS_UPLOAD_WEBHOOK_SECRET).");
   }
 
   return {
-    allEvents,
+    totalEvents,
     amuletTotal,
     lockedTotal,
     canonicalPkg,
-    canonicalTemplates,
     snapshotId,
   };
 }
 
-// ---------- Entrypoint ----------
+// -----------------------------------------------------------------------------
+// ENTRYPOINT
+// -----------------------------------------------------------------------------
 
 async function run() {
   try {
+    console.log("\n" + "=".repeat(80));
+    console.log("🚀 ACS SNAPSHOT JOB - START");
+    console.log("=".repeat(80));
+    console.log(`   - Base URL: ${BASE_URL}`);
+    console.log(`   - Page Size: ${PAGE_SIZE}`);
+    console.log(`   - Entries Per Chunk: ${ENTRIES_PER_CHUNK} (for large templates)`);
+    console.log(`   - Template Flush Threshold: ${UPLOAD_TEMPLATE_FLUSH_THRESHOLD}`);
+    console.log("=".repeat(80) + "\n");
+
     console.log("\n" + "=".repeat(80));
     console.log("🔎 STEP 1: Detecting Latest Migration");
     console.log("=".repeat(80));
@@ -789,7 +723,7 @@ async function run() {
     console.log("=".repeat(80) + "\n");
 
     const startTime = Date.now();
-    const { allEvents, amuletTotal, lockedTotal, canonicalPkg } = await fetchAllACS(
+    const { totalEvents, amuletTotal, lockedTotal, canonicalPkg } = await fetchAllACS(
       BASE_URL,
       migration_id,
       record_time,
@@ -801,7 +735,7 @@ async function run() {
     console.log("\n" + "=".repeat(80));
     console.log("✅ SNAPSHOT COMPLETED SUCCESSFULLY");
     console.log("=".repeat(80));
-    console.log(`   - Total Events: ${allEvents.length.toLocaleString()}`);
+    console.log(`   - Total Events: ${totalEvents.toLocaleString()}`);
     console.log(`   - Canonical Package: ${canonicalPkg}`);
     console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
     console.log(`   - Locked Total: ${lockedTotal.toString()}`);
@@ -826,7 +760,7 @@ async function run() {
     }
     console.error("=".repeat(80) + "\n");
 
-    // Try to mark snapshot as failed if we have a snapshot ID
+    // Try to mark snapshot as failed if we have Supabase
     if (supabase) {
       try {
         const migration_id = await detectLatestMigration(BASE_URL);
