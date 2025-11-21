@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { pickAmount } from "@/lib/amount-utils";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 
 const Supply = () => {
   const queryClient = useQueryClient();
@@ -247,6 +248,17 @@ const Supply = () => {
             </div>
           )}
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={[
+            "Splice:Amulet:Amulet",
+            "Splice:Amulet:LockedAmulet",
+            "Splice:Round:IssuingMiningRound",
+            "Splice:Round:ClosedMiningRound"
+          ]}
+          isProcessing={false}
+        />
       </div>
     </DashboardLayout>
   );

@@ -32,9 +32,23 @@ const ValidatorLicenses = () => {
     !!latestSnapshot
   );
 
+  const livenessQuery = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:ValidatorLicense:ValidatorLivenessActivityRecord",
+    !!latestSnapshot
+  );
+
+  const validatorRightsQuery = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:Amulet:ValidatorRight",
+    !!latestSnapshot
+  );
+
   const licensesData = licensesQuery.data?.data || [];
   const couponsData = couponsQuery.data?.data || [];
-  const isLoading = licensesQuery.isLoading || couponsQuery.isLoading;
+  const livenessData = livenessQuery.data?.data || [];
+  const validatorRightsData = validatorRightsQuery.data?.data || [];
+  const isLoading = licensesQuery.isLoading || couponsQuery.isLoading || livenessQuery.isLoading || validatorRightsQuery.isLoading;
 
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
@@ -126,9 +140,11 @@ const ValidatorLicenses = () => {
           </div>
 
           <Tabs defaultValue="licenses" className="w-full" onValueChange={() => setCurrentPage(1)}>
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="licenses">Licenses ({filteredLicenses.length})</TabsTrigger>
               <TabsTrigger value="coupons">Coupons ({filteredCoupons.length})</TabsTrigger>
+              <TabsTrigger value="liveness">Liveness ({livenessData.length})</TabsTrigger>
+              <TabsTrigger value="rights">Rights ({validatorRightsData.length})</TabsTrigger>
             </TabsList>
 
             <TabsContent value="licenses" className="space-y-3 mt-4">
@@ -292,12 +308,138 @@ const ValidatorLicenses = () => {
                 </>
               )}
             </TabsContent>
+
+            <TabsContent value="liveness" className="space-y-3 mt-4">
+              {isLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+                </div>
+              ) : livenessData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No liveness records found</p>
+              ) : (
+                <>
+                  {paginateData(livenessData).map((record: any, idx: number) => {
+                    const validator = getField(record, 'validator', 'validatorId');
+                    const round = getField(record, 'round');
+                    const roundNumber = typeof round === 'object' ? round?.number : round;
+                    const activityTimestamp = getField(record, 'timestamp', 'activityTimestamp');
+                    
+                    return (
+                      <Card key={idx} className="p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Activity className="h-4 w-4 text-success" />
+                          <p className="text-sm font-medium">Validator: {formatParty(validator)}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Round</p>
+                            <p className="font-medium">{roundNumber || "N/A"}</p>
+                          </div>
+                          {activityTimestamp && (
+                            <div>
+                              <p className="text-muted-foreground">Activity Time</p>
+                              <p className="font-medium">{new Date(activityTimestamp).toLocaleString()}</p>
+                            </div>
+                          )}
+                        </div>
+                        <Collapsible>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-full justify-start">
+                              <Code className="h-4 w-4 mr-2" />
+                              Show Raw JSON
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2">
+                            <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                              {JSON.stringify(record, null, 2)}
+                            </pre>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </Card>
+                    );
+                  })}
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={livenessData.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="rights" className="space-y-3 mt-4">
+              {isLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+                </div>
+              ) : validatorRightsData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No validator rights found</p>
+              ) : (
+                <>
+                  {paginateData(validatorRightsData).map((right: any, idx: number) => {
+                    const user = getField(right, 'user', 'validatorUser');
+                    const validator = getField(right, 'validator', 'validatorId');
+                    const dso = getField(right, 'dso');
+                    
+                    return (
+                      <Card key={idx} className="p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Award className="h-4 w-4 text-primary" />
+                          <p className="text-sm font-medium">Validator Right</p>
+                        </div>
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">User</p>
+                            <p className="font-mono break-all">{user || "Unknown"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Validator</p>
+                            <p className="font-mono break-all">{formatParty(validator || "Unknown")}</p>
+                          </div>
+                          {dso && (
+                            <div>
+                              <p className="text-muted-foreground">DSO</p>
+                              <p className="font-mono break-all">{formatParty(dso)}</p>
+                            </div>
+                          )}
+                        </div>
+                        <Collapsible>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-full justify-start">
+                              <Code className="h-4 w-4 mr-2" />
+                              Show Raw JSON
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2">
+                            <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
+                              {JSON.stringify(right, null, 2)}
+                            </pre>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </Card>
+                    );
+                  })}
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={validatorRightsData.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
+              )}
+            </TabsContent>
           </Tabs>
         </Card>
 
         <DataSourcesFooter
           snapshotId={latestSnapshot?.id}
-          templateSuffixes={["Splice:ValidatorLicense:ValidatorLicense", "Splice:ValidatorLicense:ValidatorFaucetCoupon"]}
+          templateSuffixes={[
+            "Splice:ValidatorLicense:ValidatorLicense",
+            "Splice:ValidatorLicense:ValidatorFaucetCoupon",
+            "Splice:ValidatorLicense:ValidatorLivenessActivityRecord",
+            "Splice:Amulet:ValidatorRight"
+          ]}
           isProcessing={false}
         />
       </div>

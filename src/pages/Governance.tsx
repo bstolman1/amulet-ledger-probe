@@ -42,7 +42,23 @@ const Governance = () => {
     !!latestSnapshot
   );
 
+  // Fetch Confirmations
+  const { data: confirmationsData } = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:DsoRules:Confirmation",
+    !!latestSnapshot
+  );
+
+  // Fetch AmuletRules
+  const { data: amuletRulesData } = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:AmuletRules:AmuletRules",
+    !!latestSnapshot
+  );
+
   const priceVotes = priceVotesData?.data || [];
+  const confirmations = confirmationsData?.data || [];
+  const amuletRules = amuletRulesData?.data || [];
   
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
@@ -331,6 +347,18 @@ const Governance = () => {
             </div>
           </div>
         </Card>
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={[
+            "Splice:DsoRules:DsoRules",
+            "Splice:DsoRules:VoteRequest",
+            "Splice:DSO:AmuletPrice:AmuletPriceVote",
+            "Splice:DsoRules:Confirmation",
+            "Splice:AmuletRules:AmuletRules"
+          ]}
+          isProcessing={false}
+        />
       </div>
     </DashboardLayout>
   );

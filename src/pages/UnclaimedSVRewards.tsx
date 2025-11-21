@@ -38,8 +38,34 @@ const UnclaimedSVRewards = () => {
     !!snapshot
   );
 
-  const isLoading = couponsLoading;
-  const rewardCoupons = rewardCouponsData?.data || [];
+  // Fetch SvRewardCoupon contracts
+  const { data: svRewardCouponsData, isLoading: svCouponsLoading } = useAggregatedTemplateData(
+    snapshot?.id,
+    "Splice:Amulet:SvRewardCoupon",
+    !!snapshot
+  );
+
+  // Fetch AppRewardCoupon contracts
+  const { data: appRewardCouponsData, isLoading: appCouponsLoading } = useAggregatedTemplateData(
+    snapshot?.id,
+    "Splice:Amulet:AppRewardCoupon",
+    !!snapshot
+  );
+
+  // Fetch UnclaimedReward contracts
+  const { data: unclaimedRewardsData, isLoading: unclaimedLoading } = useAggregatedTemplateData(
+    snapshot?.id,
+    "Splice:Amulet:UnclaimedReward",
+    !!snapshot
+  );
+
+  const isLoading = couponsLoading || svCouponsLoading || appCouponsLoading || unclaimedLoading;
+  const rewardCoupons = [
+    ...(rewardCouponsData?.data || []),
+    ...(svRewardCouponsData?.data || []),
+    ...(appRewardCouponsData?.data || []),
+    ...(unclaimedRewardsData?.data || [])
+  ];
 
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
@@ -340,7 +366,12 @@ const UnclaimedSVRewards = () => {
 
         <DataSourcesFooter 
           snapshotId={snapshot?.id}
-          templateSuffixes={["ValidatorRewardCoupon"]}
+          templateSuffixes={[
+            "Splice:Amulet:ValidatorRewardCoupon",
+            "Splice:Amulet:SvRewardCoupon",
+            "Splice:Amulet:AppRewardCoupon",
+            "Splice:Amulet:UnclaimedReward"
+          ]}
           isProcessing={false}
         />
       </div>

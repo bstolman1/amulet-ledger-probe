@@ -265,6 +265,14 @@ const Validators = () => {
         {/* ACTIVE VALIDATORS SECTION (Appended) */}
         {/* ───────────────────────────── */}
         <ActiveValidatorsSection />
+
+        {/* Note: Active validators are pulled from API, not ACS snapshots */}
+        <Card className="glass-card p-4 text-sm text-muted-foreground">
+          <p>
+            <strong>Data Sources:</strong> SuperValidator configuration data is fetched from the network configuration API.
+            Active validators are queried from the Canton Network API endpoints.
+          </p>
+        </Card>
       </div>
     </DashboardLayout>
   );
