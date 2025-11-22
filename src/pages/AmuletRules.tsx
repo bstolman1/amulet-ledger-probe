@@ -140,26 +140,16 @@ const normalizeFutureValues = (futureValues: any): NormalizedIssuanceFutureValue
 const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
   if (!raw) return null;
   const source = raw.payload ?? raw;
-  const configSchedule = pickFirstDefined(source.configSchedule, source.config_schedule);
-  const scheduleInitial = configSchedule?.initialValue ?? configSchedule?.initial_value;
   const transferConfig = pickFirstDefined(
     source.transferConfig,
     source.transfer_config,
     source.TransferConfig,
-    scheduleInitial?.transferConfig,
-    scheduleInitial?.transfer_config
+    source.transfer_configSchedule
   );
-  const issuanceCurve = pickFirstDefined(
-    source.issuanceCurve,
-    source.issuance_curve,
-    scheduleInitial?.issuanceCurve,
-    scheduleInitial?.issuance_curve
-  );
+  const issuanceCurve = pickFirstDefined(source.issuanceCurve, source.issuance_curve);
   const decentralizedSynchronizer = pickFirstDefined(
     source.decentralizedSynchronizer,
-    source.decentralized_synchronizer,
-    scheduleInitial?.decentralizedSynchronizer,
-    scheduleInitial?.decentralized_synchronizer
+    source.decentralized_synchronizer
   );
 
   return {
