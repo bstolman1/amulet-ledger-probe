@@ -137,60 +137,19 @@ const normalizeFutureValues = (futureValues: any): NormalizedIssuanceFutureValue
     .filter(Boolean) as NormalizedIssuanceFutureValue[];
 };
 
-const normalizeRequiredSynchronizers = (
-  requiredSynchronizers: any,
-  fallbackActive?: string
-) => {
-  // Map form: { map: [["id", {}], ["id", {}]] }
-  if (requiredSynchronizers?.map && Array.isArray(requiredSynchronizers.map)) {
-    return requiredSynchronizers.map.map((entry: any[]) => {
-      const required = entry?.[0];
-      const activeSynchronizer = pickFirstDefined(
-        entry?.[1]?.activeSynchronizer,
-        entry?.[1]?.active_synchronizer,
-        fallbackActive
-      );
-      if (!required && !activeSynchronizer) return null;
-      return { required, activeSynchronizer };
-    }).filter(Boolean);
-  }
-
-  // Already-array form
-  if (Array.isArray(requiredSynchronizers)) return requiredSynchronizers;
-
-  return undefined;
-};
-
 const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
   if (!raw) return null;
   const source = raw.payload ?? raw;
-  const configSchedule = pickFirstDefined(source.configSchedule, source.config_schedule);
-  const scheduleInitial = configSchedule?.initialValue ?? configSchedule?.initial_value;
   const transferConfig = pickFirstDefined(
     source.transferConfig,
     source.transfer_config,
     source.TransferConfig,
-    scheduleInitial?.transferConfig,
-    scheduleInitial?.transfer_config
+    source.transfer_configSchedule
   );
-  const issuanceCurve = pickFirstDefined(
-    source.issuanceCurve,
-    source.issuance_curve,
-    scheduleInitial?.issuanceCurve,
-    scheduleInitial?.issuance_curve
-  );
+  const issuanceCurve = pickFirstDefined(source.issuanceCurve, source.issuance_curve);
   const decentralizedSynchronizer = pickFirstDefined(
     source.decentralizedSynchronizer,
-    source.decentralized_synchronizer,
-    scheduleInitial?.decentralizedSynchronizer,
-    scheduleInitial?.decentralized_synchronizer
-  );
-  const tickDuration = pickFirstDefined(
-    source.tickDuration,
-    source.tick_duration,
-    decentralizedSynchronizer?.tickDuration,
-    scheduleInitial?.tickDuration,
-    scheduleInitial?.tick_duration
+    source.decentralized_synchronizer
   );
 
   return {
@@ -249,98 +208,16 @@ const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
       : undefined,
     decentralizedSynchronizer: decentralizedSynchronizer
       ? {
-          requiredSynchronizers: normalizeRequiredSynchronizers(
-            pickFirstDefined(
-              decentralizedSynchronizer.requiredSynchronizers,
-              decentralizedSynchronizer.required_synchronizers
-            ),
-            decentralizedSynchronizer.activeSynchronizer || decentralizedSynchronizer.active_synchronizer
+          requiredSynchronizers: pickFirstDefined(
+            decentralizedSynchronizer.requiredSynchronizers,
+            decentralizedSynchronizer.required_synchronizers
           ),
-          fees: {
-            ...decentralizedSynchronizer.fees,
-            ...(tickDuration ? { tickDuration } : {}),
-          },
+          fees: decentralizedSynchronizer.fees,
         }
       : undefined,
     packageConfig: pickFirstDefined(source.packageConfig, source.package_config),
     raw,
   };
-};
-
-const mergeNormalizedRules = (rules: NormalizedAmuletRule[]): NormalizedAmuletRule | null => {
-  if (rules.length === 0) return null;
-
-  return rules.reduce<NormalizedAmuletRule>((acc, rule) => ({
-    dso: pickFirstDefined(acc.dso, rule.dso),
-    templateIdSuffix: pickFirstDefined(acc.templateIdSuffix, rule.templateIdSuffix),
-    isDevNet: pickFirstDefined(acc.isDevNet, rule.isDevNet),
-    featuredAppActivityMarkerAmount: pickFirstDefined(
-      acc.featuredAppActivityMarkerAmount,
-      rule.featuredAppActivityMarkerAmount
-    ),
-    transferConfig: rule.transferConfig
-      ? {
-          createFee: {
-            fee: pickFirstDefined(acc.transferConfig?.createFee?.fee, rule.transferConfig.createFee?.fee),
-          },
-          holdingFee: {
-            rate: pickFirstDefined(acc.transferConfig?.holdingFee?.rate, rule.transferConfig.holdingFee?.rate),
-          },
-          transferFee: {
-            initialRate: pickFirstDefined(
-              acc.transferConfig?.transferFee?.initialRate,
-              rule.transferConfig.transferFee?.initialRate
-            ),
-            steps:
-              acc.transferConfig?.transferFee?.steps?.length
-                ? acc.transferConfig.transferFee.steps
-                : rule.transferConfig.transferFee?.steps,
-          },
-          lockHolderFee: {
-            fee: pickFirstDefined(
-              acc.transferConfig?.lockHolderFee?.fee,
-              rule.transferConfig.lockHolderFee?.fee
-            ),
-          },
-          transferPreapprovalFee: pickFirstDefined(
-            acc.transferConfig?.transferPreapprovalFee,
-            rule.transferConfig.transferPreapprovalFee
-          ),
-          extraFeaturedAppRewardAmount: pickFirstDefined(
-            acc.transferConfig?.extraFeaturedAppRewardAmount,
-            rule.transferConfig.extraFeaturedAppRewardAmount
-          ),
-          maxNumInputs: pickFirstDefined(acc.transferConfig?.maxNumInputs, rule.transferConfig.maxNumInputs),
-          maxNumOutputs: pickFirstDefined(acc.transferConfig?.maxNumOutputs, rule.transferConfig.maxNumOutputs),
-          maxNumLockHolders: pickFirstDefined(
-            acc.transferConfig?.maxNumLockHolders,
-            rule.transferConfig.maxNumLockHolders
-          ),
-        }
-      : acc.transferConfig,
-    issuanceCurve: rule.issuanceCurve
-      ? {
-          initialValue: pickFirstDefined(acc.issuanceCurve?.initialValue, rule.issuanceCurve.initialValue),
-          futureValues: (acc.issuanceCurve?.futureValues?.length
-            ? acc.issuanceCurve.futureValues
-            : rule.issuanceCurve.futureValues) as NormalizedIssuanceFutureValue[] | undefined,
-        }
-      : acc.issuanceCurve,
-    decentralizedSynchronizer: rule.decentralizedSynchronizer
-      ? {
-          requiredSynchronizers: pickFirstDefined(
-            acc.decentralizedSynchronizer?.requiredSynchronizers,
-            rule.decentralizedSynchronizer.requiredSynchronizers
-          ),
-          fees: {
-            ...rule.decentralizedSynchronizer.fees,
-            ...acc.decentralizedSynchronizer?.fees,
-          },
-        }
-      : acc.decentralizedSynchronizer,
-    packageConfig: pickFirstDefined(acc.packageConfig, rule.packageConfig),
-    raw: pickFirstDefined(acc.raw, rule.raw),
-  }), {} as NormalizedAmuletRule);
 };
 
 const formatMicroseconds = (value?: string) => {
@@ -362,12 +239,10 @@ const AmuletRules = () => {
     !!latestSnapshot
   );
 
-  const normalizedRule = useMemo(() => {
-    const normalizedList = (amuletRulesQuery.data?.data || [])
-      .map(normalizeAmuletRule)
-      .filter(Boolean) as NormalizedAmuletRule[];
-    return mergeNormalizedRules(normalizedList);
-  }, [amuletRulesQuery.data]);
+  const normalizedRule = useMemo(
+    () => normalizeAmuletRule(amuletRulesQuery.data?.data?.[0]),
+    [amuletRulesQuery.data]
+  );
 
   const transferConfig = normalizedRule?.transferConfig;
   const issuanceCurve = normalizedRule?.issuanceCurve;
