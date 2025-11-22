@@ -29,6 +29,7 @@ import ExternalPartySetup from "./pages/ExternalPartySetup";
 import Elections from "./pages/Elections";
 import TransferCounters from "./pages/TransferCounters";
 import ExternalPartyRules from "./pages/ExternalPartyRules";
+import AmuletRules from "./pages/AmuletRules";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -72,6 +73,7 @@ const App = () => (
           <Route path="/dso-state" element={<DSOState />} />
           <Route path="/validator-licenses" element={<ValidatorLicenses />} />
           <Route path="/external-party-setup" element={<ExternalPartySetup />} />
+          <Route path="/amulet-rules" element={<AmuletRules />} />
           
           <Route path="/elections" element={<Elections />} />
           <Route path="/transfer-counters" element={<TransferCounters />} />
