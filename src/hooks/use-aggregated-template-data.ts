@@ -26,11 +26,6 @@ async function fetchTemplateData(storagePath: string): Promise<any[]> {
   const text = await fileData.text();
   const parsed = JSON.parse(text);
 
-  // Support wrapped data format { metadata, data: [...] }
-  if (parsed && Array.isArray(parsed.data)) {
-    return parsed.data;
-  }
-
   // Check if it's a manifest file (support both new and legacy shapes)
   if (parsed && parsed.chunks && Array.isArray(parsed.chunks)) {
     const totalChunks = parsed.totalChunks ?? parsed.total_chunks ?? parsed.chunks.length;

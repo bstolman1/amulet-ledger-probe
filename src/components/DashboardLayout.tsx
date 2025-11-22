@@ -24,7 +24,6 @@ const navigation = [
   { name: "External Party", href: "/external-party-setup", icon: UserPlus },
   { name: "Transfer Counters", href: "/transfer-counters", icon: Hash },
   { name: "External Party Rules", href: "/external-party-rules", icon: Shield },
-  { name: "Amulet Rules", href: "/amulet-rules", icon: Shield },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
   { name: "Member Traffic", href: "/member-traffic", icon: Radio },
