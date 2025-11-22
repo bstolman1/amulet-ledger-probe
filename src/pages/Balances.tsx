@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, Lock, TrendingUp } from "lucide-react";
+import { Wallet, Lock, TrendingUp, Coins } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
@@ -84,9 +84,9 @@ const Balances = () => {
   })();
 
   const topHolders = holderBalances.slice(0, 100);
-  const totalSupply = holderBalances.reduce((sum, h) => sum + h.total, 0);
+  const totalUnlocked = holderBalances.reduce((sum, h) => sum + h.amount, 0);
   const totalLocked = holderBalances.reduce((sum, h) => sum + h.locked, 0);
-  const totalCirculating = totalSupply - totalLocked;
+  const totalSupply = totalUnlocked + totalLocked;
 
   const formatAmount = (amount: number) => {
     return amount.toLocaleString(undefined, {
@@ -116,7 +116,7 @@ const Balances = () => {
           <Card className="glass-card p-6">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-muted-foreground">Total Supply</h3>
-              <TrendingUp className="h-5 w-5 text-primary" />
+              <Coins className="h-5 w-5 text-primary" />
             </div>
             {isLoading ? (
               <Skeleton className="h-10 w-full" />
@@ -132,7 +132,26 @@ const Balances = () => {
 
           <Card className="glass-card p-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Locked</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Unlocked Canton Coins</h3>
+              <Wallet className="h-5 w-5 text-success" />
+            </div>
+            {isLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <>
+                <p className="text-3xl font-bold text-success mb-1">
+                  {formatAmount(totalUnlocked)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {((totalUnlocked / totalSupply) * 100).toFixed(1)}% of supply
+                </p>
+              </>
+            )}
+          </Card>
+
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Locked Canton Coins</h3>
               <Lock className="h-5 w-5 text-warning" />
             </div>
             {isLoading ? (
@@ -144,25 +163,6 @@ const Balances = () => {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {((totalLocked / totalSupply) * 100).toFixed(1)}% of supply
-                </p>
-              </>
-            )}
-          </Card>
-
-          <Card className="glass-card p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Circulating</h3>
-              <Wallet className="h-5 w-5 text-success" />
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <>
-                <p className="text-3xl font-bold text-success mb-1">
-                  {formatAmount(totalCirculating)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {((totalCirculating / totalSupply) * 100).toFixed(1)}% of supply
                 </p>
               </>
             )}
