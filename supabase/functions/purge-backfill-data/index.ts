@@ -44,116 +44,82 @@ serve(async (req) => {
 
     console.log("Starting backfill data purge...", { purge_all, migration_id });
 
-    // Delete ledger events first (foreign key dependency)
-    if (purge_all) {
-      console.log("Deleting all ledger events...");
-      const { error: eventsError, count } = await supabase
-        .from('ledger_events')
-        .delete()
-        .not('event_id', 'is', null);
-      
-      if (eventsError) {
-        console.error("Error deleting ledger events:", eventsError);
-        throw eventsError;
-      }
-      deletedEvents = count || 0;
-      console.log(`Deleted ${deletedEvents} ledger events`);
-    } else if (migration_id) {
-      console.log(`Deleting ledger events for migration ${migration_id}...`);
-      
-      // Get all update_ids for this migration
-      const { data: updates, error: updatesFetchError } = await supabase
-        .from('ledger_updates')
-        .select('update_id')
-        .eq('migration_id', migration_id);
-      
-      if (updatesFetchError) throw updatesFetchError;
-      
-      if (updates && updates.length > 0) {
-        const updateIds = updates.map(u => u.update_id);
+    // Helper function to delete in batches
+    const deleteBatch = async (table: string, batchSize: number, filter?: any) => {
+      let totalDeleted = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = supabase.from(table).delete().limit(batchSize);
         
-        // Delete events in batches (Supabase has limits on IN clause size)
-        const batchSize = 1000;
-        for (let i = 0; i < updateIds.length; i += batchSize) {
-          const batch = updateIds.slice(i, i + batchSize);
-          const { error: eventsError, count } = await supabase
-            .from('ledger_events')
-            .delete()
-            .in('update_id', batch);
-          
-          if (eventsError) throw eventsError;
-          deletedEvents += count || 0;
+        if (filter) {
+          Object.entries(filter).forEach(([key, value]) => {
+            query = query.eq(key, value);
+          });
+        }
+
+        const { error, count } = await query;
+        
+        if (error) {
+          console.error(`Error deleting from ${table}:`, error);
+          throw error;
+        }
+
+        const deleted = count || 0;
+        totalDeleted += deleted;
+        hasMore = deleted === batchSize;
+
+        if (deleted > 0) {
+          console.log(`Deleted ${deleted} records from ${table} (total: ${totalDeleted})`);
         }
       }
-      console.log(`Deleted ${deletedEvents} ledger events for migration ${migration_id}`);
+
+      return totalDeleted;
+    };
+
+    // Delete ledger events first (foreign key dependency)
+    if (purge_all) {
+      console.log("Deleting all ledger events in batches...");
+      deletedEvents = await deleteBatch('ledger_events', 5000);
+      console.log(`✅ Deleted ${deletedEvents} total ledger events`);
+    } else if (migration_id) {
+      console.log(`Deleting ledger events for migration ${migration_id}...`);
+      deletedEvents = await deleteBatch('ledger_events', 5000, { migration_id });
+      console.log(`✅ Deleted ${deletedEvents} ledger events for migration ${migration_id}`);
     }
 
     // Delete ledger updates
     if (purge_all) {
-      console.log("Deleting all ledger updates...");
-      const { error: updatesError, count } = await supabase
-        .from('ledger_updates')
-        .delete()
-        .not('update_id', 'is', null);
-      
-      if (updatesError) {
-        console.error("Error deleting ledger updates:", updatesError);
-        throw updatesError;
-      }
-      deletedUpdates = count || 0;
-      console.log(`Deleted ${deletedUpdates} ledger updates`);
+      console.log("Deleting all ledger updates in batches...");
+      deletedUpdates = await deleteBatch('ledger_updates', 5000);
+      console.log(`✅ Deleted ${deletedUpdates} total ledger updates`);
     } else if (migration_id) {
       console.log(`Deleting ledger updates for migration ${migration_id}...`);
-      const { error: updatesError, count } = await supabase
-        .from('ledger_updates')
-        .delete()
-        .eq('migration_id', migration_id);
-      
-      if (updatesError) throw updatesError;
-      deletedUpdates = count || 0;
-      console.log(`Deleted ${deletedUpdates} ledger updates for migration ${migration_id}`);
+      deletedUpdates = await deleteBatch('ledger_updates', 5000, { migration_id });
+      console.log(`✅ Deleted ${deletedUpdates} ledger updates for migration ${migration_id}`);
     }
 
     // Delete backfill cursors
     if (purge_all) {
-      console.log("Deleting all backfill cursors...");
-      const { error: cursorsError, count } = await supabase
-        .from('backfill_cursors')
-        .delete()
-        .not('id', 'is', null);
-      
-      if (cursorsError) {
-        console.error("Error deleting backfill cursors:", cursorsError);
-        throw cursorsError;
-      }
-      deletedCursors = count || 0;
-      console.log(`Deleted ${deletedCursors} backfill cursors`);
+      console.log("Deleting all backfill cursors in batches...");
+      deletedCursors = await deleteBatch('backfill_cursors', 1000);
+      console.log(`✅ Deleted ${deletedCursors} total backfill cursors`);
     } else if (migration_id) {
       console.log(`Deleting backfill cursors for migration ${migration_id}...`);
-      const { error: cursorsError, count } = await supabase
-        .from('backfill_cursors')
-        .delete()
-        .eq('migration_id', migration_id);
-      
-      if (cursorsError) throw cursorsError;
-      deletedCursors = count || 0;
-      console.log(`Deleted ${deletedCursors} backfill cursors for migration ${migration_id}`);
+      deletedCursors = await deleteBatch('backfill_cursors', 1000, { migration_id });
+      console.log(`✅ Deleted ${deletedCursors} backfill cursors for migration ${migration_id}`);
     }
 
     // Reset live update cursor if purging all
     if (purge_all) {
       console.log("Resetting live update cursor...");
-      const { error: cursorError } = await supabase
-        .from('live_update_cursor')
-        .delete()
-        .not('id', 'is', null);
-      
-      if (cursorError) {
+      try {
+        await deleteBatch('live_update_cursor', 100);
+        resetLiveCursor = true;
+        console.log("✅ Live update cursor reset");
+      } catch (cursorError) {
         console.error("Error resetting live update cursor:", cursorError);
         // Don't throw, this is optional
-      } else {
-        resetLiveCursor = true;
-        console.log("Live update cursor reset");
       }
     }
 
