@@ -74,13 +74,22 @@ const Governance = () => {
     return undefined;
   };
   
-  // Debug logging
-  console.log("🔍 DEBUG Governance: Vote requests:", voteRequestsData?.data?.length || 0);
-  console.log("🔍 DEBUG Governance: Price votes:", priceVotes.length);
-  console.log("🔍 DEBUG Governance: First 3 price votes:", priceVotes.slice(0, 3));
-  if (priceVotes.length > 0) {
-    console.log("🔍 DEBUG Governance: First price vote structure:", JSON.stringify(priceVotes[0], null, 2));
+  // Debug logging - Log ALL data structures
+  console.log("🔍 DEBUG Governance - Full Data Dump:");
+  console.log("DsoRules:", dsoRules ? JSON.stringify(dsoRules, null, 2) : "No data");
+  console.log("Vote requests count:", voteRequestsData?.data?.length || 0);
+  if (voteRequestsData?.data?.[0]) {
+    console.log("First VoteRequest:", JSON.stringify(voteRequestsData.data[0], null, 2));
   }
+  console.log("Price votes count:", priceVotes.length);
+  if (priceVotes[0]) {
+    console.log("First PriceVote:", JSON.stringify(priceVotes[0], null, 2));
+  }
+  console.log("Confirmations count:", confirmations.length);
+  if (confirmations[0]) {
+    console.log("First Confirmation:", JSON.stringify(confirmations[0], null, 2));
+  }
+  console.log("AmuletRules:", amuletRules[0] ? JSON.stringify(amuletRules[0], null, 2) : "No data");
 
   // Process proposals from ACS data with full JSON parsing
   const proposals = voteRequestsData?.data.map((voteRequest: any) => {
