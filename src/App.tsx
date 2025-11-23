@@ -25,6 +25,8 @@ import Subscriptions from "./pages/Subscriptions";
 import DSOState from "./pages/DSOState";
 import ValidatorLicenses from "./pages/ValidatorLicenses";
 import ExternalPartySetup from "./pages/ExternalPartySetup";
+import BackfillProgress from "./pages/BackfillProgress";
+import LiveUpdates from "./pages/LiveUpdates";
 
 import Elections from "./pages/Elections";
 import TransferCounters from "./pages/TransferCounters";
@@ -78,6 +80,8 @@ const App = () => (
           <Route path="/elections" element={<Elections />} />
           <Route path="/transfer-counters" element={<TransferCounters />} />
           <Route path="/external-party-rules" element={<ExternalPartyRules />} />
+          <Route path="/backfill-progress" element={<BackfillProgress />} />
+          <Route path="/live-updates" element={<LiveUpdates />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
