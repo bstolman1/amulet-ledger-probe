@@ -5,6 +5,11 @@ on:
     - cron: '0 0 * * 0'  # Run every Sunday at midnight (00:00 UTC)
   workflow_dispatch: {}  # Keep manual trigger available
 
+# Prevent concurrent runs that could conflict with database writes
+concurrency:
+  group: ledger-ingestion
+  cancel-in-progress: false # Queue instead of canceling
+
 jobs:
   backfill:
     runs-on: self-hosted

@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: '0 */2 * * *' # Every 2 hours to allow resuming before 6-hour timeout
 
+# Prevent concurrent runs that could conflict with database writes
+concurrency:
+  group: ledger-ingestion
+  cancel-in-progress: false # Queue instead of canceling
+
 jobs:
   fetch-and-upload:
     runs-on: self-hosted
