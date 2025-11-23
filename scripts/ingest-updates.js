@@ -162,23 +162,34 @@ async function run() {
     }
   }
 
+  // Upsert in batches to avoid statement timeout
+  const batchSize = 500;
+  
   if (updatesRows.length) {
-    const { error } = await supabase
-      .from("ledger_updates")
-      .upsert(updatesRows, { onConflict: "update_id" });
-    if (error) {
-      console.error("❌ Error upserting ledger_updates:", error.message);
-      process.exit(1);
+    for (let i = 0; i < updatesRows.length; i += batchSize) {
+      const batch = updatesRows.slice(i, i + batchSize);
+      const { error } = await supabase
+        .from("ledger_updates")
+        .upsert(batch, { onConflict: "update_id" });
+      if (error) {
+        console.error("❌ Error upserting ledger_updates:", error.message);
+        process.exit(1);
+      }
+      console.log(`   📝 Upserted ${batch.length} updates (${i + batch.length}/${updatesRows.length})`);
     }
   }
 
   if (eventsRows.length) {
-    const { error } = await supabase
-      .from("ledger_events")
-      .upsert(eventsRows, { onConflict: "event_id" });
-    if (error) {
-      console.error("❌ Error upserting ledger_events:", error.message);
-      process.exit(1);
+    for (let i = 0; i < eventsRows.length; i += batchSize) {
+      const batch = eventsRows.slice(i, i + batchSize);
+      const { error } = await supabase
+        .from("ledger_events")
+        .upsert(batch, { onConflict: "event_id" });
+      if (error) {
+        console.error("❌ Error upserting ledger_events:", error.message);
+        process.exit(1);
+      }
+      console.log(`   📝 Upserted ${batch.length} events (${i + batch.length}/${eventsRows.length})`);
     }
   }
 
