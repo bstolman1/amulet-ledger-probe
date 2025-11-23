@@ -3,17 +3,15 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { Clock, Database, Activity, CheckCircle, XCircle } from "lucide-react";
+import { Clock, Database, Activity, CheckCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { BackfillCursor } from "@/hooks/use-backfill-cursors";
+import { useBackfillCursors, BackfillCursor } from "@/hooks/use-backfill-cursors";
 
 const BackfillProgress = () => {
-  const [cursors, setCursors] = useState<BackfillCursor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: cursors = [], isLoading } = useBackfillCursors();
+  const [realtimeCursors, setRealtimeCursors] = useState<BackfillCursor[]>([]);
 
   useEffect(() => {
-    fetchCursors();
-    
     const channel = supabase
       .channel('backfill-progress')
       .on(
@@ -26,9 +24,9 @@ const BackfillProgress = () => {
         (payload) => {
           console.log('Backfill cursor update:', payload);
           if (payload.eventType === 'INSERT') {
-            setCursors((prev) => [payload.new as BackfillCursor, ...prev]);
+            setRealtimeCursors((prev) => [payload.new as BackfillCursor, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
-            setCursors((prev) =>
+            setRealtimeCursors((prev) =>
               prev.map((c) => (c.id === payload.new.id ? payload.new as BackfillCursor : c))
             );
           }
@@ -41,21 +39,9 @@ const BackfillProgress = () => {
     };
   }, []);
 
-  const fetchCursors = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('backfill_cursors')
-        .select('*')
-        .order('updated_at', { ascending: false });
-
-      if (error) throw error;
-      setCursors(data || []);
-    } catch (error) {
-      console.error('Error fetching backfill cursors:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const allCursors = [...realtimeCursors, ...cursors.filter(
+    c => !realtimeCursors.some(rc => rc.id === c.id)
+  )];
 
   const getStatusBadge = (complete: boolean) => {
     return complete ? (
@@ -69,14 +55,14 @@ const BackfillProgress = () => {
     );
   };
 
-  const groupedCursors = cursors.reduce((acc, cursor) => {
+  const groupedCursors = allCursors.reduce((acc, cursor) => {
     const key = cursor.migration_id;
     if (!acc[key]) acc[key] = [];
     acc[key].push(cursor);
     return acc;
   }, {} as Record<number, BackfillCursor[]>);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
@@ -174,7 +160,7 @@ const BackfillProgress = () => {
           );
         })}
 
-        {cursors.length === 0 && (
+        {allCursors.length === 0 && (
           <Card className="glass-card">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Database className="w-12 h-12 text-muted-foreground mb-4" />

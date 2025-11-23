@@ -1,22 +1,20 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, Database, Clock, Search } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { LedgerUpdate } from "@/hooks/use-ledger-updates";
+import { useLedgerUpdates, LedgerUpdate } from "@/hooks/use-ledger-updates";
 
 const LiveUpdates = () => {
-  const [updates, setUpdates] = useState<LedgerUpdate[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: updates = [], isLoading } = useLedgerUpdates(100);
+  const [realtimeUpdates, setRealtimeUpdates] = useState<LedgerUpdate[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMigration, setSelectedMigration] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchUpdates();
-    
     const channel = supabase
       .channel('ledger-updates-live')
       .on(
@@ -28,7 +26,7 @@ const LiveUpdates = () => {
         },
         (payload) => {
           console.log('New ledger update:', payload);
-          setUpdates((prev) => [payload.new as LedgerUpdate, ...prev.slice(0, 99)]);
+          setRealtimeUpdates((prev) => [payload.new as LedgerUpdate, ...prev.slice(0, 49)]);
         }
       )
       .subscribe();
@@ -38,24 +36,11 @@ const LiveUpdates = () => {
     };
   }, []);
 
-  const fetchUpdates = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('ledger_updates')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+  const allUpdates = [...realtimeUpdates, ...updates.filter(
+    u => !realtimeUpdates.some(ru => ru.update_id === u.update_id)
+  )];
 
-      if (error) throw error;
-      setUpdates(data || []);
-    } catch (error) {
-      console.error('Error fetching ledger updates:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredUpdates = updates.filter(update => {
+  const filteredUpdates = allUpdates.filter(update => {
     const matchesSearch = !searchTerm || 
       update.update_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       update.workflow_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,14 +51,14 @@ const LiveUpdates = () => {
     return matchesSearch && matchesMigration;
   });
 
-  const migrations = Array.from(new Set(updates.map(u => u.migration_id).filter(Boolean)));
-  const updatesByKind = updates.reduce((acc, u) => {
+  const migrations = Array.from(new Set(allUpdates.map(u => u.migration_id).filter(Boolean)));
+  const updatesByKind = allUpdates.reduce((acc, u) => {
     const kind = u.kind || 'unknown';
     acc[kind] = (acc[kind] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
@@ -97,7 +82,7 @@ const LiveUpdates = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Updates</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold text-primary">{updates.length}</p>
+              <p className="text-3xl font-bold text-primary">{allUpdates.length}</p>
             </CardContent>
           </Card>
           
