@@ -239,6 +239,34 @@ async function persistentAppendSingleTemplateChunk(snapshotId, templateChunk) {
 
 // ---------- Migration & snapshot timestamp ----------
 
+// NEW: detect all migrations (1..N)
+async function detectAllMigrations(baseUrl) {
+  console.log("🔎 Probing for all valid migration IDs...");
+  const migrations = [];
+  let id = 1;
+
+  while (true) {
+    try {
+      const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
+        params: { before: new Date().toISOString(), migration_id: id },
+      });
+      if (res.data?.record_time) {
+        migrations.push(id);
+        id++;
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
+  }
+
+  if (migrations.length === 0) throw new Error("No valid migrations found.");
+  console.log(`📘 Found migrations: [${migrations.join(", ")}]`);
+  return migrations;
+}
+
+// Keep existing latest-migration helper (used in error handler)
 async function detectLatestMigration(baseUrl) {
   console.log("🔎 Probing for latest valid migration ID...");
   let id = 1;
@@ -334,10 +362,31 @@ async function checkForExistingSnapshot(migration_id) {
   return snapshot;
 }
 
+// NEW: does this migration already have at least one completed snapshot?
+async function hasCompletedSnapshot(migration_id) {
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from("acs_snapshots")
+    .select("id")
+    .eq("migration_id", migration_id)
+    .eq("status", "completed")
+    .limit(1);
+
+  if (error) {
+    console.error(`❌ Error checking completed snapshot for migration ${migration_id}:`, error.message);
+    return false;
+  }
+
+  return !!(data && data.length > 0);
+}
+
 // ---------- Main fetch loop ----------
 
 async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
+  console.log(`   - Migration ID: ${migration_id}`);
+  console.log(`   - Record Time: ${record_time}`);
 
   const allEvents = [];
   let after = existingSnapshot?.cursor_after || 0;
@@ -781,33 +830,61 @@ async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot)
 async function run() {
   try {
     console.log("\n" + "=".repeat(80));
-    console.log("🔎 STEP 1: Detecting Latest Migration");
+    console.log("🔎 STEP 1: Detecting All Migrations");
     console.log("=".repeat(80));
-    const migration_id = await detectLatestMigration(BASE_URL);
 
-    console.log("\n" + "=".repeat(80));
-    console.log("📅 STEP 2: Fetching Snapshot Timestamp");
-    console.log("=".repeat(80));
-    const record_time = await fetchSnapshotTimestamp(BASE_URL, migration_id);
+    const migrationIds = await detectAllMigrations(BASE_URL);
+    const latestMigrationId = Math.max(...migrationIds);
+    const frozenMigrationIds = migrationIds.filter((id) => id !== latestMigrationId);
 
+    console.log(`📘 Latest migration: ${latestMigrationId}`);
+    console.log(`📦 Frozen (historical) migrations: [${frozenMigrationIds.join(", ") || "none"}]`);
+
+    // 1️⃣ Bootstrap / finalize older migrations (1..N-1) ONCE
+    for (const mid of frozenMigrationIds) {
+      console.log("\n" + "=".repeat(80));
+      console.log(`📦 BOOTSTRAP STEP: Migration ${mid}`);
+      console.log("=".repeat(80));
+
+      const alreadyComplete = await hasCompletedSnapshot(mid);
+      if (alreadyComplete) {
+        console.log(`✅ Migration ${mid} already has at least one completed snapshot. Skipping.`);
+        continue;
+      }
+
+      console.log(`🆕 No completed snapshot for migration ${mid} — creating or resuming one.`);
+
+      const record_time = await fetchSnapshotTimestamp(BASE_URL, mid);
+      const existingSnapshot = await checkForExistingSnapshot(mid);
+
+      const startTime = Date.now();
+      await fetchAllACS(BASE_URL, mid, record_time, existingSnapshot);
+      const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+
+      console.log(`✅ Migration ${mid} final snapshot completed in ${elapsedMinutes} minutes.`);
+    }
+
+    // 2️⃣ Live migration (latest) — this is what your 3-hour cron should keep updating
     console.log("\n" + "=".repeat(80));
-    console.log("🔍 STEP 3: Checking for Existing Snapshots");
+    console.log(`🚀 LIVE STEP: Latest Migration ${latestMigrationId}`);
     console.log("=".repeat(80));
-    const existingSnapshot = await checkForExistingSnapshot(migration_id);
+
+    const record_time = await fetchSnapshotTimestamp(BASE_URL, latestMigrationId);
+    const existingSnapshot = await checkForExistingSnapshot(latestMigrationId);
 
     console.log("\n" + "=".repeat(80));
     if (existingSnapshot) {
-      console.log("🔄 DECISION: RESUMING EXISTING SNAPSHOT");
+      console.log("🔄 DECISION: RESUMING EXISTING SNAPSHOT FOR LATEST MIGRATION");
       console.log("=".repeat(80));
       console.log("   This GitHub Actions run is continuing a previous snapshot (long-running cron).");
       console.log(`   - Snapshot: ${existingSnapshot.id}`);
       console.log(`   - Resume from page: ${existingSnapshot.processed_pages || 1}`);
       console.log(`   - Resume from cursor: ${existingSnapshot.cursor_after || 0}`);
     } else {
-      console.log("🆕 DECISION: STARTING NEW SNAPSHOT");
+      console.log("🆕 DECISION: STARTING NEW SNAPSHOT FOR LATEST MIGRATION");
       console.log("=".repeat(80));
       console.log("   No in-progress snapshot found. Creating a new one.");
-      console.log(`   - Migration ID: ${migration_id}`);
+      console.log(`   - Migration ID: ${latestMigrationId}`);
       console.log(`   - Record Time: ${record_time}`);
     }
     console.log("=".repeat(80) + "\n");
@@ -815,7 +892,7 @@ async function run() {
     const startTime = Date.now();
     const { allEvents, amuletTotal, lockedTotal, canonicalPkg } = await fetchAllACS(
       BASE_URL,
-      migration_id,
+      latestMigrationId,
       record_time,
       existingSnapshot,
     );
@@ -823,8 +900,9 @@ async function run() {
     const elapsedMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
 
     console.log("\n" + "=".repeat(80));
-    console.log("✅ SNAPSHOT COMPLETED SUCCESSFULLY");
+    console.log("✅ LATEST MIGRATION SNAPSHOT COMPLETED SUCCESSFULLY");
     console.log("=".repeat(80));
+    console.log(`   - Migration ID: ${latestMigrationId}`);
     console.log(`   - Total Events: ${allEvents.length.toLocaleString()}`);
     console.log(`   - Canonical Package: ${canonicalPkg}`);
     console.log(`   - Amulet Total: ${amuletTotal.toString()}`);
