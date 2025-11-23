@@ -278,6 +278,42 @@ export type Database = {
           },
         ]
       }
+      backfill_cursors: {
+        Row: {
+          complete: boolean
+          created_at: string
+          id: string
+          last_before: string | null
+          max_time: string | null
+          migration_id: number
+          min_time: string | null
+          synchronizer_id: string
+          updated_at: string
+        }
+        Insert: {
+          complete?: boolean
+          created_at?: string
+          id?: string
+          last_before?: string | null
+          max_time?: string | null
+          migration_id: number
+          min_time?: string | null
+          synchronizer_id: string
+          updated_at?: string
+        }
+        Update: {
+          complete?: boolean
+          created_at?: string
+          id?: string
+          last_before?: string | null
+          max_time?: string | null
+          migration_id?: number
+          min_time?: string | null
+          synchronizer_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cip_types: {
         Row: {
           created_at: string
@@ -456,6 +492,122 @@ export type Database = {
           status?: string
           updated_at?: string
           vote_count?: number
+        }
+        Relationships: []
+      }
+      ledger_events: {
+        Row: {
+          contract_id: string | null
+          created_at: string
+          created_at_ts: string | null
+          event_id: string
+          event_type: string | null
+          observers: Json | null
+          package_name: string | null
+          payload: Json | null
+          raw: Json | null
+          signatories: Json | null
+          template_id: string | null
+          update_id: string | null
+        }
+        Insert: {
+          contract_id?: string | null
+          created_at?: string
+          created_at_ts?: string | null
+          event_id: string
+          event_type?: string | null
+          observers?: Json | null
+          package_name?: string | null
+          payload?: Json | null
+          raw?: Json | null
+          signatories?: Json | null
+          template_id?: string | null
+          update_id?: string | null
+        }
+        Update: {
+          contract_id?: string | null
+          created_at?: string
+          created_at_ts?: string | null
+          event_id?: string
+          event_type?: string | null
+          observers?: Json | null
+          package_name?: string | null
+          payload?: Json | null
+          raw?: Json | null
+          signatories?: Json | null
+          template_id?: string | null
+          update_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ledger_events_update_id_fkey"
+            columns: ["update_id"]
+            isOneToOne: false
+            referencedRelation: "ledger_updates"
+            referencedColumns: ["update_id"]
+          },
+        ]
+      }
+      ledger_updates: {
+        Row: {
+          created_at: string
+          effective_at: string | null
+          kind: string | null
+          migration_id: number | null
+          offset: string | null
+          raw: Json | null
+          record_time: string | null
+          synchronizer_id: string | null
+          update_id: string
+          workflow_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          effective_at?: string | null
+          kind?: string | null
+          migration_id?: number | null
+          offset?: string | null
+          raw?: Json | null
+          record_time?: string | null
+          synchronizer_id?: string | null
+          update_id: string
+          workflow_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          effective_at?: string | null
+          kind?: string | null
+          migration_id?: number | null
+          offset?: string | null
+          raw?: Json | null
+          record_time?: string | null
+          synchronizer_id?: string | null
+          update_id?: string
+          workflow_id?: string | null
+        }
+        Relationships: []
+      }
+      live_update_cursor: {
+        Row: {
+          after_migration_id: number
+          after_record_time: string
+          created_at: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          after_migration_id: number
+          after_record_time: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          after_migration_id?: number
+          after_record_time?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
         }
         Relationships: []
       }
