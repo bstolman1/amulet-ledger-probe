@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.aggregate-template-sum]
 verify_jwt = false
+
+[functions.purge-backfill-data]
+verify_jwt = false
