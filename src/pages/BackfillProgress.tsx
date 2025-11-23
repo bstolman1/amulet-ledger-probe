@@ -1,19 +1,38 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Clock, Database, Activity, CheckCircle, Trash2 } from "lucide-react";
+import { Clock, Database, Activity, CheckCircle, Trash2, Terminal } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useBackfillCursors, BackfillCursor } from "@/hooks/use-backfill-cursors";
 import { useToast } from "@/hooks/use-toast";
+
+interface ActivityLog {
+  id: string;
+  timestamp: string;
+  type: 'update' | 'event';
+  updateId?: string;
+  eventId?: string;
+  migrationId?: number;
+}
 
 const BackfillProgress = () => {
   const { data: cursors = [], isLoading, refetch } = useBackfillCursors();
   const [realtimeCursors, setRealtimeCursors] = useState<BackfillCursor[]>([]);
   const [isPurging, setIsPurging] = useState(false);
+  const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
+  const [isMonitoring, setIsMonitoring] = useState(true);
+  const logEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  // Auto-scroll to bottom of activity log
+  useEffect(() => {
+    if (isMonitoring) {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [activityLog, isMonitoring]);
 
   useEffect(() => {
     const channel = supabase
@@ -36,12 +55,55 @@ const BackfillProgress = () => {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ledger_updates'
+        },
+        (payload: any) => {
+          if (isMonitoring) {
+            setActivityLog((prev) => [
+              ...prev.slice(-99), // Keep last 100 entries
+              {
+                id: crypto.randomUUID(),
+                timestamp: new Date().toISOString(),
+                type: 'update',
+                updateId: payload.new.update_id,
+                migrationId: payload.new.migration_id,
+              }
+            ]);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ledger_events'
+        },
+        (payload: any) => {
+          if (isMonitoring) {
+            setActivityLog((prev) => [
+              ...prev.slice(-99), // Keep last 100 entries
+              {
+                id: crypto.randomUUID(),
+                timestamp: new Date().toISOString(),
+                type: 'event',
+                eventId: payload.new.event_id,
+              }
+            ]);
+          }
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [isMonitoring]);
 
   const allCursors = [...realtimeCursors, ...cursors.filter(
     c => !realtimeCursors.some(rc => rc.id === c.id)
@@ -123,6 +185,72 @@ const BackfillProgress = () => {
             {isPurging ? 'Purging...' : 'Purge All Backfill Data'}
           </Button>
         </div>
+
+        {/* Live Activity Monitor */}
+        <Card className="glass-card">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2">
+                  <Terminal className="w-5 h-5" />
+                  Live Activity Monitor
+                </CardTitle>
+                <CardDescription>
+                  Real-time stream of incoming ledger data
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={isMonitoring ? "default" : "secondary"} className="gap-1">
+                  {isMonitoring && <Activity className="w-3 h-3 animate-pulse" />}
+                  {isMonitoring ? 'Monitoring' : 'Paused'}
+                </Badge>
+                <Button
+                  onClick={() => setIsMonitoring(!isMonitoring)}
+                  variant="outline"
+                  size="sm"
+                >
+                  {isMonitoring ? 'Pause' : 'Resume'}
+                </Button>
+                <Button
+                  onClick={() => setActivityLog([])}
+                  variant="outline"
+                  size="sm"
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-xs">
+              {activityLog.length === 0 ? (
+                <div className="text-muted-foreground italic">
+                  Waiting for incoming data...
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {activityLog.map((log) => (
+                    <div key={log.id} className="flex items-start gap-2">
+                      <span className="text-muted-foreground shrink-0">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </span>
+                      {log.type === 'update' ? (
+                        <span className="text-blue-400">
+                          [UPDATE] migration_id={log.migrationId} update_id={log.updateId?.substring(0, 20)}...
+                        </span>
+                      ) : (
+                        <span className="text-green-400">
+                          [EVENT] event_id={log.eventId?.substring(0, 20)}...
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  <div ref={logEndRef} />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {Object.entries(groupedCursors).map(([migrationId, migrationCursors]) => {
           const completedCount = migrationCursors.filter(c => c.complete).length;
