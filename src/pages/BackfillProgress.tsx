@@ -2,14 +2,18 @@ import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Clock, Database, Activity, CheckCircle } from "lucide-react";
+import { Clock, Database, Activity, CheckCircle, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useBackfillCursors, BackfillCursor } from "@/hooks/use-backfill-cursors";
+import { useToast } from "@/hooks/use-toast";
 
 const BackfillProgress = () => {
-  const { data: cursors = [], isLoading } = useBackfillCursors();
+  const { data: cursors = [], isLoading, refetch } = useBackfillCursors();
   const [realtimeCursors, setRealtimeCursors] = useState<BackfillCursor[]>([]);
+  const [isPurging, setIsPurging] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const channel = supabase
@@ -55,6 +59,35 @@ const BackfillProgress = () => {
     );
   };
 
+  const handlePurgeAll = async () => {
+    if (!confirm("Are you sure you want to purge ALL backfill data? This will delete all backfill cursors, ledger updates, and ledger events. This action cannot be undone.")) {
+      return;
+    }
+
+    setIsPurging(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('purge-backfill-data', {
+        body: { purge_all: true },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Purge complete",
+        description: `Deleted ${data.deleted_cursors} cursors, ${data.deleted_updates} updates, ${data.deleted_events} events`,
+      });
+      
+      // Refresh the cursors list
+      refetch();
+      setRealtimeCursors([]);
+    } catch (error: any) {
+      console.error("Purge error:", error);
+      toast({ title: "Purge failed", description: error.message || 'Unknown error', variant: "destructive" });
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   const groupedCursors = allCursors.reduce((acc, cursor) => {
     const key = cursor.migration_id;
     if (!acc[key]) acc[key] = [];
@@ -75,9 +108,20 @@ const BackfillProgress = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Backfill Progress</h1>
-          <p className="text-muted-foreground">Monitor historical ledger data backfilling by migration</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Backfill Progress</h1>
+            <p className="text-muted-foreground">Monitor historical ledger data backfilling by migration</p>
+          </div>
+          <Button
+            onClick={handlePurgeAll}
+            disabled={isPurging}
+            variant="destructive"
+            size="sm"
+          >
+            <Trash2 className={`h-4 w-4 mr-2 ${isPurging ? 'animate-spin' : ''}`} />
+            {isPurging ? 'Purging...' : 'Purge All Backfill Data'}
+          </Button>
         </div>
 
         {Object.entries(groupedCursors).map(([migrationId, migrationCursors]) => {
