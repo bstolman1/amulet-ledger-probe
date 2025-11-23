@@ -166,6 +166,8 @@ async function fetchMigrationInfo(migration_id) {
 // ---------- Cursor persistence ----------
 
 async function getCursor(migration_id, synchronizer_id, min_time, max_time) {
+  console.log(`   📍 Getting cursor for synchronizer=${synchronizer_id.substring(0, 20)}...`);
+  
   return await retryWithBackoff(async () => {
     const { data, error } = await supabase
       .from("backfill_cursors")
@@ -177,6 +179,7 @@ async function getCursor(migration_id, synchronizer_id, min_time, max_time) {
     if (error && error.code !== "PGRST116") throw error;
 
     if (!data) {
+      console.log(`   ➕ Creating new cursor for synchronizer=${synchronizer_id.substring(0, 20)}...`);
       const { data: inserted, error: insertError } = await supabase
         .from("backfill_cursors")
         .insert({
@@ -191,9 +194,11 @@ async function getCursor(migration_id, synchronizer_id, min_time, max_time) {
         .single();
 
       if (insertError) throw insertError;
+      console.log(`   ✅ New cursor created`);
       return inserted;
     }
 
+    console.log(`   ✅ Found existing cursor: complete=${data.complete}, last_before=${data.last_before}`);
     return data;
   });
 }
@@ -204,6 +209,8 @@ async function updateCursorLastBefore(
   last_before,
   complete = false,
 ) {
+  console.log(`   🔄 Updating cursor: migration=${migration_id}, synchronizer=${synchronizer_id.substring(0, 20)}..., complete=${complete}`);
+  
   await retryWithBackoff(async () => {
     const { error } = await supabase
       .from("backfill_cursors")
@@ -217,6 +224,8 @@ async function updateCursorLastBefore(
 
     if (error) throw error;
   });
+  
+  console.log(`   ✅ Cursor updated successfully`);
 }
 
 // ---------- DB inserts ----------
@@ -373,6 +382,8 @@ async function backfillForSynchronizer(migration_id, range) {
     }
 
     await upsertUpdatesAndEvents(txs);
+    
+    console.log(`   ✅ Stored ${txs.length} transactions in database`);
 
     let earliest = null;
     for (const tx of txs) {
