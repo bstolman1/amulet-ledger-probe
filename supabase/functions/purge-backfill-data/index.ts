@@ -100,7 +100,7 @@ serve(async (req) => {
       return totalDeleted;
     };
 
-    // Delete ledger events first (no id column, use event_id)
+    // Delete ledger events first (use event_id as primary key)
     const deleteEventsBatch = async (batchSize: number, filter?: any) => {
       let totalDeleted = 0;
       let hasMore = true;
@@ -122,9 +122,9 @@ serve(async (req) => {
         if (selectError) throw selectError;
         if (!records || records.length === 0) break;
 
-        // Split into smaller chunks to avoid URL length limits (max 100 IDs per delete)
+        // Split into smaller chunks to avoid URL length limits (max 50 IDs per delete for safety)
         const eventIds = records.map(r => r.event_id);
-        const deleteChunkSize = 100;
+        const deleteChunkSize = 50;
         
         for (let i = 0; i < eventIds.length; i += deleteChunkSize) {
           const chunk = eventIds.slice(i, i + deleteChunkSize);
@@ -144,7 +144,7 @@ serve(async (req) => {
       return totalDeleted;
     };
 
-    // Delete ledger updates (no id column, use update_id)
+    // Delete ledger updates (use update_id as primary key)
     const deleteUpdatesBatch = async (batchSize: number, filter?: any) => {
       let totalDeleted = 0;
       let hasMore = true;
@@ -166,9 +166,9 @@ serve(async (req) => {
         if (selectError) throw selectError;
         if (!records || records.length === 0) break;
 
-        // Split into smaller chunks to avoid URL length limits (max 100 IDs per delete)
+        // Split into smaller chunks to avoid URL length limits (max 50 IDs per delete for safety)
         const updateIds = records.map(r => r.update_id);
-        const deleteChunkSize = 100;
+        const deleteChunkSize = 50;
         
         for (let i = 0; i < updateIds.length; i += deleteChunkSize) {
           const chunk = updateIds.slice(i, i + deleteChunkSize);
