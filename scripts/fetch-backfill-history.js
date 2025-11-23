@@ -173,6 +173,23 @@ async function updateCursorLastBefore(
 
 // ---------- DB inserts ----------
 
+async function upsertInBatches(table, rows, batchSize = 500) {
+  if (!rows.length) return;
+
+  const onConflict = table === "ledger_updates" ? "update_id" : "event_id";
+  
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const { error } = await supabase
+      .from(table)
+      .upsert(batch, { onConflict });
+    
+    if (error) throw error;
+    
+    console.log(`   📝 Upserted ${batch.length} rows to ${table} (${i + batch.length}/${rows.length})`);
+  }
+}
+
 async function upsertUpdatesAndEvents(transactions) {
   if (!transactions.length) return;
 
@@ -240,19 +257,9 @@ async function upsertUpdatesAndEvents(transactions) {
     }
   }
 
-  if (updatesRows.length) {
-    const { error } = await supabase
-      .from("ledger_updates")
-      .upsert(updatesRows, { onConflict: "update_id" });
-    if (error) throw error;
-  }
-
-  if (eventsRows.length) {
-    const { error } = await supabase
-      .from("ledger_events")
-      .upsert(eventsRows, { onConflict: "event_id" });
-    if (error) throw error;
-  }
+  // Upsert in batches to avoid statement timeout
+  await upsertInBatches("ledger_updates", updatesRows, 500);
+  await upsertInBatches("ledger_events", eventsRows, 500);
 }
 
 // ---------- Core paging over /v0/backfilling/updates-before ----------
