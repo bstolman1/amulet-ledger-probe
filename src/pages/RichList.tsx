@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, Lock, TrendingUp } from "lucide-react";
+import { Wallet, Coins } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
@@ -24,7 +24,7 @@ interface HolderBalance {
   total: number;
 }
 
-const Balances = () => {
+const RichList = () => {
   const [searchTerm, setSearchTerm] = useState("");
   
   const { data: snapshot } = useLatestACSSnapshot();
@@ -85,8 +85,6 @@ const Balances = () => {
 
   const topHolders = holderBalances.slice(0, 100);
   const totalSupply = holderBalances.reduce((sum, h) => sum + h.total, 0);
-  const totalLocked = holderBalances.reduce((sum, h) => sum + h.locked, 0);
-  const totalCirculating = totalSupply - totalLocked;
 
   const formatAmount = (amount: number) => {
     return amount.toLocaleString(undefined, {
@@ -105,65 +103,44 @@ const Balances = () => {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold mb-2">Balances</h2>
+          <h2 className="text-3xl font-bold mb-2">Rich List</h2>
           <p className="text-muted-foreground">
             Top CC holders and balance distribution
           </p>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card className="glass-card p-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Total Supply</h3>
-              <TrendingUp className="h-5 w-5 text-primary" />
+              <h3 className="text-sm font-medium text-muted-foreground">Total Holders</h3>
+              <Wallet className="h-5 w-5 text-primary" />
             </div>
             {isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <>
                 <p className="text-3xl font-bold text-primary mb-1">
-                  {formatAmount(totalSupply)}
+                  {holderBalances.length.toLocaleString()}
                 </p>
-                <p className="text-xs text-muted-foreground">CC</p>
+                <p className="text-xs text-muted-foreground">Unique holders</p>
               </>
             )}
           </Card>
 
           <Card className="glass-card p-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Locked</h3>
-              <Lock className="h-5 w-5 text-warning" />
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <>
-                <p className="text-3xl font-bold text-warning mb-1">
-                  {formatAmount(totalLocked)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {((totalLocked / totalSupply) * 100).toFixed(1)}% of supply
-                </p>
-              </>
-            )}
-          </Card>
-
-          <Card className="glass-card p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Circulating</h3>
-              <Wallet className="h-5 w-5 text-success" />
+              <h3 className="text-sm font-medium text-muted-foreground">Total Balance</h3>
+              <Coins className="h-5 w-5 text-success" />
             </div>
             {isLoading ? (
               <Skeleton className="h-10 w-full" />
             ) : (
               <>
                 <p className="text-3xl font-bold text-success mb-1">
-                  {formatAmount(totalCirculating)}
+                  {formatAmount(totalSupply)}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {((totalCirculating / totalSupply) * 100).toFixed(1)}% of supply
-                </p>
+                <p className="text-xs text-muted-foreground">CC</p>
               </>
             )}
           </Card>
@@ -238,4 +215,4 @@ const Balances = () => {
   );
 };
 
-export default Balances;
+export default RichList;

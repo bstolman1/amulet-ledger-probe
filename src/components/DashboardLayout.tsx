@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, TrendingUp, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Lock, Hash } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Hash } from "lucide-react";
 
 
 interface DashboardLayoutProps {
@@ -10,13 +10,11 @@ interface DashboardLayoutProps {
 const navigation = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
   { name: "Supply", href: "/supply", icon: Coins },
-  { name: "Balances", href: "/balances", icon: Wallet },
+  { name: "Rich List", href: "/rich-list", icon: Wallet },
   { name: "Transactions", href: "/transactions", icon: Activity },
   { name: "Transfers", href: "/transfers", icon: ArrowRightLeft },
-  { name: "Allocations", href: "/allocations", icon: Lock },
   { name: "Validators/SVs", href: "/validators", icon: Zap },
   { name: "Validator Licenses", href: "/validator-licenses", icon: Ticket },
-  { name: "Mining Rounds", href: "/mining-rounds", icon: TrendingUp },
   { name: "Round Stats", href: "/round-stats", icon: Layers },
   { name: "ANS", href: "/ans", icon: Globe },
   { name: "Featured Apps", href: "/apps", icon: Package },
@@ -25,6 +23,7 @@ const navigation = [
   { name: "External Party", href: "/external-party-setup", icon: UserPlus },
   { name: "Transfer Counters", href: "/transfer-counters", icon: Hash },
   { name: "External Party Rules", href: "/external-party-rules", icon: Shield },
+  { name: "Amulet Rules", href: "/amulet-rules", icon: Shield },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
   { name: "Member Traffic", href: "/member-traffic", icon: Radio },

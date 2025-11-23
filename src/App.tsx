@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Validators from "./pages/Validators";
-import MiningRounds from "./pages/MiningRounds";
+
 import RoundStats from "./pages/RoundStats";
 import ANS from "./pages/ANS";
 import Stats from "./pages/Stats";
@@ -17,7 +17,7 @@ import UnclaimedSVRewards from "./pages/UnclaimedSVRewards";
 import Admin from "./pages/Admin";
 import SnapshotProgress from "./pages/SnapshotProgress";
 import Transfers from "./pages/Transfers";
-import Balances from "./pages/Balances";
+import RichList from "./pages/RichList";
 import Templates from "./pages/Templates";
 import TemplateAudit from "./pages/TemplateAudit";
 import MemberTraffic from "./pages/MemberTraffic";
@@ -25,10 +25,11 @@ import Subscriptions from "./pages/Subscriptions";
 import DSOState from "./pages/DSOState";
 import ValidatorLicenses from "./pages/ValidatorLicenses";
 import ExternalPartySetup from "./pages/ExternalPartySetup";
-import Allocations from "./pages/Allocations";
+
 import Elections from "./pages/Elections";
 import TransferCounters from "./pages/TransferCounters";
 import ExternalPartyRules from "./pages/ExternalPartyRules";
+import AmuletRules from "./pages/AmuletRules";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -54,9 +55,8 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/transfers" element={<Transfers />} />
-          <Route path="/balances" element={<Balances />} />
+          <Route path="/rich-list" element={<RichList />} />
           <Route path="/validators" element={<Validators />} />
-          <Route path="/mining-rounds" element={<MiningRounds />} />
           <Route path="/round-stats" element={<RoundStats />} />
           <Route path="/ans" element={<ANS />} />
           <Route path="/stats" element={<Stats />} />
@@ -73,7 +73,8 @@ const App = () => (
           <Route path="/dso-state" element={<DSOState />} />
           <Route path="/validator-licenses" element={<ValidatorLicenses />} />
           <Route path="/external-party-setup" element={<ExternalPartySetup />} />
-          <Route path="/allocations" element={<Allocations />} />
+          <Route path="/amulet-rules" element={<AmuletRules />} />
+          
           <Route path="/elections" element={<Elections />} />
           <Route path="/transfer-counters" element={<TransferCounters />} />
           <Route path="/external-party-rules" element={<ExternalPartyRules />} />
