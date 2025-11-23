@@ -60,11 +60,6 @@ const Governance = () => {
   const confirmations = confirmationsData?.data || [];
   const amuletRules = amuletRulesData?.data || [];
   
-  // Get SV count and voting threshold from DsoRules FIRST (needed for proposals processing)
-  const dsoRules = dsoRulesData?.data?.[0];
-  const svCount = Object.keys(dsoRules?.svs || {}).length;
-  const votingThreshold = dsoInfo?.voting_threshold || Math.ceil(svCount * 0.67); // 2/3 majority
-  
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
     for (const field of fieldNames) {
@@ -74,22 +69,13 @@ const Governance = () => {
     return undefined;
   };
   
-  // Debug logging - Log ALL data structures
-  console.log("🔍 DEBUG Governance - Full Data Dump:");
-  console.log("DsoRules:", dsoRules ? JSON.stringify(dsoRules, null, 2) : "No data");
-  console.log("Vote requests count:", voteRequestsData?.data?.length || 0);
-  if (voteRequestsData?.data?.[0]) {
-    console.log("First VoteRequest:", JSON.stringify(voteRequestsData.data[0], null, 2));
+  // Debug logging
+  console.log("🔍 DEBUG Governance: Vote requests:", voteRequestsData?.data?.length || 0);
+  console.log("🔍 DEBUG Governance: Price votes:", priceVotes.length);
+  console.log("🔍 DEBUG Governance: First 3 price votes:", priceVotes.slice(0, 3));
+  if (priceVotes.length > 0) {
+    console.log("🔍 DEBUG Governance: First price vote structure:", JSON.stringify(priceVotes[0], null, 2));
   }
-  console.log("Price votes count:", priceVotes.length);
-  if (priceVotes[0]) {
-    console.log("First PriceVote:", JSON.stringify(priceVotes[0], null, 2));
-  }
-  console.log("Confirmations count:", confirmations.length);
-  if (confirmations[0]) {
-    console.log("First Confirmation:", JSON.stringify(confirmations[0], null, 2));
-  }
-  console.log("AmuletRules:", amuletRules[0] ? JSON.stringify(amuletRules[0], null, 2) : "No data");
 
   // Process proposals from ACS data with full JSON parsing
   const proposals = voteRequestsData?.data.map((voteRequest: any) => {
@@ -141,6 +127,11 @@ const Governance = () => {
       rawData: voteRequest, // Keep full JSON for debugging
     };
   }) || [];
+
+  // Get SV count and voting threshold from DsoRules
+  const dsoRules = dsoRulesData?.data?.[0];
+  const svCount = Object.keys(dsoRules?.svs || {}).length;
+  const votingThreshold = dsoInfo?.voting_threshold || Math.ceil(svCount * 0.67); // 2/3 majority
 
   const totalProposals = proposals?.length || 0;
   const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
