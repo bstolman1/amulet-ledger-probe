@@ -34,6 +34,7 @@ const BackfillProgress = () => {
   const [isPurging, setIsPurging] = useState(false);
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
   const [isMonitoring, setIsMonitoring] = useState(true);
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set(['cursor_update', 'update', 'event']));
   const [stats, setStats] = useState<BackfillStats>({
     totalCursors: 0,
     completedCursors: 0,
@@ -44,6 +45,20 @@ const BackfillProgress = () => {
   const [lastActivity, setLastActivity] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  const toggleFilter = (type: string) => {
+    setActiveFilters(prev => {
+      const newFilters = new Set(prev);
+      if (newFilters.has(type)) {
+        newFilters.delete(type);
+      } else {
+        newFilters.add(type);
+      }
+      return newFilters;
+    });
+  };
+
+  const filteredActivityLog = activityLog.filter(log => activeFilters.has(log.type));
 
   // Update stats when cursors change
   useEffect(() => {
@@ -353,7 +368,38 @@ const BackfillProgress = () => {
         <Card className="bg-card/50 backdrop-blur">
           <CardContent className="p-0">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-semibold">Synchronizer Activity</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="font-semibold">Synchronizer Activity</h3>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={activeFilters.has('cursor_update') ? 'default' : 'outline'}
+                    className="cursor-pointer hover:bg-primary/80 transition-colors"
+                    onClick={() => toggleFilter('cursor_update')}
+                  >
+                    <Database className="w-3 h-3 mr-1" />
+                    Cursors
+                  </Badge>
+                  <Badge
+                    variant={activeFilters.has('update') ? 'default' : 'outline'}
+                    className="cursor-pointer hover:bg-primary/80 transition-colors bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20"
+                    onClick={() => toggleFilter('update')}
+                  >
+                    <Zap className="w-3 h-3 mr-1" />
+                    Updates
+                  </Badge>
+                  <Badge
+                    variant={activeFilters.has('event') ? 'default' : 'outline'}
+                    className="cursor-pointer hover:bg-primary/80 transition-colors bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20"
+                    onClick={() => toggleFilter('event')}
+                  >
+                    <Layers className="w-3 h-3 mr-1" />
+                    Events
+                  </Badge>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {filteredActivityLog.length} / {activityLog.length}
+                  </span>
+                </div>
+              </div>
               <Button
                 onClick={() => setActivityLog([])}
                 variant="ghost"
@@ -363,14 +409,18 @@ const BackfillProgress = () => {
               </Button>
             </div>
             <div className="max-h-96 overflow-y-auto">
-              {activityLog.length === 0 ? (
+              {filteredActivityLog.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Activity className="w-12 h-12 mb-4 opacity-20" />
-                  <p>No activity yet. Waiting for backfill data...</p>
+                  <p>
+                    {activityLog.length === 0 
+                      ? "No activity yet. Waiting for backfill data..." 
+                      : "No activity matching current filters."}
+                  </p>
                 </div>
               ) : (
                 <div className="divide-y">
-                  {activityLog.slice().reverse().map((log) => (
+                  {filteredActivityLog.slice().reverse().map((log) => (
                     <div
                       key={log.id}
                       className="flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
