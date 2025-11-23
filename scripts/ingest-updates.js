@@ -38,6 +38,56 @@ const scanClient = axios.create({
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ---------- Retry helper ----------
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function retryWithBackoff(fn, options = {}) {
+  const {
+    maxRetries = 5,
+    baseDelay = 1000,
+    maxDelay = 30000,
+    shouldRetry = (error) => {
+      // Retry on timeout, connection, and temporary errors
+      const retryableCodes = ['PGRST301', '08000', '08003', '08006', '57014', '40001', '40P01'];
+      const retryableMessages = ['timeout', 'connection', 'temporary', 'lock', 'deadlock'];
+      
+      if (error.code && retryableCodes.includes(error.code)) return true;
+      if (error.message) {
+        const msg = error.message.toLowerCase();
+        return retryableMessages.some(term => msg.includes(term));
+      }
+      return false;
+    }
+  } = options;
+
+  let lastError;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt === maxRetries || !shouldRetry(error)) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+      const jitter = Math.random() * exponentialDelay * 0.3; // 30% jitter
+      const delay = exponentialDelay + jitter;
+      
+      console.log(`⏳ Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms (error: ${error.message})`);
+      await sleep(delay);
+    }
+  }
+  
+  throw lastError;
+}
+
 async function detectLatestMigration() {
   console.log("🔎 Detecting latest migration via /v0/state/acs/snapshot-timestamp");
   let id = 1;
@@ -68,19 +118,22 @@ async function run() {
   const migrationId = await detectLatestMigration();
 
   // Find last offset for this migration (if any)
-  const { data: lastRow, error: lastErr } = await supabase
-    .from("ledger_updates")
-    .select("offset")
-    .eq("migration_id", migrationId)
-    .not("offset", "is", null)
-    .order("record_time", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const lastRow = await retryWithBackoff(async () => {
+    const { data, error } = await supabase
+      .from("ledger_updates")
+      .select("offset")
+      .eq("migration_id", migrationId)
+      .not("offset", "is", null)
+      .order("record_time", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (lastErr && lastErr.code !== "PGRST116") {
-    console.error("❌ Error querying last offset:", lastErr.message);
-    process.exit(1);
-  }
+    if (error && error.code !== "PGRST116") {
+      throw error;
+    }
+    
+    return data;
+  });
 
   const lastOffset = lastRow?.offset || null;
   console.log(`🔄 ingest-updates for migration=${migrationId}, lastOffset=${lastOffset ?? "none"}`);
@@ -168,13 +221,14 @@ async function run() {
   if (updatesRows.length) {
     for (let i = 0; i < updatesRows.length; i += batchSize) {
       const batch = updatesRows.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from("ledger_updates")
-        .upsert(batch, { onConflict: "update_id" });
-      if (error) {
-        console.error("❌ Error upserting ledger_updates:", error.message);
-        process.exit(1);
-      }
+      
+      await retryWithBackoff(async () => {
+        const { error } = await supabase
+          .from("ledger_updates")
+          .upsert(batch, { onConflict: "update_id" });
+        if (error) throw error;
+      });
+      
       console.log(`   📝 Upserted ${batch.length} updates (${i + batch.length}/${updatesRows.length})`);
     }
   }
@@ -182,13 +236,14 @@ async function run() {
   if (eventsRows.length) {
     for (let i = 0; i < eventsRows.length; i += batchSize) {
       const batch = eventsRows.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from("ledger_events")
-        .upsert(batch, { onConflict: "event_id" });
-      if (error) {
-        console.error("❌ Error upserting ledger_events:", error.message);
-        process.exit(1);
-      }
+      
+      await retryWithBackoff(async () => {
+        const { error } = await supabase
+          .from("ledger_events")
+          .upsert(batch, { onConflict: "event_id" });
+        if (error) throw error;
+      });
+      
       console.log(`   📝 Upserted ${batch.length} events (${i + batch.length}/${eventsRows.length})`);
     }
   }
