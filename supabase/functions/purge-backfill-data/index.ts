@@ -100,124 +100,100 @@ serve(async (req) => {
       return totalDeleted;
     };
 
-    // Delete ledger events first (use event_id as primary key)
+    // Delete ledger events - optimized for speed
     const deleteEventsBatch = async (batchSize: number, filter?: any) => {
       let totalDeleted = 0;
-      let hasMore = true;
 
-      while (hasMore) {
-        let selectQuery = supabase
+      while (true) {
+        // Direct delete with count to track progress
+        let deleteQuery = supabase
           .from('ledger_events')
-          .select('event_id')
+          .delete({ count: 'exact' })
           .limit(batchSize);
         
-        if (filter) {
-          Object.entries(filter).forEach(([key, value]) => {
-            selectQuery = selectQuery.eq(key, value);
-          });
+        if (filter?.migration_id) {
+          deleteQuery = deleteQuery.eq('migration_id', filter.migration_id);
         }
 
-        const { data: records, error: selectError } = await selectQuery;
+        const { count, error } = await deleteQuery;
         
-        if (selectError) throw selectError;
-        if (!records || records.length === 0) break;
-
-        // Split into smaller chunks to avoid URL length limits (max 50 IDs per delete for safety)
-        const eventIds = records.map(r => r.event_id);
-        const deleteChunkSize = 50;
+        if (error) throw error;
         
-        for (let i = 0; i < eventIds.length; i += deleteChunkSize) {
-          const chunk = eventIds.slice(i, i + deleteChunkSize);
-          const { error: deleteError } = await supabase
-            .from('ledger_events')
-            .delete()
-            .in('event_id', chunk);
-          
-          if (deleteError) throw deleteError;
+        const deleted = count || 0;
+        totalDeleted += deleted;
+        
+        if (deleted > 0) {
+          console.log(`Deleted ${deleted} events (total: ${totalDeleted})`);
         }
-
-        totalDeleted += records.length;
-        hasMore = records.length === batchSize;
-        console.log(`Deleted ${records.length} events (total: ${totalDeleted})`);
+        
+        if (deleted < batchSize) break; // No more records to delete
       }
 
       return totalDeleted;
     };
 
-    // Delete ledger updates (use update_id as primary key)
+    // Delete ledger updates - optimized for speed
     const deleteUpdatesBatch = async (batchSize: number, filter?: any) => {
       let totalDeleted = 0;
-      let hasMore = true;
 
-      while (hasMore) {
-        let selectQuery = supabase
+      while (true) {
+        // Direct delete with count to track progress
+        let deleteQuery = supabase
           .from('ledger_updates')
-          .select('update_id')
+          .delete({ count: 'exact' })
           .limit(batchSize);
         
-        if (filter) {
-          Object.entries(filter).forEach(([key, value]) => {
-            selectQuery = selectQuery.eq(key, value);
-          });
+        if (filter?.migration_id) {
+          deleteQuery = deleteQuery.eq('migration_id', filter.migration_id);
         }
 
-        const { data: records, error: selectError } = await selectQuery;
+        const { count, error } = await deleteQuery;
         
-        if (selectError) throw selectError;
-        if (!records || records.length === 0) break;
-
-        // Split into smaller chunks to avoid URL length limits (max 50 IDs per delete for safety)
-        const updateIds = records.map(r => r.update_id);
-        const deleteChunkSize = 50;
+        if (error) throw error;
         
-        for (let i = 0; i < updateIds.length; i += deleteChunkSize) {
-          const chunk = updateIds.slice(i, i + deleteChunkSize);
-          const { error: deleteError } = await supabase
-            .from('ledger_updates')
-            .delete()
-            .in('update_id', chunk);
-          
-          if (deleteError) throw deleteError;
+        const deleted = count || 0;
+        totalDeleted += deleted;
+        
+        if (deleted > 0) {
+          console.log(`Deleted ${deleted} updates (total: ${totalDeleted})`);
         }
-
-        totalDeleted += records.length;
-        hasMore = records.length === batchSize;
-        console.log(`Deleted ${records.length} updates (total: ${totalDeleted})`);
+        
+        if (deleted < batchSize) break; // No more records to delete
       }
 
       return totalDeleted;
     };
 
-    // Delete ledger events first
+    // Delete ledger events first - use much larger batches
     if (purge_all) {
-      console.log("Deleting all ledger events in batches...");
-      deletedEvents = await deleteEventsBatch(500); // Reduced batch size
+      console.log("Deleting all ledger events in large batches...");
+      deletedEvents = await deleteEventsBatch(10000); // 20x larger batches
       console.log(`✅ Deleted ${deletedEvents} total ledger events`);
     } else if (migration_id) {
       console.log(`Deleting ledger events for migration ${migration_id}...`);
-      deletedEvents = await deleteEventsBatch(500, { migration_id });
+      deletedEvents = await deleteEventsBatch(10000, { migration_id });
       console.log(`✅ Deleted ${deletedEvents} ledger events for migration ${migration_id}`);
     }
 
-    // Delete ledger updates
+    // Delete ledger updates - use much larger batches
     if (purge_all) {
-      console.log("Deleting all ledger updates in batches...");
-      deletedUpdates = await deleteUpdatesBatch(500); // Reduced batch size
+      console.log("Deleting all ledger updates in large batches...");
+      deletedUpdates = await deleteUpdatesBatch(10000); // 20x larger batches
       console.log(`✅ Deleted ${deletedUpdates} total ledger updates`);
     } else if (migration_id) {
       console.log(`Deleting ledger updates for migration ${migration_id}...`);
-      deletedUpdates = await deleteUpdatesBatch(500, { migration_id });
+      deletedUpdates = await deleteUpdatesBatch(10000, { migration_id });
       console.log(`✅ Deleted ${deletedUpdates} ledger updates for migration ${migration_id}`);
     }
 
-    // Delete backfill cursors
+    // Delete backfill cursors - use larger batches
     if (purge_all) {
-      console.log("Deleting all backfill cursors in batches...");
-      deletedCursors = await deleteBatchByIds('backfill_cursors', 200); // Reduced batch size
+      console.log("Deleting all backfill cursors in large batches...");
+      deletedCursors = await deleteBatchByIds('backfill_cursors', 1000); // 5x larger batches
       console.log(`✅ Deleted ${deletedCursors} total backfill cursors`);
     } else if (migration_id) {
       console.log(`Deleting backfill cursors for migration ${migration_id}...`);
-      deletedCursors = await deleteBatchByIds('backfill_cursors', 200, { migration_id });
+      deletedCursors = await deleteBatchByIds('backfill_cursors', 1000, { migration_id });
       console.log(`✅ Deleted ${deletedCursors} backfill cursors for migration ${migration_id}`);
     }
 
