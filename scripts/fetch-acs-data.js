@@ -1,12 +1,13 @@
 /**
- * Hardened ACS Fetcher (patched)
- * - Correct ACS pagination using range.to
+ * Hardened ACS Fetcher (patched, pure JS)
  * - Throttled progress (about once per minute / every 20 pages)
  * - Progress failures NEVER crash the job
  * - Adaptive chunk sizing (handles 546 WORKER_LIMIT)
  * - Resumable snapshots via Supabase
  * - Range handling / retry for Canton ACS
  * - Final flush: one template-chunk per append with persistent retry
+ * - ✅ Correct ACS pagination using range.to
+ * - ✅ Runaway page / corrupted cursor protection
  */
 
 import axios from "axios";
@@ -56,7 +57,7 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 
 // Startup logging
 console.log("\n" + "=".repeat(80));
-console.log("🚀 Hardened ACS Data Fetcher (patched) - Starting");
+console.log("🚀 Hardened ACS Data Fetcher (patched JS) - Starting");
 console.log("=".repeat(80));
 console.log("⚙️  Configuration:");
 console.log(`   - Base URL: ${BASE_URL}`);
@@ -95,21 +96,16 @@ console.log("=".repeat(80) + "\n");
 
 // ---------- Utility helpers ----------
 
-function sleep(ms: number) {
+function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function safeFileName(templateId: string) {
+function safeFileName(templateId) {
   return templateId.replace(/[:.]/g, "_");
 }
 
-function chunkTemplateEntries(templateId: string, entries: any[]) {
-  const chunks: {
-    templateId: string;
-    chunkIndex: number;
-    totalChunks: number;
-    entries: any[];
-  }[] = [];
+function chunkTemplateEntries(templateId, entries) {
+  const chunks = [];
   for (let i = 0; i < entries.length; i += ENTRIES_PER_CHUNK) {
     chunks.push({
       templateId,
@@ -121,7 +117,7 @@ function chunkTemplateEntries(templateId: string, entries: any[]) {
   return chunks;
 }
 
-function isTemplate(e: any, moduleName: string, entityName: string) {
+function isTemplate(e, moduleName, entityName) {
   const t = e?.template_id;
   if (!t) return false;
   const parts = t.split(":");
@@ -132,7 +128,7 @@ function isTemplate(e: any, moduleName: string, entityName: string) {
 
 // ---------- SAFE progress sender (never throws) ----------
 
-async function safeProgress(snapshotId: string, progress: any) {
+async function safeProgress(snapshotId, progress) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET || !snapshotId) return;
 
   const payload = {
@@ -152,7 +148,7 @@ async function safeProgress(snapshotId: string, progress: any) {
         timeout: 15000,
       });
       return; // success
-    } catch (err: any) {
+    } catch (err) {
       const status = err.response?.status;
       console.log(
         `⚠️ Progress attempt ${attempt}/3 failed (status: ${
@@ -168,15 +164,11 @@ async function safeProgress(snapshotId: string, progress: any) {
 
 // ---------- Generic upload helper (for start/append/complete) ----------
 
-async function uploadToEdgeFunction(
-  phase: "start" | "append" | "complete",
-  data: any,
-  retryCount = 0,
-): Promise<any> {
+async function uploadToEdgeFunction(phase, data, retryCount = 0) {
   if (!EDGE_FUNCTION_URL || !WEBHOOK_SECRET) return null;
 
   const MAX_RETRIES = 5;
-  const is546Error = (error: any) =>
+  const is546Error = (error) =>
     error.response?.status === 546 || error.message?.includes("546");
 
   try {
@@ -197,7 +189,7 @@ async function uploadToEdgeFunction(
     }
 
     return res.data;
-  } catch (err: any) {
+  } catch (err) {
     const status = err.response?.status;
     console.error(
       `❌ Upload failed (${phase}): ${err.message} (status: ${
@@ -235,10 +227,7 @@ async function uploadToEdgeFunction(
  * Final-stage helper:
  * Upload a SINGLE template-chunk with persistent retries.
  */
-async function persistentAppendSingleTemplateChunk(
-  snapshotId: string,
-  templateChunk: any,
-) {
+async function persistentAppendSingleTemplateChunk(snapshotId, templateChunk) {
   if (!snapshotId || !EDGE_FUNCTION_URL || !WEBHOOK_SECRET) return;
 
   const data = {
@@ -254,7 +243,7 @@ async function persistentAppendSingleTemplateChunk(
     try {
       await uploadToEdgeFunction("append", data);
       return;
-    } catch (err: any) {
+    } catch (err) {
       attempt++;
       const status = err.response?.status;
       const code = err.code;
@@ -297,10 +286,10 @@ async function persistentAppendSingleTemplateChunk(
 
 // ---------- Migration & snapshot timestamp ----------
 
-async function detectLatestMigration(baseUrl: string): Promise<number> {
+async function detectLatestMigration(baseUrl) {
   console.log("🔎 Probing for latest valid migration ID...");
   let id = 1;
-  let latest: number | null = null;
+  let latest = null;
 
   while (true) {
     try {
@@ -326,10 +315,7 @@ async function detectLatestMigration(baseUrl: string): Promise<number> {
   return latest;
 }
 
-async function fetchSnapshotTimestamp(
-  baseUrl: string,
-  migration_id: number,
-): Promise<string> {
+async function fetchSnapshotTimestamp(baseUrl, migration_id) {
   const res = await cantonClient.get(`${baseUrl}/v0/state/acs/snapshot-timestamp`, {
     params: { before: new Date().toISOString(), migration_id },
   });
@@ -354,7 +340,7 @@ async function fetchSnapshotTimestamp(
 
 // ---------- Resume support via Supabase ----------
 
-async function checkForExistingSnapshot(migration_id: number): Promise<any | null> {
+async function checkForExistingSnapshot(migration_id) {
   if (!supabase) {
     console.log(
       "\n⚠️  Supabase not configured - cannot resume existing snapshots. Will always start new.",
@@ -390,9 +376,7 @@ async function checkForExistingSnapshot(migration_id: number): Promise<any | nul
   const snapshot = data[0];
   const startedAt = new Date(snapshot.started_at);
   const now = new Date();
-  const runtimeMinutes = ((now.getTime() - startedAt.getTime()) / 1000 / 60).toFixed(
-    1,
-  );
+  const runtimeMinutes = ((now - startedAt) / 1000 / 60).toFixed(1);
 
   console.log("✅ FOUND EXISTING IN-PROGRESS SNAPSHOT - WILL RESUME");
   console.log(`   - Snapshot ID: ${snapshot.id}`);
@@ -409,15 +393,10 @@ async function checkForExistingSnapshot(migration_id: number): Promise<any | nul
 
 // ---------- Main fetch loop ----------
 
-async function fetchAllACS(
-  baseUrl: string,
-  migration_id: number,
-  record_time: string,
-  existingSnapshot: any | null,
-) {
+async function fetchAllACS(baseUrl, migration_id, record_time, existingSnapshot) {
   console.log("📦 Fetching ACS snapshot and uploading in real-time…");
 
-  const allEvents: any[] = [];
+  const allEvents = [];
 
   // Defensive resume: avoid corrupted cursors
   let after = 0;
@@ -437,25 +416,22 @@ async function fetchAllACS(
   }
 
   let page = existingSnapshot?.processed_pages || 1;
-  const seen = new Set<string>();
+  const seen = new Set();
 
   let amuletTotal = new BigNumber(existingSnapshot?.amulet_total || 0);
   let lockedTotal = new BigNumber(existingSnapshot?.locked_total || 0);
 
-  const perPackage: Record<
-    string,
-    { amulet: BigNumber; locked: BigNumber }
-  > = {};
-  const templatesByPackage: Record<string, Set<string>> = {};
-  const templatesData: Record<string, any[]> = {};
-  const pendingUploads: Record<string, any[]> = {};
+  const perPackage = {};
+  const templatesByPackage = {};
+  const templatesData = {};
+  const pendingUploads = {};
 
   const outputDir = "./acs_full";
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
   // Snapshot metadata
-  let snapshotId: string | null = existingSnapshot?.id || null;
-  let canonicalPkg: string = existingSnapshot?.canonical_package || "unknown";
+  let snapshotId = existingSnapshot?.id || null;
+  let canonicalPkg = existingSnapshot?.canonical_package || "unknown";
 
   const startTime = Date.now();
   let lastProgressLog = startTime;
@@ -497,7 +473,7 @@ async function fetchAllACS(
     console.log("🚀".repeat(40) + "\n");
   }
 
-  const inflightUploads: any[] = [];
+  const inflightUploads = [];
 
   const MAX_RETRIES = 8;
   const BASE_DELAY = 3000;
@@ -541,8 +517,8 @@ async function fetchAllACS(
           throw new Error("Invalid ACS response — missing range.from/to.");
         }
 
-        const rangeFrom: number = range.from;
-        const rangeTo: number = range.to;
+        const rangeFrom = range.from;
+        const rangeTo = range.to;
 
         if (rangeTo < rangeFrom) {
           console.error("❌ Invalid ACS range: range.to < range.from", range);
@@ -556,7 +532,7 @@ async function fetchAllACS(
           break;
         }
 
-        const pageTemplates = new Set<string>();
+        const pageTemplates = new Set();
 
         for (const e of events) {
           const id = e.contract_id || e.event_id;
@@ -566,13 +542,13 @@ async function fetchAllACS(
           const templateId = e.template_id || "unknown";
           const pkg = templateId.split(":")[0] || "unknown";
           perPackage[pkg] ||= { amulet: new BigNumber(0), locked: new BigNumber(0) };
-          templatesByPackage[pkg] ||= new Set<string>();
+          templatesByPackage[pkg] ||= new Set();
           templatesData[templateId] ||= [];
 
           templatesByPackage[pkg].add(templateId);
           pageTemplates.add(templateId);
 
-          const { create_arguments } = e;
+          const create_arguments = e.create_arguments;
           templatesData[templateId].push(create_arguments || {});
 
           if (isTemplate(e, "Splice.Amulet", "Amulet")) {
@@ -603,15 +579,14 @@ async function fetchAllACS(
           while (inflightUploads.length >= MAX_INFLIGHT_UPLOADS) {
             await Promise.race(inflightUploads);
             for (let i = inflightUploads.length - 1; i >= 0; i--) {
-              if ((inflightUploads[i] as any).settled)
-                inflightUploads.splice(i, 1);
+              if (inflightUploads[i].settled) inflightUploads.splice(i, 1);
             }
           }
 
           const allKeys = Object.keys(pendingUploads);
           const batchKeys = allKeys.slice(0, UPLOAD_CHUNK_SIZE);
 
-          const chunkedTemplates: any[] = [];
+          const chunkedTemplates = [];
           for (const templateId of batchKeys) {
             const entries = pendingUploads[templateId];
             const count = entries.length;
@@ -648,13 +623,13 @@ async function fetchAllACS(
           );
 
           // Snapshot the batch so we can re-queue on failure
-          const uploadSnapshot: Record<string, any[]> = {};
+          const uploadSnapshot = {};
           batchKeys.forEach((k) => {
             uploadSnapshot[k] = pendingUploads[k];
             delete pendingUploads[k];
           });
 
-          const uploadPromise: any = (async () => {
+          const uploadPromise = (async () => {
             try {
               await uploadToEdgeFunction("append", {
                 mode: "append",
@@ -666,13 +641,13 @@ async function fetchAllACS(
               console.log(
                 `✅ Batch uploaded successfully (${chunkedTemplates.length} chunks)`,
               );
-            } catch (err: any) {
+            } catch (err) {
               console.error(
                 `❌ Batch upload failed (append): ${err.message}. Re-queuing templates.`,
               );
               Object.assign(pendingUploads, uploadSnapshot);
             }
-            (uploadPromise as any).settled = true;
+            uploadPromise.settled = true;
           })();
 
           inflightUploads.push(uploadPromise);
@@ -757,7 +732,7 @@ async function fetchAllACS(
         }
 
         pageSuccess = true;
-      } catch (err: any) {
+      } catch (err) {
         const statusCode = err.response?.status;
         const msg = err.response?.data?.error || err.message;
 
@@ -843,7 +818,7 @@ async function fetchAllACS(
         Object.keys(pendingUploads).length
       } templates (one chunk per append)...`,
     );
-    const chunkedTemplates: any[] = [];
+    const chunkedTemplates = [];
 
     for (const [templateId, entries] of Object.entries(pendingUploads)) {
       const count = entries.length;
@@ -1014,7 +989,7 @@ async function run() {
     console.log(`   - Locked Total: ${lockedTotal.toString()}`);
     console.log(`   - Elapsed Time: ${elapsedMinutes} minutes`);
     console.log("=".repeat(80) + "\n");
-  } catch (err: any) {
+  } catch (err) {
     console.error("\n" + "=".repeat(80));
     console.error("❌ FATAL ERROR");
     console.error("=".repeat(80));
@@ -1060,7 +1035,7 @@ async function run() {
             .eq("id", failedSnapshot.id);
           console.error(`✅ Snapshot ${failedSnapshot.id} marked as failed`);
         }
-      } catch (updateErr: any) {
+      } catch (updateErr) {
         console.error("Failed to mark snapshot as failed:", updateErr.message);
       }
     }
