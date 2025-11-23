@@ -68,13 +68,13 @@ const BackfillProgress = () => {
     
     const migrations = new Set(allCursors.map(c => c.migration_id));
     
-    setStats({
+    // Only update cursor-related stats, preserve totalUpdates and totalEvents
+    setStats(prev => ({
+      ...prev,
       totalCursors: allCursors.length,
       completedCursors: allCursors.filter(c => c.complete).length,
-      totalUpdates: 0, // Will be updated by realtime
-      totalEvents: 0, // Will be updated by realtime
       activeMigrations: migrations.size,
-    });
+    }));
   }, [cursors, realtimeCursors]);
 
   // Auto-scroll to bottom of activity log
