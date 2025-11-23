@@ -5,7 +5,6 @@ import { Wallet, Coins } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
-import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -30,13 +29,14 @@ const RichList = () => {
   
   const { data: snapshot } = useLatestACSSnapshot();
 
-  // Fetch actual contract data for list display - need full data for aggregation by owner
+  // Fetch Amulet contracts - aggregated across ALL packages
   const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:Amulet",
     !!snapshot
   );
 
+  // Fetch LockedAmulet contracts - aggregated across ALL packages
   const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:LockedAmulet",

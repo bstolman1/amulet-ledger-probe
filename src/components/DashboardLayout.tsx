@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Hash, ScrollText } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Hash } from "lucide-react";
 
 
 interface DashboardLayoutProps {
@@ -13,7 +13,6 @@ const navigation = [
   { name: "Rich List", href: "/rich-list", icon: Wallet },
   { name: "Transactions", href: "/transactions", icon: Activity },
   { name: "Transfers", href: "/transfers", icon: ArrowRightLeft },
-  { name: "Amulet Rules", href: "/amulet-rules", icon: ScrollText },
   { name: "Validators/SVs", href: "/validators", icon: Zap },
   { name: "Validator Licenses", href: "/validator-licenses", icon: Ticket },
   { name: "Round Stats", href: "/round-stats", icon: Layers },
@@ -24,6 +23,7 @@ const navigation = [
   { name: "External Party", href: "/external-party-setup", icon: UserPlus },
   { name: "Transfer Counters", href: "/transfer-counters", icon: Hash },
   { name: "External Party Rules", href: "/external-party-rules", icon: Shield },
+  { name: "Amulet Rules", href: "/amulet-rules", icon: Shield },
   { name: "Statistics", href: "/stats", icon: Database },
   { name: "SV Rewards", href: "/unclaimed-sv-rewards", icon: Award },
   { name: "Member Traffic", href: "/member-traffic", icon: Radio },

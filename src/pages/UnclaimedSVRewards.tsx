@@ -5,7 +5,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Award, Users, TrendingUp, Search, Code } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
-import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -32,25 +31,28 @@ const UnclaimedSVRewards = () => {
   
   const { data: snapshot } = useLatestACSSnapshot();
 
-  // Fetch reward coupon data - need full data for grouping by user
+  // Fetch ValidatorRewardCoupon contracts - the actual unclaimed rewards
   const { data: rewardCouponsData, isLoading: couponsLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:ValidatorRewardCoupon",
     !!snapshot
   );
 
+  // Fetch SvRewardCoupon contracts
   const { data: svRewardCouponsData, isLoading: svCouponsLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:SvRewardCoupon",
     !!snapshot
   );
 
+  // Fetch AppRewardCoupon contracts
   const { data: appRewardCouponsData, isLoading: appCouponsLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:AppRewardCoupon",
     !!snapshot
   );
 
+  // Fetch UnclaimedReward contracts
   const { data: unclaimedRewardsData, isLoading: unclaimedLoading } = useAggregatedTemplateData(
     snapshot?.id,
     "Splice:Amulet:UnclaimedReward",

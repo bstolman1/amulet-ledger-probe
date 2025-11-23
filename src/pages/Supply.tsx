@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Coins, Lock, TrendingUp, Package, RefreshCw, AlertCircle, CheckCircle, Clock, ChevronDown, ChevronRight } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
-import { useTemplateSumServer } from "@/hooks/use-template-sum-server";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -42,18 +41,17 @@ const Supply = () => {
 
   const { data: latestSnapshot } = useLatestACSSnapshot();
 
-  // Use server-side aggregation for fast sum calculations
-  const { data: unlockedSum, isLoading: unlockedLoading } = useTemplateSumServer(
+  // Fetch Amulet contracts for supply calculations
+  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
     "Splice:Amulet:Amulet",
-    'circulating',
     !!latestSnapshot
   );
 
-  const { data: lockedSum, isLoading: lockedLoading } = useTemplateSumServer(
+  // Fetch LockedAmulet contracts
+  const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
     latestSnapshot?.id,
     "Splice:Amulet:LockedAmulet",
-    'locked',
     !!latestSnapshot
   );
 
@@ -88,11 +86,19 @@ const Supply = () => {
     !!latestSnapshot
   );
 
-  const isLoading = unlockedLoading || lockedLoading || allocationsQuery.isLoading || openLoading || issuingLoading || closedLoading || latestRoundLoading;
+  const isLoading = amuletLoading || lockedLoading || allocationsQuery.isLoading || openLoading || issuingLoading || closedLoading || latestRoundLoading;
 
-  // Calculate supply metrics from server-side sums
-  const totalUnlocked = unlockedSum?.sum || 0;
-  const totalLocked = lockedSum?.sum || 0;
+  // Calculate supply metrics
+  const totalUnlocked = (amuletData?.data || []).reduce((sum: number, amulet: any) => {
+    const amount = parseFloat(amulet.amount?.initialAmount || "0");
+    return sum + amount;
+  }, 0);
+
+  const totalLocked = (lockedData?.data || []).reduce((sum: number, locked: any) => {
+    const amount = parseFloat(locked.amulet?.amount?.initialAmount || locked.amount?.initialAmount || "0");
+    return sum + amount;
+  }, 0);
+
   const totalSupply = totalUnlocked + totalLocked;
   const circulatingSupply = totalUnlocked;
 
