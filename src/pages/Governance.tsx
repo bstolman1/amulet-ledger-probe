@@ -60,6 +60,11 @@ const Governance = () => {
   const confirmations = confirmationsData?.data || [];
   const amuletRules = amuletRulesData?.data || [];
   
+  // Get SV count and voting threshold from DsoRules FIRST (needed for proposals processing)
+  const dsoRules = dsoRulesData?.data?.[0];
+  const svCount = Object.keys(dsoRules?.svs || {}).length;
+  const votingThreshold = dsoInfo?.voting_threshold || Math.ceil(svCount * 0.67); // 2/3 majority
+  
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
     for (const field of fieldNames) {
@@ -127,11 +132,6 @@ const Governance = () => {
       rawData: voteRequest, // Keep full JSON for debugging
     };
   }) || [];
-
-  // Get SV count and voting threshold from DsoRules
-  const dsoRules = dsoRulesData?.data?.[0];
-  const svCount = Object.keys(dsoRules?.svs || {}).length;
-  const votingThreshold = dsoInfo?.voting_threshold || Math.ceil(svCount * 0.67); // 2/3 majority
 
   const totalProposals = proposals?.length || 0;
   const activeProposals = proposals?.filter((p: any) => p.status === "pending").length || 0;
