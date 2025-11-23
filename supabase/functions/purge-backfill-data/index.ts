@@ -106,9 +106,11 @@ serve(async (req) => {
 
       while (true) {
         // Direct delete with count to track progress
+        // Use .not() to create a WHERE clause that matches all records
         let deleteQuery = supabase
           .from('ledger_events')
           .delete({ count: 'exact' })
+          .not('event_id', 'is', null)
           .limit(batchSize);
         
         if (filter?.migration_id) {
@@ -138,9 +140,11 @@ serve(async (req) => {
 
       while (true) {
         // Direct delete with count to track progress
+        // Use .not() to create a WHERE clause that matches all records
         let deleteQuery = supabase
           .from('ledger_updates')
           .delete({ count: 'exact' })
+          .not('update_id', 'is', null)
           .limit(batchSize);
         
         if (filter?.migration_id) {
