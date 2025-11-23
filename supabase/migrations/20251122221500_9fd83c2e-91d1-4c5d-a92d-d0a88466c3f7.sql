@@ -28,7 +28,7 @@ CREATE TABLE public.ledger_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Cursors for backfilling
+-- Backfill cursors
 CREATE TABLE public.backfill_cursors (
   migration_id INTEGER NOT NULL,
   synchronizer_id TEXT NOT NULL,
@@ -49,40 +49,39 @@ ALTER TABLE public.ledger_updates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ledger_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.backfill_cursors ENABLE ROW LEVEL SECURITY;
 
--- Public Read Policies
-CREATE POLICY "Public can read ledger_updates"
+-- Public read access (required for explorers)
+CREATE POLICY "Public read ledger_updates"
   ON public.ledger_updates
   FOR SELECT
   USING (true);
 
-CREATE POLICY "Public can read ledger_events"
+CREATE POLICY "Public read ledger_events"
   ON public.ledger_events
   FOR SELECT
   USING (true);
 
-CREATE POLICY "Public can read backfill_cursors"
+CREATE POLICY "Public read backfill_cursors"
   ON public.backfill_cursors
   FOR SELECT
   USING (true);
 
--- Admin Write Access
-CREATE POLICY "Admins can insert ledger_updates"
+-- Service role write policies (Lovable-safe)
+CREATE POLICY "Service role can insert ledger_updates"
   ON public.ledger_updates
   FOR INSERT
-  WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
+  WITH CHECK (auth.role() = 'service_role');
 
-CREATE POLICY "Admins can insert ledger_events"
+CREATE POLICY "Service role can insert ledger_events"
   ON public.ledger_events
   FOR INSERT
-  WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
+  WITH CHECK (auth.role() = 'service_role');
 
-CREATE POLICY "Admins can insert backfill_cursors"
+CREATE POLICY "Service role can insert backfill_cursors"
   ON public.backfill_cursors
   FOR INSERT
-  WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
+  WITH CHECK (auth.role() = 'service_role');
 
--- Admin Update access
-CREATE POLICY "Admins can update backfill_cursors"
+CREATE POLICY "Service role can update backfill_cursors"
   ON public.backfill_cursors
   FOR UPDATE
-  USING (has_role(auth.uid(), 'admin'::app_role));
+  USING (auth.role() = 'service_role');
