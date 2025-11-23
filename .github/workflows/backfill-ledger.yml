@@ -1,7 +1,9 @@
 name: Backfill Ledger History
 
 on:
-  workflow_dispatch: {}  # manual trigger only (backfill is heavy)
+  schedule:
+    - cron: '0 0 * * 0'  # Run every Sunday at midnight (00:00 UTC)
+  workflow_dispatch: {}  # Keep manual trigger available
 
 jobs:
   backfill:
