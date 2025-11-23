@@ -1,0 +1,257 @@
+import { DashboardLayout } from "@/components/DashboardLayout";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { Lock, ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { DataSourcesFooter } from "@/components/DataSourcesFooter";
+import { Input } from "@/components/ui/input";
+import { PaginationControls } from "@/components/PaginationControls";
+
+const Allocations = () => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
+  const itemsPerPage = 20;
+
+  const { data: latestSnapshot } = useLatestACSSnapshot();
+
+  const allocationsQuery = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:AmuletAllocation:AmuletAllocation",
+    !!latestSnapshot
+  );
+
+  const getField = (obj: any, fieldNames: string[]) => {
+    for (const name of fieldNames) {
+      // Try direct property access
+      if (obj?.[name] !== undefined && obj?.[name] !== null) return obj[name];
+      
+      // Try nested path traversal (e.g., "allocation.settlement.executor")
+      if (name.includes('.')) {
+        const parts = name.split('.');
+        let current = obj;
+        for (const part of parts) {
+          if (current?.[part] !== undefined && current?.[part] !== null) {
+            current = current[part];
+          } else {
+            current = null;
+            break;
+          }
+        }
+        if (current !== null) return current;
+      }
+      
+      // Try payload access
+      if (obj?.payload?.[name] !== undefined && obj?.payload?.[name] !== null) return obj.payload[name];
+      
+      // Try nested path in payload
+      if (name.includes('.') && obj?.payload) {
+        const parts = name.split('.');
+        let current = obj.payload;
+        for (const part of parts) {
+          if (current?.[part] !== undefined && current?.[part] !== null) {
+            current = current[part];
+          } else {
+            current = null;
+            break;
+          }
+        }
+        if (current !== null) return current;
+      }
+    }
+    return null;
+  };
+
+  const allocations = allocationsQuery.data?.data || [];
+  
+  // Debug logging to inspect the actual structure
+  if (allocations.length > 0) {
+    console.log("🔍 DEBUG Allocations: First allocation structure:", JSON.stringify(allocations[0], null, 2));
+    console.log("🔍 DEBUG Allocations: Total count:", allocations.length);
+  }
+
+  const filteredAllocations = allocations.filter((allocation: any) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    const executor = getField(allocation, ["executor", "allocation.settlement.executor"]) || "";
+    const sender = getField(allocation, ["sender", "allocation.transferLeg.sender"]) || "";
+    const receiver = getField(allocation, ["receiver", "allocation.transferLeg.receiver"]) || "";
+    const amount = getField(allocation, ["amount", "allocation.transferLeg.amount"]) || "";
+    
+    return (
+      executor.toLowerCase().includes(search) ||
+      sender.toLowerCase().includes(search) ||
+      receiver.toLowerCase().includes(search) ||
+      amount.toString().includes(search)
+    );
+  });
+
+  const paginatedData = filteredAllocations.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const totalPages = Math.ceil(filteredAllocations.length / itemsPerPage);
+
+  const totalAmount = filteredAllocations.reduce((sum: number, allocation: any) => {
+    const amount = parseFloat(getField(allocation, ["amount", "allocation.transferLeg.amount"]) || "0");
+    return sum + amount;
+  }, 0);
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold mb-2">Amulet Allocations</h2>
+          <p className="text-muted-foreground">
+            Locked amulet allocations and transfer settlements
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Total Allocations</h3>
+              <Lock className="h-5 w-5 text-primary" />
+            </div>
+            {allocationsQuery.isLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <p className="text-3xl font-bold text-primary">
+                {allocations.length.toLocaleString()}
+              </p>
+            )}
+          </Card>
+
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Total Amount</h3>
+              <Lock className="h-5 w-5 text-primary" />
+            </div>
+            {allocationsQuery.isLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <p className="text-3xl font-bold text-primary">
+                {totalAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })} CC
+              </p>
+            )}
+          </Card>
+
+          <Card className="glass-card p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Unique Executors</h3>
+              <Lock className="h-5 w-5 text-primary" />
+            </div>
+            {allocationsQuery.isLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <p className="text-3xl font-bold text-primary">
+                {new Set(allocations.map((a: any) => getField(a, ["executor", "allocation.settlement.executor"]))).size}
+              </p>
+            )}
+          </Card>
+        </div>
+
+        <Input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search by executor, sender, receiver, or amount..."
+          className="max-w-md"
+        />
+
+        {allocationsQuery.isLoading ? (
+          <div className="grid gap-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {paginatedData.map((allocation: any, index: number) => {
+              const itemKey = (currentPage - 1) * itemsPerPage + index;
+              const executor = getField(allocation, ["executor", "allocation.settlement.executor"]);
+              const sender = getField(allocation, ["sender", "allocation.transferLeg.sender"]);
+              const receiver = getField(allocation, ["receiver", "allocation.transferLeg.receiver"]);
+              const amount = getField(allocation, ["amount", "allocation.transferLeg.amount"]);
+              const requestedAt = getField(allocation, ["requestedAt", "allocation.settlement.requestedAt"]);
+              const transferLegId = getField(allocation, ["transferLegId", "allocation.transferLegId"]);
+
+              return (
+                <Card key={index}>
+                  <Collapsible 
+                    open={openItems[itemKey] || false} 
+                    onOpenChange={(isOpen) => setOpenItems(prev => ({ ...prev, [itemKey]: isOpen }))}
+                  >
+                    <CollapsibleTrigger className="w-full">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <div className="flex items-center gap-2">
+                          {openItems[itemKey] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <CardTitle className="text-base font-medium">
+                            Allocation {(currentPage - 1) * itemsPerPage + index + 1}
+                          </CardTitle>
+                        </div>
+                        <Badge variant="secondary">{amount ? `${parseFloat(amount).toFixed(4)} CC` : "N/A"}</Badge>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CardContent>
+                      <div className="grid gap-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Executor:</span>
+                          <span className="font-mono text-xs">{executor || "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Sender:</span>
+                          <span className="font-mono text-xs">{sender || "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Receiver:</span>
+                          <span className="font-mono text-xs">{receiver || "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Transfer Leg ID:</span>
+                          <span className="font-mono text-xs">{transferLegId || "N/A"}</span>
+                        </div>
+                        {requestedAt && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Requested At:</span>
+                            <span className="text-xs">{new Date(requestedAt).toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <CollapsibleContent>
+                        <div className="mt-4 p-4 rounded-lg bg-muted/50">
+                          <p className="text-xs font-semibold mb-2">Raw JSON:</p>
+                          <pre className="text-xs overflow-auto max-h-64">
+                            {JSON.stringify(allocation, null, 2)}
+                          </pre>
+                        </div>
+                      </CollapsibleContent>
+                    </CardContent>
+                  </Collapsible>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        <PaginationControls
+          currentPage={currentPage}
+          totalItems={filteredAllocations.length}
+          pageSize={itemsPerPage}
+          onPageChange={setCurrentPage}
+        />
+
+        <DataSourcesFooter
+          snapshotId={latestSnapshot?.id}
+          templateSuffixes={["Splice:AmuletAllocation:AmuletAllocation"]}
+          isProcessing={latestSnapshot?.status === "processing"}
+        />
+      </div>
+    </DashboardLayout>
+  );
+};
+
+export default Allocations;
