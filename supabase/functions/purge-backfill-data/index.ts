@@ -44,69 +44,163 @@ serve(async (req) => {
 
     console.log("Starting backfill data purge...", { purge_all, migration_id });
 
-    // Helper function to delete in batches
-    const deleteBatch = async (table: string, batchSize: number, filter?: any) => {
+    // Helper function to delete in small batches by fetching IDs first
+    const deleteBatchByIds = async (table: string, batchSize: number, filter?: any) => {
       let totalDeleted = 0;
       let hasMore = true;
 
       while (hasMore) {
-        let query = supabase.from(table).delete().limit(batchSize);
+        // First, fetch a batch of IDs
+        let selectQuery = supabase
+          .from(table)
+          .select('id')
+          .limit(batchSize);
         
         if (filter) {
           Object.entries(filter).forEach(([key, value]) => {
-            query = query.eq(key, value);
+            selectQuery = selectQuery.eq(key, value);
           });
         }
 
-        const { error, count } = await query;
+        const { data: records, error: selectError } = await selectQuery;
         
-        if (error) {
-          console.error(`Error deleting from ${table}:`, error);
-          throw error;
+        if (selectError) {
+          console.error(`Error selecting from ${table}:`, selectError);
+          throw selectError;
         }
 
-        const deleted = count || 0;
-        totalDeleted += deleted;
-        hasMore = deleted === batchSize;
-
-        if (deleted > 0) {
-          console.log(`Deleted ${deleted} records from ${table} (total: ${totalDeleted})`);
+        if (!records || records.length === 0) {
+          hasMore = false;
+          break;
         }
+
+        // Delete by the fetched IDs
+        const ids = records.map(r => r.id);
+        const { error: deleteError } = await supabase
+          .from(table)
+          .delete()
+          .in('id', ids);
+        
+        if (deleteError) {
+          console.error(`Error deleting from ${table}:`, deleteError);
+          throw deleteError;
+        }
+
+        totalDeleted += records.length;
+        hasMore = records.length === batchSize;
+
+        console.log(`Deleted ${records.length} records from ${table} (total: ${totalDeleted})`);
       }
 
       return totalDeleted;
     };
 
-    // Delete ledger events first (foreign key dependency)
+    // Delete ledger events first (no id column, use event_id)
+    const deleteEventsBatch = async (batchSize: number, filter?: any) => {
+      let totalDeleted = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let selectQuery = supabase
+          .from('ledger_events')
+          .select('event_id')
+          .limit(batchSize);
+        
+        if (filter) {
+          Object.entries(filter).forEach(([key, value]) => {
+            selectQuery = selectQuery.eq(key, value);
+          });
+        }
+
+        const { data: records, error: selectError } = await selectQuery;
+        
+        if (selectError) throw selectError;
+        if (!records || records.length === 0) break;
+
+        const eventIds = records.map(r => r.event_id);
+        const { error: deleteError } = await supabase
+          .from('ledger_events')
+          .delete()
+          .in('event_id', eventIds);
+        
+        if (deleteError) throw deleteError;
+
+        totalDeleted += records.length;
+        hasMore = records.length === batchSize;
+        console.log(`Deleted ${records.length} events (total: ${totalDeleted})`);
+      }
+
+      return totalDeleted;
+    };
+
+    // Delete ledger updates (no id column, use update_id)
+    const deleteUpdatesBatch = async (batchSize: number, filter?: any) => {
+      let totalDeleted = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let selectQuery = supabase
+          .from('ledger_updates')
+          .select('update_id')
+          .limit(batchSize);
+        
+        if (filter) {
+          Object.entries(filter).forEach(([key, value]) => {
+            selectQuery = selectQuery.eq(key, value);
+          });
+        }
+
+        const { data: records, error: selectError } = await selectQuery;
+        
+        if (selectError) throw selectError;
+        if (!records || records.length === 0) break;
+
+        const updateIds = records.map(r => r.update_id);
+        const { error: deleteError } = await supabase
+          .from('ledger_updates')
+          .delete()
+          .in('update_id', updateIds);
+        
+        if (deleteError) throw deleteError;
+
+        totalDeleted += records.length;
+        hasMore = records.length === batchSize;
+        console.log(`Deleted ${records.length} updates (total: ${totalDeleted})`);
+      }
+
+      return totalDeleted;
+    };
+
+    // Delete ledger events first
     if (purge_all) {
       console.log("Deleting all ledger events in batches...");
-      deletedEvents = await deleteBatch('ledger_events', 5000);
+      deletedEvents = await deleteEventsBatch(1000);
       console.log(`✅ Deleted ${deletedEvents} total ledger events`);
     } else if (migration_id) {
       console.log(`Deleting ledger events for migration ${migration_id}...`);
-      deletedEvents = await deleteBatch('ledger_events', 5000, { migration_id });
+      deletedEvents = await deleteEventsBatch(1000, { migration_id });
       console.log(`✅ Deleted ${deletedEvents} ledger events for migration ${migration_id}`);
     }
 
     // Delete ledger updates
     if (purge_all) {
       console.log("Deleting all ledger updates in batches...");
-      deletedUpdates = await deleteBatch('ledger_updates', 5000);
+      deletedUpdates = await deleteUpdatesBatch(1000);
       console.log(`✅ Deleted ${deletedUpdates} total ledger updates`);
     } else if (migration_id) {
       console.log(`Deleting ledger updates for migration ${migration_id}...`);
-      deletedUpdates = await deleteBatch('ledger_updates', 5000, { migration_id });
+      deletedUpdates = await deleteUpdatesBatch(1000, { migration_id });
       console.log(`✅ Deleted ${deletedUpdates} ledger updates for migration ${migration_id}`);
     }
 
     // Delete backfill cursors
     if (purge_all) {
       console.log("Deleting all backfill cursors in batches...");
-      deletedCursors = await deleteBatch('backfill_cursors', 1000);
+      deletedCursors = await deleteBatchByIds('backfill_cursors', 500);
       console.log(`✅ Deleted ${deletedCursors} total backfill cursors`);
     } else if (migration_id) {
       console.log(`Deleting backfill cursors for migration ${migration_id}...`);
-      deletedCursors = await deleteBatch('backfill_cursors', 1000, { migration_id });
+      deletedCursors = await deleteBatchByIds('backfill_cursors', 500, { migration_id });
       console.log(`✅ Deleted ${deletedCursors} backfill cursors for migration ${migration_id}`);
     }
 
@@ -114,7 +208,7 @@ serve(async (req) => {
     if (purge_all) {
       console.log("Resetting live update cursor...");
       try {
-        await deleteBatch('live_update_cursor', 100);
+        await deleteBatchByIds('live_update_cursor', 100);
         resetLiveCursor = true;
         console.log("✅ Live update cursor reset");
       } catch (cursorError) {
@@ -145,8 +239,32 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("Error in purge-backfill-data:", error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    const errorDetails = error instanceof Error ? error.toString() : String(error);
+    
+    // Handle Supabase errors which are objects with code, message, etc.
+    let errorMessage = 'Unknown error occurred';
+    let errorDetails = '';
+    
+    if (error && typeof error === 'object') {
+      if ('message' in error) {
+        errorMessage = String(error.message);
+      }
+      if ('code' in error) {
+        errorDetails = `Code: ${error.code}`;
+      }
+      if ('details' in error && error.details) {
+        errorDetails += ` Details: ${error.details}`;
+      }
+      if ('hint' in error && error.hint) {
+        errorDetails += ` Hint: ${error.hint}`;
+      }
+      // Fallback to JSON stringify
+      if (!errorDetails) {
+        errorDetails = JSON.stringify(error);
+      }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+      errorDetails = error.stack || error.toString();
+    }
     
     return new Response(
       JSON.stringify({ 
