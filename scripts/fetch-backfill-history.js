@@ -54,6 +54,50 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function retryWithBackoff(fn, options = {}) {
+  const {
+    maxRetries = 5,
+    baseDelay = 1000,
+    maxDelay = 30000,
+    shouldRetry = (error) => {
+      // Retry on timeout, connection, and temporary errors
+      const retryableCodes = ['PGRST301', '08000', '08003', '08006', '57014', '40001', '40P01'];
+      const retryableMessages = ['timeout', 'connection', 'temporary', 'lock', 'deadlock'];
+      
+      if (error.code && retryableCodes.includes(error.code)) return true;
+      if (error.message) {
+        const msg = error.message.toLowerCase();
+        return retryableMessages.some(term => msg.includes(term));
+      }
+      return false;
+    }
+  } = options;
+
+  let lastError;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt === maxRetries || !shouldRetry(error)) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+      const jitter = Math.random() * exponentialDelay * 0.3; // 30% jitter
+      const delay = exponentialDelay + jitter;
+      
+      console.log(`   ⏳ Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms (error: ${error.message})`);
+      await sleep(delay);
+    }
+  }
+  
+  throw lastError;
+}
+
 function getEventTime(txOrReassign) {
   return (
     txOrReassign.record_time ||
@@ -122,34 +166,36 @@ async function fetchMigrationInfo(migration_id) {
 // ---------- Cursor persistence ----------
 
 async function getCursor(migration_id, synchronizer_id, min_time, max_time) {
-  const { data, error } = await supabase
-    .from("backfill_cursors")
-    .select("*")
-    .eq("migration_id", migration_id)
-    .eq("synchronizer_id", synchronizer_id)
-    .maybeSingle();
-
-  if (error && error.code !== "PGRST116") throw error;
-
-  if (!data) {
-    const { data: inserted, error: insertError } = await supabase
+  return await retryWithBackoff(async () => {
+    const { data, error } = await supabase
       .from("backfill_cursors")
-      .insert({
-        migration_id,
-        synchronizer_id,
-        min_time,
-        max_time,
-        last_before: null,
-        complete: false,
-      })
       .select("*")
-      .single();
+      .eq("migration_id", migration_id)
+      .eq("synchronizer_id", synchronizer_id)
+      .maybeSingle();
 
-    if (insertError) throw insertError;
-    return inserted;
-  }
+    if (error && error.code !== "PGRST116") throw error;
 
-  return data;
+    if (!data) {
+      const { data: inserted, error: insertError } = await supabase
+        .from("backfill_cursors")
+        .insert({
+          migration_id,
+          synchronizer_id,
+          min_time,
+          max_time,
+          last_before: null,
+          complete: false,
+        })
+        .select("*")
+        .single();
+
+      if (insertError) throw insertError;
+      return inserted;
+    }
+
+    return data;
+  });
 }
 
 async function updateCursorLastBefore(
@@ -158,17 +204,19 @@ async function updateCursorLastBefore(
   last_before,
   complete = false,
 ) {
-  const { error } = await supabase
-    .from("backfill_cursors")
-    .update({
-      last_before,
-      complete,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("migration_id", migration_id)
-    .eq("synchronizer_id", synchronizer_id);
+  await retryWithBackoff(async () => {
+    const { error } = await supabase
+      .from("backfill_cursors")
+      .update({
+        last_before,
+        complete,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("migration_id", migration_id)
+      .eq("synchronizer_id", synchronizer_id);
 
-  if (error) throw error;
+    if (error) throw error;
+  });
 }
 
 // ---------- DB inserts ----------
@@ -180,11 +228,14 @@ async function upsertInBatches(table, rows, batchSize = 500) {
   
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
-    const { error } = await supabase
-      .from(table)
-      .upsert(batch, { onConflict });
     
-    if (error) throw error;
+    await retryWithBackoff(async () => {
+      const { error } = await supabase
+        .from(table)
+        .upsert(batch, { onConflict });
+      
+      if (error) throw error;
+    });
     
     console.log(`   📝 Upserted ${batch.length} rows to ${table} (${i + batch.length}/${rows.length})`);
   }
