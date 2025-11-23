@@ -77,7 +77,7 @@ const Governance = () => {
     console.log("🔍 DEBUG Governance: First price vote structure:", JSON.stringify(priceVotes[0], null, 2));
   }
 
-  // Process proposals from ACS data
+  // Process proposals from ACS data with full JSON parsing
   const proposals = voteRequestsData?.data.map((voteRequest: any) => {
     const votes = voteRequest.votes || {};
     const votesList = Object.values(votes);
@@ -85,16 +85,46 @@ const Governance = () => {
     const votesAgainst = votesList.filter((v: any) => v?.reject || v?.Reject).length;
     const action = voteRequest.action || {};
     const actionKey = Object.keys(action)[0] || "Unknown";
+    const actionData = action[actionKey];
     const title = actionKey.replace(/ARC_|_/g, " ");
     
+    // Extract requester information
+    const requester = voteRequest.requester || "Unknown";
+    const requesterParty = voteRequest.requesterName || requester;
+    
+    // Extract reason
+    const reason = voteRequest.reason?.url || voteRequest.reason || "No reason provided";
+    
+    // Extract voting information
+    const votedSvs = Object.keys(votes).map(svParty => ({
+      party: svParty,
+      vote: votes[svParty]?.accept || votes[svParty]?.Accept ? "accept" : "reject",
+      weight: votes[svParty]?.expiresAt || "N/A"
+    }));
+    
+    // Determine status based on votes and threshold
+    const threshold = votingThreshold || svCount;
+    let status: "approved" | "rejected" | "pending" = "pending";
+    if (votesFor >= threshold) status = "approved";
+    else if (votesAgainst > (svCount - threshold)) status = "rejected";
+    
     return {
-      id: voteRequest.trackingCid?.slice(0, 12) || "unknown",
+      id: voteRequest.trackingCid?.slice(0, 12) || voteRequest.contractId?.slice(0, 12) || "unknown",
+      trackingCid: voteRequest.trackingCid,
       title,
-      description: `Requested by ${voteRequest.requester?.slice(0, 20)}...`,
-      status: "pending" as const,
+      actionType: actionKey,
+      actionData,
+      description: reason,
+      requester,
+      requesterParty,
+      status,
       votesFor,
       votesAgainst,
+      votedSvs,
+      effectiveAt: voteRequest.effectiveAt,
+      expiresAt: voteRequest.expiresAt,
       createdAt: voteRequest.effectiveAt,
+      rawData: voteRequest, // Keep full JSON for debugging
     };
   }) || [];
 
@@ -274,44 +304,86 @@ const Governance = () => {
             ) : (
               <div className="space-y-4">
                 {proposals?.map((proposal: any, index: number) => (
-                  <div
-                    key={index}
-                    className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="gradient-accent p-2 rounded-lg">
-                          {getStatusIcon(proposal.status)}
+                  <Collapsible key={index}>
+                    <div className="p-6 rounded-lg bg-muted/30 hover:bg-muted/50 transition-smooth border border-border/50">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="gradient-accent p-2 rounded-lg">
+                            {getStatusIcon(proposal.status)}
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-lg">{proposal.title}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              Proposal #{proposal.id}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Requested by: <span className="font-mono">{proposal.requesterParty.slice(0, 40)}...</span>
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="font-semibold text-lg">{proposal.title}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Proposal #{proposal.id}
-                          </p>
+                        <Badge className={getStatusColor(proposal.status)}>
+                          {proposal.status}
+                        </Badge>
+                      </div>
+
+                      <div className="mb-4 p-3 rounded-lg bg-background/30 border border-border/30">
+                        <p className="text-sm text-muted-foreground mb-1 font-semibold">Reason:</p>
+                        <p className="text-sm">{proposal.description}</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                        <div className="p-3 rounded-lg bg-background/50">
+                          <p className="text-xs text-muted-foreground mb-1">Votes For</p>
+                          <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-background/50">
+                          <p className="text-xs text-muted-foreground mb-1">Votes Against</p>
+                          <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-background/50">
+                          <p className="text-xs text-muted-foreground mb-1">Effective At</p>
+                          <p className="text-xs font-mono">{proposal.effectiveAt ? new Date(proposal.effectiveAt).toLocaleDateString() : "N/A"}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-background/50">
+                          <p className="text-xs text-muted-foreground mb-1">Expires At</p>
+                          <p className="text-xs font-mono">{proposal.expiresAt ? new Date(proposal.expiresAt).toLocaleDateString() : "N/A"}</p>
                         </div>
                       </div>
-                      <Badge className={getStatusColor(proposal.status)}>
-                        {proposal.status}
-                      </Badge>
-                    </div>
 
-                    <p className="text-muted-foreground mb-4">{proposal.description}</p>
+                      {proposal.votedSvs?.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs text-muted-foreground mb-2 font-semibold">Votes Cast:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {proposal.votedSvs.map((sv: any, idx: number) => (
+                              <Badge 
+                                key={idx} 
+                                variant="outline" 
+                                className={sv.vote === "accept" ? "border-success/50 text-success" : "border-destructive/50 text-destructive"}
+                              >
+                                {sv.party.slice(0, 20)}... - {sv.vote}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">For</p>
-                        <p className="text-lg font-bold text-success">{proposal.votesFor || 0}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Against</p>
-                        <p className="text-lg font-bold text-destructive">{proposal.votesAgainst || 0}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-background/50">
-                        <p className="text-xs text-muted-foreground mb-1">Created</p>
-                        <p className="text-sm font-mono">{new Date(proposal.createdAt).toLocaleDateString()}</p>
-                      </div>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full mt-2">
+                          <Code className="h-4 w-4 mr-2" />
+                          View Full JSON Data
+                        </Button>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent className="mt-4">
+                        <div className="p-4 rounded-lg bg-background/70 border border-border/50">
+                          <p className="text-xs text-muted-foreground mb-2 font-semibold">Action Type: {proposal.actionType}</p>
+                          <pre className="text-xs overflow-x-auto p-3 bg-muted/30 rounded border border-border/30">
+                            {JSON.stringify(proposal.rawData, null, 2)}
+                          </pre>
+                        </div>
+                      </CollapsibleContent>
                     </div>
-                  </div>
+                  </Collapsible>
                 ))}
               </div>
             )}
