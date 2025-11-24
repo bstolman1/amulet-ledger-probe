@@ -135,14 +135,11 @@ serve(async (req) => {
             throw error;
           }
           
-          const deleted = updateIds.length;
-          totalDeleted += deleted;
+          totalDeleted += updateIds.length;
+          console.log(`Deleted ${updateIds.length} events (total: ${totalDeleted})`);
           
-          if (deleted > 0) {
-            console.log(`Deleted ${deleted} events (total: ${totalDeleted})`);
-          }
-          
-          if (deleted === 0) break;
+          // If we got fewer updates than requested, we're done
+          if (updates.length < safeBatchSize) break;
         } else {
           // For purge_all, select IDs first then delete
           const { data: batch, error: selectError } = await supabase
@@ -171,14 +168,11 @@ serve(async (req) => {
             throw error;
           }
           
-          const deleted = ids.length;
-          totalDeleted += deleted;
+          totalDeleted += ids.length;
+          console.log(`Deleted ${ids.length} events (total: ${totalDeleted})`);
           
-          if (deleted > 0) {
-            console.log(`Deleted ${deleted} events (total: ${totalDeleted})`);
-          }
-          
-          if (deleted < safeBatchSize) break;
+          // If we got fewer records than requested, we're done
+          if (batch.length < safeBatchSize) break;
         }
       }
 
@@ -205,7 +199,10 @@ serve(async (req) => {
         
         if (!batch || batch.length === 0) break;
         
-        const ids = batch.map(u => u.update_id);
+        const ids = batch.map(u => u.update_id).filter(id => id);
+        
+        if (ids.length === 0) break;
+        
         const { error } = await supabase
           .from('ledger_updates')
           .delete()
@@ -213,14 +210,11 @@ serve(async (req) => {
         
         if (error) throw error;
         
-        const deleted = ids.length;
-        totalDeleted += deleted;
+        totalDeleted += ids.length;
+        console.log(`Deleted ${ids.length} updates (total: ${totalDeleted})`);
         
-        if (deleted > 0) {
-          console.log(`Deleted ${deleted} updates (total: ${totalDeleted})`);
-        }
-        
-        if (deleted < safeBatchSize) break;
+        // If we got fewer records than requested, we're done
+        if (batch.length < safeBatchSize) break;
       }
 
       return totalDeleted;
