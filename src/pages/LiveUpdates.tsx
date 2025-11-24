@@ -3,50 +3,16 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, Database, Clock, Search, Trash2 } from "lucide-react";
+import { Activity, Database, Clock, Search } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useLedgerUpdates, LedgerUpdate } from "@/hooks/use-ledger-updates";
-import { toast } from "sonner";
 
 const LiveUpdates = () => {
   const { data: updates = [], isLoading } = useLedgerUpdates(100);
   const [realtimeUpdates, setRealtimeUpdates] = useState<LedgerUpdate[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMigration, setSelectedMigration] = useState<number | null>(null);
-  const [isPurging, setIsPurging] = useState(false);
-
-  const handlePurgeAll = async () => {
-    if (!confirm("⚠️ Are you sure you want to purge ALL backfill data? This will delete:\n\n• All ledger_updates\n• All ledger_events\n• All backfill_cursors\n• Reset live_update_cursor\n\nThis action cannot be undone!")) {
-      return;
-    }
-
-    setIsPurging(true);
-    toast.info("Starting purge process...");
-
-    try {
-      const { data, error } = await supabase.functions.invoke('purge-backfill-data', {
-        body: { purge_all: true }
-      });
-
-      if (error) throw error;
-
-      toast.success("✅ Purge completed successfully", {
-        description: `Deleted ${data.deleted_events || 0} events, ${data.deleted_updates || 0} updates, ${data.deleted_cursors || 0} cursors`
-      });
-
-      // Refresh the page data
-      window.location.reload();
-    } catch (error: any) {
-      console.error("Purge error:", error);
-      toast.error("Failed to purge data", {
-        description: error.message || "Unknown error occurred"
-      });
-    } finally {
-      setIsPurging(false);
-    }
-  };
 
   useEffect(() => {
     const channel = supabase
@@ -105,21 +71,9 @@ const LiveUpdates = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Live Ledger Updates</h1>
-            <p className="text-muted-foreground">Real-time stream of ledger updates from V2 API</p>
-          </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handlePurgeAll}
-            disabled={isPurging}
-            className="gap-2"
-          >
-            <Trash2 className="w-4 h-4" />
-            {isPurging ? "Purging..." : "Purge All Data"}
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Live Ledger Updates</h1>
+          <p className="text-muted-foreground">Real-time stream of ledger updates from V2 API</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
