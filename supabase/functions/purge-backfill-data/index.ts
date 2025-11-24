@@ -125,9 +125,9 @@ serve(async (req) => {
           
           if (updateIds.length === 0) break;
           
-          const { error, count } = await supabase
+          const { error } = await supabase
             .from('ledger_events')
-            .delete({ count: 'exact' })
+            .delete()
             .in('update_id', updateIds);
           
           if (error) {
@@ -135,7 +135,7 @@ serve(async (req) => {
             throw error;
           }
           
-          const deleted = count || 0;
+          const deleted = updateIds.length;
           totalDeleted += deleted;
           
           if (deleted > 0) {
@@ -161,9 +161,9 @@ serve(async (req) => {
           
           if (ids.length === 0) break;
           
-          const { error, count } = await supabase
+          const { error } = await supabase
             .from('ledger_events')
-            .delete({ count: 'exact' })
+            .delete()
             .in('event_id', ids);
           
           if (error) {
@@ -171,7 +171,7 @@ serve(async (req) => {
             throw error;
           }
           
-          const deleted = count || 0;
+          const deleted = ids.length;
           totalDeleted += deleted;
           
           if (deleted > 0) {
@@ -206,14 +206,14 @@ serve(async (req) => {
         if (!batch || batch.length === 0) break;
         
         const ids = batch.map(u => u.update_id);
-        const { error, count } = await supabase
+        const { error } = await supabase
           .from('ledger_updates')
-          .delete({ count: 'exact' })
+          .delete()
           .in('update_id', ids);
         
         if (error) throw error;
         
-        const deleted = count || 0;
+        const deleted = ids.length;
         totalDeleted += deleted;
         
         if (deleted > 0) {
