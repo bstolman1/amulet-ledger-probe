@@ -103,32 +103,37 @@ serve(async (req) => {
     // Delete ledger events in small batches to avoid timeout
     const deleteEventsBatch = async (batchSize: number, filter?: any) => {
       let totalDeleted = 0;
-      const safeBatchSize = 500; // Smaller batches to stay under timeout
+      const safeBatchSize = 500;
 
       while (true) {
-        // Use a simple filter that doesn't require full table scan
-        let deleteQuery = supabase
-          .from('ledger_events')
-          .delete({ count: 'exact' })
-          .limit(safeBatchSize);
-        
         if (filter?.migration_id) {
           // For migration filter, join with ledger_updates
-          const { data: updates } = await supabase
+          const { data: updates, error: selectError } = await supabase
             .from('ledger_updates')
             .select('update_id')
             .eq('migration_id', filter.migration_id)
             .limit(safeBatchSize);
           
+          if (selectError) {
+            console.error("Error selecting updates:", selectError);
+            throw selectError;
+          }
+          
           if (!updates || updates.length === 0) break;
           
-          const updateIds = updates.map(u => u.update_id);
+          const updateIds = updates.map(u => u.update_id).filter(id => id); // Filter out nulls
+          
+          if (updateIds.length === 0) break;
+          
           const { error, count } = await supabase
             .from('ledger_events')
             .delete({ count: 'exact' })
             .in('update_id', updateIds);
           
-          if (error) throw error;
+          if (error) {
+            console.error("Error deleting events:", error);
+            throw error;
+          }
           
           const deleted = count || 0;
           totalDeleted += deleted;
@@ -140,20 +145,31 @@ serve(async (req) => {
           if (deleted === 0) break;
         } else {
           // For purge_all, select IDs first then delete
-          const { data: batch } = await supabase
+          const { data: batch, error: selectError } = await supabase
             .from('ledger_events')
             .select('event_id')
             .limit(safeBatchSize);
           
+          if (selectError) {
+            console.error("Error selecting events:", selectError);
+            throw selectError;
+          }
+          
           if (!batch || batch.length === 0) break;
           
-          const ids = batch.map(e => e.event_id);
+          const ids = batch.map(e => e.event_id).filter(id => id); // Filter out nulls
+          
+          if (ids.length === 0) break;
+          
           const { error, count } = await supabase
             .from('ledger_events')
             .delete({ count: 'exact' })
             .in('event_id', ids);
           
-          if (error) throw error;
+          if (error) {
+            console.error("Error deleting events:", error);
+            throw error;
+          }
           
           const deleted = count || 0;
           totalDeleted += deleted;
