@@ -239,10 +239,21 @@ const AmuletRules = () => {
     !!latestSnapshot
   );
 
+  // Debug logging
+  console.log("🔍 AmuletRules Debug:", {
+    snapshotId: latestSnapshot?.id,
+    queryData: amuletRulesQuery.data,
+    rawData: amuletRulesQuery.data?.data?.[0],
+    isLoading: amuletRulesQuery.isLoading,
+    error: amuletRulesQuery.error
+  });
+
   const normalizedRule = useMemo(
     () => normalizeAmuletRule(amuletRulesQuery.data?.data?.[0]),
     [amuletRulesQuery.data]
   );
+
+  console.log("🔍 Normalized rule:", normalizedRule);
 
   const transferConfig = normalizedRule?.transferConfig;
   const issuanceCurve = normalizedRule?.issuanceCurve;
