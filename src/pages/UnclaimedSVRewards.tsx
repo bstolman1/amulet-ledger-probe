@@ -335,8 +335,11 @@ const UnclaimedSVRewards = () => {
                 <div className="flex items-center justify-center py-12 text-muted-foreground">
                   <div className="text-center space-y-2">
                     <Award className="h-12 w-12 mx-auto opacity-50" />
-                    <p className="font-medium">Claimed rewards data will be available here</p>
-                    <p className="text-sm">This requires querying historical transaction data</p>
+                    <p className="font-medium">Claimed rewards tracking is not yet implemented</p>
+                    <p className="text-sm">This requires querying the ledger_events table for Exercise events on reward coupon contracts where the action was successful</p>
+                    <p className="text-xs mt-2 max-w-md mx-auto">
+                      Implementation would need to: (1) Query ledger_events for template IDs ending in ValidatorRewardCoupon, SvRewardCoupon, AppRewardCoupon (2) Filter for Exercise event_type (3) Extract claimed amounts and timestamps
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -355,8 +358,11 @@ const UnclaimedSVRewards = () => {
                 <div className="flex items-center justify-center py-12 text-muted-foreground">
                   <div className="text-center space-y-2">
                     <Award className="h-12 w-12 mx-auto opacity-50" />
-                    <p className="font-medium">Expired rewards data will be available here</p>
-                    <p className="text-sm">This requires querying historical transaction data</p>
+                    <p className="font-medium">Expired rewards tracking is not yet implemented</p>
+                    <p className="text-sm">This requires querying the ledger_events table for Archive events on reward coupon contracts that were not claimed</p>
+                    <p className="text-xs mt-2 max-w-md mx-auto">
+                      Implementation would need to: (1) Query ledger_events for Archive events on reward coupons (2) Check if expiration time passed without Exercise event (3) Calculate expired amounts
+                    </p>
                   </div>
                 </div>
               </CardContent>
