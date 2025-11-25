@@ -140,14 +140,27 @@ const normalizeFutureValues = (futureValues: any): NormalizedIssuanceFutureValue
 const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
   if (!raw) return null;
   const source = raw.payload ?? raw;
+  
+  // Check if data is under configSchedule.initialValue
+  const config = source.configSchedule?.initialValue ?? source;
+  
   const transferConfig = pickFirstDefined(
+    config.transferConfig,
+    config.transfer_config,
+    config.TransferConfig,
+    config.transfer_configSchedule,
     source.transferConfig,
-    source.transfer_config,
-    source.TransferConfig,
-    source.transfer_configSchedule
+    source.transfer_config
   );
-  const issuanceCurve = pickFirstDefined(source.issuanceCurve, source.issuance_curve);
+  const issuanceCurve = pickFirstDefined(
+    config.issuanceCurve, 
+    config.issuance_curve,
+    source.issuanceCurve, 
+    source.issuance_curve
+  );
   const decentralizedSynchronizer = pickFirstDefined(
+    config.decentralizedSynchronizer,
+    config.decentralized_synchronizer,
     source.decentralizedSynchronizer,
     source.decentralized_synchronizer
   );
@@ -157,6 +170,8 @@ const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
     templateIdSuffix: pickFirstDefined(source.templateIdSuffix, source.template_id_suffix, "AmuletRules"),
     isDevNet: pickFirstDefined(source.isDevNet, source.is_devnet, source.is_dev_net, false),
     featuredAppActivityMarkerAmount: pickFirstDefined(
+      config.featuredAppActivityMarkerAmount,
+      config.featured_app_activity_marker_amount,
       source.featuredAppActivityMarkerAmount,
       source.featured_app_activity_marker_amount
     ),
@@ -215,7 +230,12 @@ const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
           fees: decentralizedSynchronizer.fees,
         }
       : undefined,
-    packageConfig: pickFirstDefined(source.packageConfig, source.package_config),
+    packageConfig: pickFirstDefined(
+      config.packageConfig, 
+      config.package_config,
+      source.packageConfig, 
+      source.package_config
+    ),
     raw,
   };
 };
@@ -239,21 +259,10 @@ const AmuletRules = () => {
     !!latestSnapshot
   );
 
-  // Debug logging
-  console.log("🔍 AmuletRules Debug:", {
-    snapshotId: latestSnapshot?.id,
-    queryData: amuletRulesQuery.data,
-    rawData: amuletRulesQuery.data?.data?.[0],
-    isLoading: amuletRulesQuery.isLoading,
-    error: amuletRulesQuery.error
-  });
-
   const normalizedRule = useMemo(
     () => normalizeAmuletRule(amuletRulesQuery.data?.data?.[0]),
     [amuletRulesQuery.data]
   );
-
-  console.log("🔍 Normalized rule:", normalizedRule);
 
   const transferConfig = normalizedRule?.transferConfig;
   const issuanceCurve = normalizedRule?.issuanceCurve;
