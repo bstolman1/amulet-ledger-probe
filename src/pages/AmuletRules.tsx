@@ -227,7 +227,28 @@ const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
             decentralizedSynchronizer.requiredSynchronizers,
             decentralizedSynchronizer.required_synchronizers
           ),
-          fees: decentralizedSynchronizer.fees,
+          fees: decentralizedSynchronizer.fees ? {
+            baseRateTrafficLimits: pickFirstDefined(
+              decentralizedSynchronizer.fees.baseRateTrafficLimits,
+              decentralizedSynchronizer.fees.base_rate_traffic_limits
+            ),
+            extraTrafficPrice: pickFirstDefined(
+              decentralizedSynchronizer.fees.extraTrafficPrice,
+              decentralizedSynchronizer.fees.extra_traffic_price
+            ),
+            readVsWriteScalingFactor: pickFirstDefined(
+              decentralizedSynchronizer.fees.readVsWriteScalingFactor,
+              decentralizedSynchronizer.fees.read_vs_write_scaling_factor
+            ),
+            minTopupAmount: pickFirstDefined(
+              decentralizedSynchronizer.fees.minTopupAmount,
+              decentralizedSynchronizer.fees.min_topup_amount
+            ),
+            tickDuration: pickFirstDefined(
+              decentralizedSynchronizer.fees.tickDuration,
+              decentralizedSynchronizer.fees.tick_duration
+            ),
+          } : undefined,
         }
       : undefined,
     packageConfig: pickFirstDefined(
