@@ -12,7 +12,6 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface NormalizedTransferStep {
   amount?: string;
@@ -485,93 +484,6 @@ const AmuletRules = () => {
                       {issuanceCurve?.initialValue?.appRewardPercentage || "—"}
                     </p>
                   </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold">Issuance Timeline</h3>
-                    <Badge variant="outline">{(issuanceCurve?.futureValues?.length || 0) + 1} data points</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Shows validator and app reward allocations from total yearly issuance. Remaining issuance goes to SV rewards and other protocol allocations.
-                  </p>
-                  
-                  {(() => {
-                    const chartData = [
-                      {
-                        label: "Current",
-                        microseconds: 0,
-                        yearlyIssuance: parseFloat(issuanceCurve?.initialValue?.amuletToIssuePerYear || "0"),
-                        validatorReward: parseFloat(issuanceCurve?.initialValue?.validatorRewardPercentage || "0"),
-                        appReward: parseFloat(issuanceCurve?.initialValue?.appRewardPercentage || "0"),
-                      },
-                      ...(issuanceCurve?.futureValues || []).map((future, idx) => ({
-                        label: `Schedule ${idx + 1}`,
-                        microseconds: parseFloat(future.effectiveAfterMicroseconds || "0"),
-                        yearlyIssuance: parseFloat(future.values?.amuletToIssuePerYear || "0"),
-                        validatorReward: parseFloat(future.values?.validatorRewardPercentage || "0"),
-                        appReward: parseFloat(future.values?.appRewardPercentage || "0"),
-                      }))
-                    ].map(d => ({
-                      ...d,
-                      otherAllocations: 100 - d.validatorReward - d.appReward
-                    })).filter(d => !isNaN(d.yearlyIssuance));
-
-                    return chartData.length > 0 ? (
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis 
-                              dataKey="label" 
-                              className="text-xs"
-                            />
-                            <YAxis 
-                              className="text-xs"
-                              label={{ value: 'Allocation %', angle: -90, position: 'insideLeft' }}
-                            />
-                            <Tooltip 
-                              contentStyle={{ 
-                                backgroundColor: 'hsl(var(--background))',
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: '6px'
-                              }}
-                              formatter={(value: number) => `${value.toFixed(2)}%`}
-                            />
-                            <Legend />
-                            <Line 
-                              type="monotone" 
-                              dataKey="validatorReward" 
-                              stroke="hsl(var(--chart-2))" 
-                              name="Validator Rewards"
-                              strokeWidth={2}
-                            />
-                            <Line 
-                              type="monotone" 
-                              dataKey="appReward" 
-                              stroke="hsl(var(--chart-3))" 
-                              name="App Rewards"
-                              strokeWidth={2}
-                            />
-                            <Line 
-                              type="monotone" 
-                              dataKey="otherAllocations" 
-                              stroke="hsl(var(--chart-4))" 
-                              name="SV & Other"
-                              strokeWidth={2}
-                              strokeDasharray="5 5"
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <div className="text-center text-muted-foreground py-8">
-                        No chart data available
-                      </div>
-                    );
-                  })()}
                 </div>
 
                 <Separator />
