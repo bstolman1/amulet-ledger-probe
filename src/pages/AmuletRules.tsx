@@ -244,10 +244,12 @@ const normalizeAmuletRule = (raw: any): NormalizedAmuletRule | null => {
               decentralizedSynchronizer.fees.minTopupAmount,
               decentralizedSynchronizer.fees.min_topup_amount
             ),
-            tickDuration: pickFirstDefined(
-              decentralizedSynchronizer.fees.tickDuration,
-              decentralizedSynchronizer.fees.tick_duration
-            ),
+            tickDuration: (decentralizedSynchronizer.fees.tickDuration || decentralizedSynchronizer.fees.tick_duration) ? {
+              microseconds: pickFirstDefined(
+                decentralizedSynchronizer.fees.tickDuration?.microseconds,
+                decentralizedSynchronizer.fees.tick_duration?.microseconds
+              )
+            } : undefined,
           } : undefined,
         }
       : undefined,
