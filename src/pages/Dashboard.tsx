@@ -8,23 +8,46 @@ import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchConfigData } from "@/lib/config-sync";
+import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
+import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 const Dashboard = () => {
+  // Fetch ACS snapshot for supply calculation
+  const { data: latestSnapshot } = useLatestACSSnapshot();
+
+  // Fetch Amulet contracts for supply calculations
+  const { data: amuletData, isLoading: amuletLoading } = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:Amulet:Amulet",
+    !!latestSnapshot
+  );
+
+  // Fetch LockedAmulet contracts
+  const { data: lockedData, isLoading: lockedLoading } = useAggregatedTemplateData(
+    latestSnapshot?.id,
+    "Splice:Amulet:LockedAmulet",
+    !!latestSnapshot
+  );
+
+  // Calculate supply metrics (same as Supply page)
+  const totalUnlocked = (amuletData?.data || []).reduce((sum: number, amulet: any) => {
+    const amount = parseFloat(amulet.amount?.initialAmount || "0");
+    return sum + amount;
+  }, 0);
+
+  const totalLocked = (lockedData?.data || []).reduce((sum: number, locked: any) => {
+    const amount = parseFloat(locked.amulet?.amount?.initialAmount || locked.amount?.initialAmount || "0");
+    return sum + amount;
+  }, 0);
+
+  const totalSupply = totalUnlocked + totalLocked;
+  const supplyLoading = amuletLoading || lockedLoading;
+
   // Fetch real data from Canton Scan API
   const {
     data: latestRound
   } = useQuery({
     queryKey: ["latestRound"],
     queryFn: () => scanApi.fetchLatestRound()
-  });
-  const {
-    data: totalBalance,
-    isError: balanceError,
-    isLoading: balanceLoading
-  } = useQuery({
-    queryKey: ["totalBalance"],
-    queryFn: () => scanApi.fetchTotalBalance(),
-    retry: 2,
-    retryDelay: 1000
   });
   const {
     data: topValidators,
@@ -62,16 +85,16 @@ const Dashboard = () => {
   const totalValidatorRounds = topValidators?.validatorsAndRewards.reduce((sum, v) => sum + parseFloat(v.rewards), 0) || 0;
   const totalAppRewards = topProviders?.providersAndRewards.reduce((sum, p) => sum + parseFloat(p.rewards), 0) || 0;
   const ccPrice = transactions?.transactions?.[0]?.amulet_price ? parseFloat(transactions.transactions[0].amulet_price) : undefined;
-  const marketCap = totalBalance?.total_balance && ccPrice !== undefined ? (parseFloat(totalBalance.total_balance) * ccPrice).toLocaleString(undefined, {
+  const marketCap = totalSupply > 0 && ccPrice !== undefined ? (totalSupply * ccPrice).toLocaleString(undefined, {
     maximumFractionDigits: 0
   }) : "Loading...";
   const superValidatorCount = configData?.superValidators.length || 0;
   
   const stats = {
-    totalBalance: balanceLoading ? "Loading..." : balanceError ? "Connection Failed" : totalBalance?.total_balance ? parseFloat(totalBalance.total_balance).toLocaleString(undefined, {
+    totalBalance: supplyLoading ? "Loading..." : totalSupply > 0 ? totalSupply.toLocaleString(undefined, {
       maximumFractionDigits: 2
     }) : "Loading...",
-    marketCap: balanceLoading ? "Loading..." : balanceError ? "Connection Failed" : marketCap,
+    marketCap: supplyLoading ? "Loading..." : marketCap,
     superValidators: configData ? superValidatorCount.toString() : "Loading...",
     currentRound: latestRound?.round.toLocaleString() || "Loading...",
     coinPrice: ccPrice !== undefined ? `$${ccPrice.toFixed(4)}` : "Loading...",
