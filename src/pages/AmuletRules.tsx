@@ -494,6 +494,9 @@ const AmuletRules = () => {
                     <h3 className="font-semibold">Issuance Timeline</h3>
                     <Badge variant="outline">{(issuanceCurve?.futureValues?.length || 0) + 1} data points</Badge>
                   </div>
+                  <p className="text-sm text-muted-foreground">
+                    Shows validator and app reward allocations from total yearly issuance. Remaining issuance goes to SV rewards and other protocol allocations.
+                  </p>
                   
                   {(() => {
                     const chartData = [
@@ -511,7 +514,10 @@ const AmuletRules = () => {
                         validatorReward: parseFloat(future.values?.validatorRewardPercentage || "0"),
                         appReward: parseFloat(future.values?.appRewardPercentage || "0"),
                       }))
-                    ].filter(d => !isNaN(d.yearlyIssuance));
+                    ].map(d => ({
+                      ...d,
+                      otherAllocations: 100 - d.validatorReward - d.appReward
+                    })).filter(d => !isNaN(d.yearlyIssuance));
 
                     return chartData.length > 0 ? (
                       <div className="h-64">
@@ -522,35 +528,40 @@ const AmuletRules = () => {
                               dataKey="label" 
                               className="text-xs"
                             />
-                            <YAxis className="text-xs" />
+                            <YAxis 
+                              className="text-xs"
+                              label={{ value: 'Allocation %', angle: -90, position: 'insideLeft' }}
+                            />
                             <Tooltip 
                               contentStyle={{ 
                                 backgroundColor: 'hsl(var(--background))',
                                 border: '1px solid hsl(var(--border))',
                                 borderRadius: '6px'
                               }}
+                              formatter={(value: number) => `${value.toFixed(2)}%`}
                             />
                             <Legend />
                             <Line 
                               type="monotone" 
-                              dataKey="yearlyIssuance" 
-                              stroke="hsl(var(--primary))" 
-                              name="Yearly Issuance"
-                              strokeWidth={2}
-                            />
-                            <Line 
-                              type="monotone" 
                               dataKey="validatorReward" 
                               stroke="hsl(var(--chart-2))" 
-                              name="Validator %"
+                              name="Validator Rewards"
                               strokeWidth={2}
                             />
                             <Line 
                               type="monotone" 
                               dataKey="appReward" 
                               stroke="hsl(var(--chart-3))" 
-                              name="App %"
+                              name="App Rewards"
                               strokeWidth={2}
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="otherAllocations" 
+                              stroke="hsl(var(--chart-4))" 
+                              name="SV & Other"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
                             />
                           </LineChart>
                         </ResponsiveContainer>
