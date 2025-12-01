@@ -71,7 +71,8 @@ const Validators = () => {
 
   // ✅ Count metrics
   const gsfBeneficiaries = allSVs.filter((sv: any) => sv.operatorName === "Global Synchronizer Foundation").length;
-  const totalSVs = gsfBeneficiaries + 12; // GSF beneficiaries + remaining 12 SVs
+  const nonGsfOperators = operators.filter((op: any) => op.name !== "Global Synchronizer Foundation").length;
+  const totalSVs = gsfBeneficiaries + nonGsfOperators; // GSF beneficiaries + non-GSF operators
   const liveSVs = operators.length; // 13 live SVs (top level)
   const offboardedSVs = 0; // none offboarded
   const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
