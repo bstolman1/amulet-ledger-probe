@@ -59,7 +59,7 @@ const Apps = () => {
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {apps.map((app: any, i: number) => {
-                  const appName = getField(app, 'appName', 'name', 'applicationName');
+                  const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description');
                   const provider = getField(app, 'provider', 'providerId', 'providerParty');
                   const dso = getField(app, 'dso');
                   
