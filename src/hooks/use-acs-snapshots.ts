@@ -43,7 +43,7 @@ export function useACSSnapshots() {
       if (error) throw error;
       return data as ACSSnapshot[];
     },
-    staleTime: 30_000,
+    staleTime: 2 * 60_000, // 2 minutes
   });
 }
 
@@ -62,7 +62,7 @@ export function useLatestACSSnapshot() {
       if (error) throw error;
       return data as ACSSnapshot | null;
     },
-    staleTime: 30_000,
+    staleTime: 2 * 60_000, // 2 minutes
   });
 }
 
@@ -102,7 +102,7 @@ export function useActiveSnapshot() {
         isProcessing: latest?.status === 'processing' 
       };
     },
-    staleTime: 30_000,
+    staleTime: 2 * 60_000, // 2 minutes
   });
 }
 
@@ -122,7 +122,7 @@ export function useTemplateStats(snapshotId: string | undefined) {
       return data as ACSTemplateStats[];
     },
     enabled: !!snapshotId,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000, // 5 minutes
   });
 }
 
