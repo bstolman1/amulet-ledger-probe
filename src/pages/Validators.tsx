@@ -70,7 +70,8 @@ const Validators = () => {
   const operators = configData.operators || []; // parent-level validators
 
   // ✅ Count metrics
-  const totalSVs = allSVs.length; // 38 total (flattened)
+  const gsfBeneficiaries = allSVs.filter((sv: any) => sv.operatorName === "Global Synchronizer Foundation").length;
+  const totalSVs = gsfBeneficiaries + 12; // GSF beneficiaries + remaining 12 SVs
   const liveSVs = operators.length; // 13 live SVs (top level)
   const offboardedSVs = 0; // none offboarded
   const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
