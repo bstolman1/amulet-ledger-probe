@@ -22,8 +22,12 @@ const Apps = () => {
   // Helper to safely extract field values from nested structure
   const getField = (record: any, ...fieldNames: string[]) => {
     for (const field of fieldNames) {
+      // Check top level
       if (record[field] !== undefined && record[field] !== null) return record[field];
+      // Check payload
       if (record.payload?.[field] !== undefined && record.payload?.[field] !== null) return record.payload[field];
+      // Check nested in payload.payload
+      if (record.payload?.payload?.[field] !== undefined && record.payload?.payload?.[field] !== null) return record.payload.payload[field];
     }
     return undefined;
   };
@@ -59,9 +63,11 @@ const Apps = () => {
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {apps.map((app: any, i: number) => {
-                  const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description');
-                  const provider = getField(app, 'provider', 'providerId', 'providerParty');
+                  const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description', 'title', 'displayName', 'display_name');
+                  const provider = getField(app, 'provider', 'providerId', 'providerParty', 'provider_id');
                   const dso = getField(app, 'dso');
+                  
+                  console.log(`🔍 App ${i}:`, { appName, provider, rawApp: app });
                   
                   return (
                   <Card key={i} className="p-6 space-y-3">
