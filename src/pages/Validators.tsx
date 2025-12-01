@@ -69,10 +69,22 @@ const Validators = () => {
   const allSVs = configData.superValidators || []; // beneficiaries
   const operators = configData.operators || []; // parent-level validators
 
-  // ✅ Count metrics
+  // ✅ Count metrics - Debug logging
   const gsfBeneficiaries = allSVs.filter((sv: any) => sv.operatorName === "Global Synchronizer Foundation").length;
   const nonGsfOperators = operators.filter((op: any) => op.name !== "Global Synchronizer Foundation").length;
+  
+  console.log('=== SV COUNT DEBUG ===');
+  console.log('All SVs:', allSVs.length);
+  console.log('GSF Beneficiaries:', gsfBeneficiaries);
+  console.log('Total Operators:', operators.length);
+  console.log('Non-GSF Operators:', nonGsfOperators);
+  console.log('Operator Names:', operators.map((op: any) => op.name));
+  console.log('Sample SV operator names:', allSVs.slice(0, 5).map((sv: any) => sv.operatorName));
+  
   const totalSVs = gsfBeneficiaries + nonGsfOperators; // GSF beneficiaries + non-GSF operators
+  console.log('Calculated Total SVs:', totalSVs);
+  console.log('=====================');
+  
   const liveSVs = operators.length; // 13 live SVs (top level)
   const offboardedSVs = 0; // none offboarded
   const ghostSVs = allSVs.filter((sv: any) => sv.isGhost).length;
