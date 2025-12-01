@@ -69,20 +69,25 @@ const Validators = () => {
   const allSVs = configData.superValidators || []; // beneficiaries
   const operators = configData.operators || []; // parent-level validators
 
-  // ✅ Count metrics - Debug logging
-  const gsfBeneficiaries = allSVs.filter((sv: any) => sv.operatorName === "Global Synchronizer Foundation").length;
-  const nonGsfOperators = operators.filter((op: any) => op.name !== "Global Synchronizer Foundation").length;
+  // ✅ Count metrics - Fixed GSF name matching
+  const gsfOperatorNames = ["Global Synchronizer Foundation", "Global-Synchronizer-Foundation", "GSF"];
+  const gsfBeneficiaries = allSVs.filter((sv: any) => 
+    gsfOperatorNames.some(name => sv.operatorName?.includes(name) || sv.operatorName?.includes("GSF"))
+  ).length;
+  const nonGsfOperators = operators.filter((op: any) => 
+    !gsfOperatorNames.some(name => op.name?.includes(name) || op.name?.includes("GSF"))
+  ).length;
   
   console.log('=== SV COUNT DEBUG ===');
   console.log('All SVs:', allSVs.length);
   console.log('GSF Beneficiaries:', gsfBeneficiaries);
   console.log('Total Operators:', operators.length);
   console.log('Non-GSF Operators:', nonGsfOperators);
-  console.log('Operator Names:', operators.map((op: any) => op.name));
-  console.log('Sample SV operator names:', allSVs.slice(0, 5).map((sv: any) => sv.operatorName));
+  console.log('First 5 operator names:', operators.slice(0, 5).map((op: any) => op.name));
+  console.log('First 5 SV operator names:', allSVs.slice(0, 5).map((sv: any) => sv.operatorName));
   
   const totalSVs = gsfBeneficiaries + nonGsfOperators; // GSF beneficiaries + non-GSF operators
-  console.log('Calculated Total SVs:', totalSVs);
+  console.log('Calculated Total SVs:', totalSVs, '(GSF:', gsfBeneficiaries, '+ Non-GSF:', nonGsfOperators, ')');
   console.log('=====================');
   
   const liveSVs = operators.length; // 13 live SVs (top level)
