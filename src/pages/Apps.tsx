@@ -73,7 +73,7 @@ const Apps = () => {
                   <Card key={i} className="p-6 space-y-3">
                     <div className="flex items-center gap-2 mb-2">
                       <Package className="h-5 w-5 text-primary" />
-                      <h3 className="font-semibold text-lg">{appName || 'Unknown App'}</h3>
+                      <h3 className="font-semibold text-lg">{appName || '3Trade Bandwidth Seller'}</h3>
                     </div>
                     <div className="space-y-2">
                       <div>
