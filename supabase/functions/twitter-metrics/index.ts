@@ -1,23 +1,9 @@
-import { createHmac } from "node:crypto";
-
-const API_KEY = Deno.env.get("TWITTER_CONSUMER_KEY")?.trim();
-const API_SECRET = Deno.env.get("TWITTER_CONSUMER_SECRET")?.trim();
-const ACCESS_TOKEN = Deno.env.get("TWITTER_ACCESS_TOKEN")?.trim();
-const ACCESS_TOKEN_SECRET = Deno.env.get("TWITTER_ACCESS_TOKEN_SECRET")?.trim();
 const BEARER_TOKEN = Deno.env.get("TWITTER_BEARER_TOKEN")?.trim();
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-function validateEnvironmentVariables() {
-  if (!API_KEY) throw new Error("Missing TWITTER_CONSUMER_KEY");
-  if (!API_SECRET) throw new Error("Missing TWITTER_CONSUMER_SECRET");
-  if (!ACCESS_TOKEN) throw new Error("Missing TWITTER_ACCESS_TOKEN");
-  if (!ACCESS_TOKEN_SECRET) throw new Error("Missing TWITTER_ACCESS_TOKEN_SECRET");
-  if (!BEARER_TOKEN) throw new Error("Missing TWITTER_BEARER_TOKEN");
-}
 
 const BASE_URL = "https://api.x.com/2";
 
@@ -31,13 +17,21 @@ async function getUserByUsername(username: string) {
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
   const data = await response.json();
-  console.log("User response:", JSON.stringify(data).slice(0, 500));
+  console.log("User response status:", response.status);
+  
+  if (response.status === 429) {
+    return { error: "Rate limited by Twitter API. Please wait a few minutes and try again.", status: 429 };
+  }
+  if (data.errors) {
+    console.error("User API errors:", JSON.stringify(data.errors));
+    return { error: data.errors[0]?.message || "Twitter API error", details: data.errors };
+  }
   return data;
 }
 
-// Get user tweets with full metrics
+// Get user tweets - requires Basic tier ($100/month)
 async function getUserTweets(userId: string, maxResults: number = 100) {
-  const tweetFields = "public_metrics,created_at,context_annotations,entities,referenced_tweets,source,lang,attachments";
+  const tweetFields = "public_metrics,created_at,entities,source";
   const url = `${BASE_URL}/users/${userId}/tweets?max_results=${maxResults}&tweet.fields=${tweetFields}&exclude=retweets`;
   console.log("Fetching tweets:", url);
   const response = await fetch(url, {
@@ -45,119 +39,69 @@ async function getUserTweets(userId: string, maxResults: number = 100) {
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
   const data = await response.json();
-  console.log("Tweets response:", JSON.stringify(data).slice(0, 500));
-  if (data.errors) {
-    console.error("Tweets API errors:", JSON.stringify(data.errors));
+  console.log("Tweets response status:", response.status);
+  
+  if (response.status === 429) {
+    return { error: "Rate limited", status: 429, data: [] };
   }
-  return data;
-}
-
-// Get user mentions
-async function getUserMentions(userId: string, maxResults: number = 100) {
-  const tweetFields = "public_metrics,created_at,author_id,entities";
-  const url = `${BASE_URL}/users/${userId}/mentions?max_results=${maxResults}&tweet.fields=${tweetFields}`;
-  console.log("Fetching mentions:", url);
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
-  });
-  const data = await response.json();
-  console.log("Mentions response:", JSON.stringify(data).slice(0, 300));
-  return data;
-}
-
-// Get followers list
-async function getFollowers(userId: string, maxResults: number = 100) {
-  const userFields = "public_metrics,description,created_at,profile_image_url,verified";
-  const url = `${BASE_URL}/users/${userId}/followers?max_results=${maxResults}&user.fields=${userFields}`;
-  console.log("Fetching followers:", url);
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
-  });
-  const data = await response.json();
-  console.log("Followers response:", JSON.stringify(data).slice(0, 500));
-  if (data.errors) {
-    console.error("Followers API errors:", JSON.stringify(data.errors));
+  if (data.title === "Client Forbidden" || data.reason === "client-not-enrolled") {
+    console.log("Tweets endpoint requires paid API tier");
+    return { error: "Requires paid Twitter API tier", status: 403, data: [] };
   }
-  return data;
-}
-
-// Get following list  
-async function getFollowing(userId: string, maxResults: number = 100) {
-  const userFields = "public_metrics,description,created_at,profile_image_url,verified";
-  const url = `${BASE_URL}/users/${userId}/following?max_results=${maxResults}&user.fields=${userFields}`;
-  console.log("Fetching following:", url);
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
-  });
-  const data = await response.json();
-  console.log("Following response:", JSON.stringify(data).slice(0, 500));
-  if (data.errors) {
-    console.error("Following API errors:", JSON.stringify(data.errors));
-  }
-  return data;
-}
-
-// Get liked tweets
-async function getLikedTweets(userId: string, maxResults: number = 100) {
-  const tweetFields = "public_metrics,created_at,author_id";
-  const url = `${BASE_URL}/users/${userId}/liked_tweets?max_results=${maxResults}&tweet.fields=${tweetFields}`;
-  console.log("Fetching liked tweets:", url);
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
-  });
-  const data = await response.json();
-  console.log("Liked tweets response:", JSON.stringify(data).slice(0, 300));
   return data;
 }
 
 // Get pinned tweet
 async function getTweet(tweetId: string) {
-  const tweetFields = "public_metrics,created_at,context_annotations,entities,source";
+  const tweetFields = "public_metrics,created_at,entities,source";
   const url = `${BASE_URL}/tweets/${tweetId}?tweet.fields=${tweetFields}`;
   console.log("Fetching tweet:", url);
   const response = await fetch(url, {
     method: "GET",
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
-  return response.json();
+  const data = await response.json();
+  
+  if (response.status === 429) {
+    return { error: "Rate limited", status: 429 };
+  }
+  return data;
 }
 
-// Get all analytics in one call
-async function getFullAnalytics(username: string) {
-  console.log("Getting full analytics for:", username);
+// Get analytics - works with free tier (user profile only)
+async function getAnalytics(username: string) {
+  console.log("Getting analytics for:", username);
   
-  // First get the user
+  // Get user profile (works on free tier)
   const userResponse = await getUserByUsername(username);
-  if (userResponse.errors || !userResponse.data) {
-    return { error: userResponse.errors?.[0]?.message || "User not found", details: userResponse };
+  
+  if (userResponse.error) {
+    return { error: userResponse.error, status: userResponse.status };
+  }
+  
+  if (!userResponse.data) {
+    return { error: "User not found or API error", details: userResponse };
   }
   
   const user = userResponse.data;
-  const userId = user.id;
   
-  // Fetch all data in parallel
-  const [tweetsResponse, followersResponse, followingResponse] = await Promise.all([
-    getUserTweets(userId, 100),
-    getFollowers(userId, 100).catch(e => ({ error: e.message })),
-    getFollowing(userId, 100).catch(e => ({ error: e.message })),
-  ]);
-  
+  // Try to get tweets (may fail on free tier)
+  const tweetsResponse = await getUserTweets(user.id, 100);
   const tweets = tweetsResponse.data || [];
-  const followers = followersResponse.data || [];
-  const following = followingResponse.data || [];
+  const tweetsError = tweetsResponse.error;
   
-  // Calculate engagement analytics
-  let totalLikes = 0;
-  let totalRetweets = 0;
-  let totalReplies = 0;
-  let totalQuotes = 0;
-  let totalImpressions = 0;
-  let totalBookmarks = 0;
+  // Try to get pinned tweet
+  let pinnedTweet = null;
+  if (user.pinned_tweet_id) {
+    const pinnedResponse = await getTweet(user.pinned_tweet_id);
+    if (pinnedResponse.data) {
+      pinnedTweet = pinnedResponse.data;
+    }
+  }
   
+  // Calculate engagement from available tweets
+  let totalLikes = 0, totalRetweets = 0, totalReplies = 0, totalQuotes = 0;
+  let totalImpressions = 0, totalBookmarks = 0;
   const tweetsByDay: Record<string, number> = {};
   const engagementByDay: Record<string, { likes: number; retweets: number; replies: number }> = {};
   
@@ -182,7 +126,15 @@ async function getFullAnalytics(username: string) {
     }
   });
   
-  // Find top performing tweets
+  const tweetCount = tweets.length || 1;
+  const avgLikesPerTweet = totalLikes / tweetCount;
+  const avgRetweetsPerTweet = totalRetweets / tweetCount;
+  const avgRepliesPerTweet = totalReplies / tweetCount;
+  const engagementRate = user.public_metrics?.followers_count 
+    ? ((totalLikes + totalRetweets + totalReplies) / tweetCount / user.public_metrics.followers_count) * 100
+    : 0;
+  
+  // Top tweets by likes
   const sortedByLikes = [...tweets].sort((a: any, b: any) => 
     (b.public_metrics?.like_count || 0) - (a.public_metrics?.like_count || 0)
   ).slice(0, 5);
@@ -195,32 +147,17 @@ async function getFullAnalytics(username: string) {
     (b.public_metrics?.impression_count || 0) - (a.public_metrics?.impression_count || 0)
   ).slice(0, 5);
   
-  // Calculate averages
-  const tweetCount = tweets.length || 1;
-  const avgLikesPerTweet = totalLikes / tweetCount;
-  const avgRetweetsPerTweet = totalRetweets / tweetCount;
-  const avgRepliesPerTweet = totalReplies / tweetCount;
-  const engagementRate = user.public_metrics?.followers_count 
-    ? ((totalLikes + totalRetweets + totalReplies) / tweetCount / user.public_metrics.followers_count) * 100
-    : 0;
-  
-  // Follower analytics
-  const verifiedFollowers = followers.filter((f: any) => f.verified).length;
-  const totalFollowerReach = followers.reduce((sum: number, f: any) => sum + (f.public_metrics?.followers_count || 0), 0);
-  
-  // Get pinned tweet if exists
-  let pinnedTweet = null;
-  if (user.pinned_tweet_id) {
-    const pinnedResponse = await getTweet(user.pinned_tweet_id);
-    pinnedTweet = pinnedResponse.data;
-  }
-  
   return {
     user,
     pinnedTweet,
     recentTweets: tweets.slice(0, 20),
+    apiLimitations: {
+      tweetsAvailable: !tweetsError,
+      tweetsError,
+      message: tweetsError ? "Some features require a paid Twitter API tier ($100/month Basic plan)" : null,
+    },
     analytics: {
-      totalTweetsAnalyzed: tweetCount,
+      totalTweetsAnalyzed: tweets.length,
       engagement: {
         totalLikes,
         totalRetweets,
@@ -240,14 +177,6 @@ async function getFullAnalytics(username: string) {
       },
       tweetsByDay,
       engagementByDay,
-      followers: {
-        sampleCount: followers.length,
-        verifiedCount: verifiedFollowers,
-        totalReach: totalFollowerReach,
-      },
-      following: {
-        sampleCount: following.length,
-      },
     },
   };
 }
@@ -258,10 +187,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    validateEnvironmentVariables();
+    if (!BEARER_TOKEN) {
+      throw new Error("Missing TWITTER_BEARER_TOKEN");
+    }
     
     const { action, username, userId, tweetId, maxResults } = await req.json();
-    console.log(`Twitter API request: action=${action}, username=${username}, userId=${userId}`);
+    console.log(`Twitter API request: action=${action}, username=${username}`);
 
     let result;
     switch (action) {
@@ -277,24 +208,20 @@ Deno.serve(async (req) => {
         if (!tweetId) throw new Error("Tweet ID required");
         result = await getTweet(tweetId);
         break;
-      case 'followers':
-        if (!userId) throw new Error("User ID required");
-        result = await getFollowers(userId, maxResults || 100);
-        break;
-      case 'following':
-        if (!userId) throw new Error("User ID required");
-        result = await getFollowing(userId, maxResults || 100);
-        break;
-      case 'mentions':
-        if (!userId) throw new Error("User ID required");
-        result = await getUserMentions(userId, maxResults || 100);
-        break;
       case 'analytics':
         if (!username) throw new Error("Username required");
-        result = await getFullAnalytics(username);
+        result = await getAnalytics(username);
         break;
       default:
-        throw new Error("Invalid action. Use: user, tweets, tweet, followers, following, mentions, analytics");
+        throw new Error("Invalid action. Use: user, tweets, tweet, analytics");
+    }
+
+    // Handle rate limiting
+    if (result.status === 429) {
+      return new Response(JSON.stringify(result), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify(result), {
