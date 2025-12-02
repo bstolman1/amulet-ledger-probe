@@ -17,6 +17,3 @@ verify_jwt = false
 
 [functions.purge-backfill-data]
 verify_jwt = false
-
-[functions.coinmarketcap]
-verify_jwt = false
