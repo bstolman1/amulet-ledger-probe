@@ -114,6 +114,26 @@ export default function TwitterMetrics() {
           <Card className="border-destructive">
             <CardContent className="pt-6">
               <p className="text-destructive">Error loading Twitter data: {error.message}</p>
+              {error.message?.includes("Rate limited") && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  The Twitter API has rate limits. Please wait a few minutes and refresh the page.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* API Limitations Warning */}
+        {data?.apiLimitations?.message && (
+          <Card className="border-yellow-500/50 bg-yellow-500/5">
+            <CardContent className="pt-6">
+              <p className="text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
+                <span className="text-lg">⚠️</span>
+                {data.apiLimitations.message}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Profile metrics from the free tier are shown below. Upgrade to Twitter API Basic ($100/month) for full tweet analytics.
+              </p>
             </CardContent>
           </Card>
         )}

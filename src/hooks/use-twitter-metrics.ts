@@ -19,6 +19,7 @@ export interface TwitterUser {
     tweet_count: number;
     listed_count: number;
     like_count?: number;
+    media_count?: number;
   };
 }
 
@@ -27,7 +28,6 @@ export interface Tweet {
   text: string;
   created_at?: string;
   source?: string;
-  lang?: string;
   public_metrics?: {
     retweet_count: number;
     reply_count: number;
@@ -42,6 +42,11 @@ export interface TwitterAnalytics {
   user: TwitterUser;
   pinnedTweet?: Tweet;
   recentTweets: Tweet[];
+  apiLimitations?: {
+    tweetsAvailable: boolean;
+    tweetsError?: string;
+    message?: string;
+  };
   analytics: {
     totalTweetsAnalyzed: number;
     engagement: {
@@ -63,14 +68,6 @@ export interface TwitterAnalytics {
     };
     tweetsByDay: Record<string, number>;
     engagementByDay: Record<string, { likes: number; retweets: number; replies: number }>;
-    followers: {
-      sampleCount: number;
-      verifiedCount: number;
-      totalReach: number;
-    };
-    following: {
-      sampleCount: number;
-    };
   };
 }
 
@@ -88,45 +85,11 @@ export function useTwitterAnalytics(username: string) {
       return data as TwitterAnalytics;
     },
     staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
-}
-
-export function useTwitterUser(username: string) {
-  return useQuery({
-    queryKey: ["twitter-user", username],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("twitter-metrics", {
-        body: { action: "user", username },
-      });
-      
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
-      return data.data as TwitterUser;
+    retry: (failureCount, error) => {
+      // Don't retry on rate limit
+      if (error.message?.includes("Rate limited")) return false;
+      return failureCount < 2;
     },
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
-}
-
-export function useTwitterTweets(userId: string | undefined, maxResults: number = 100) {
-  return useQuery({
-    queryKey: ["twitter-tweets", userId, maxResults],
-    queryFn: async () => {
-      if (!userId) throw new Error("User ID required");
-      
-      const { data, error } = await supabase.functions.invoke("twitter-metrics", {
-        body: { action: "tweets", userId, maxResults },
-      });
-      
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
-      return (data.data || []) as Tweet[];
-    },
-    enabled: !!userId,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
+    retryDelay: 10000, // Wait 10 seconds before retry
   });
 }
