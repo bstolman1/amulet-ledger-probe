@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.purge-backfill-data]
 verify_jwt = false
+
+[functions.twitter-metrics]
+verify_jwt = false
