@@ -79,17 +79,23 @@ export function useTwitterAnalytics(username: string) {
         body: { action: "analytics", username },
       });
       
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      // Handle edge function errors
+      if (error) {
+        // Check if it's a rate limit error from the response body
+        if (error.message?.includes("429") || error.message?.includes("Rate limit")) {
+          throw new Error("Rate limited by Twitter API. Please wait 15 minutes and try again.");
+        }
+        throw error;
+      }
+      
+      // Handle errors returned in the response body
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       
       return data as TwitterAnalytics;
     },
-    staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => {
-      // Don't retry on rate limit
-      if (error.message?.includes("Rate limited")) return false;
-      return failureCount < 2;
-    },
-    retryDelay: 10000, // Wait 10 seconds before retry
+    staleTime: 10 * 60 * 1000, // 10 minutes - longer to avoid hitting rate limits
+    retry: false, // Don't retry to avoid hitting rate limits more
   });
 }
