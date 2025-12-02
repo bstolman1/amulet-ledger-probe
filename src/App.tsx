@@ -34,6 +34,7 @@ const Elections = lazy(() => import("./pages/Elections"));
 const TransferCounters = lazy(() => import("./pages/TransferCounters"));
 const ExternalPartyRules = lazy(() => import("./pages/ExternalPartyRules"));
 const AmuletRules = lazy(() => import("./pages/AmuletRules"));
+const TwitterMetrics = lazy(() => import("./pages/TwitterMetrics"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const PageLoader = () => (
@@ -91,6 +92,7 @@ const App = () => (
             <Route path="/external-party-rules" element={<ExternalPartyRules />} />
             <Route path="/backfill-progress" element={<BackfillProgress />} />
             <Route path="/live-updates" element={<LiveUpdates />} />
+            <Route path="/twitter" element={<TwitterMetrics />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
