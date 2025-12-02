@@ -45,7 +45,10 @@ async function getUserTweets(userId: string, maxResults: number = 100) {
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
   const data = await response.json();
-  console.log("Tweets response count:", data.data?.length || 0);
+  console.log("Tweets response:", JSON.stringify(data).slice(0, 500));
+  if (data.errors) {
+    console.error("Tweets API errors:", JSON.stringify(data.errors));
+  }
   return data;
 }
 
@@ -73,7 +76,10 @@ async function getFollowers(userId: string, maxResults: number = 100) {
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
   const data = await response.json();
-  console.log("Followers response count:", data.data?.length || 0);
+  console.log("Followers response:", JSON.stringify(data).slice(0, 500));
+  if (data.errors) {
+    console.error("Followers API errors:", JSON.stringify(data.errors));
+  }
   return data;
 }
 
@@ -87,7 +93,10 @@ async function getFollowing(userId: string, maxResults: number = 100) {
     headers: { Authorization: `Bearer ${BEARER_TOKEN}` },
   });
   const data = await response.json();
-  console.log("Following response count:", data.data?.length || 0);
+  console.log("Following response:", JSON.stringify(data).slice(0, 500));
+  if (data.errors) {
+    console.error("Following API errors:", JSON.stringify(data.errors));
+  }
   return data;
 }
 
