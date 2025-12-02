@@ -16,9 +16,9 @@ interface CantonQuoteData {
           percent_change_7d: number;
           market_cap: number;
           volume_24h: number;
-          circulating_supply: number;
-          total_supply: number;
-          fully_diluted_market_cap: number;
+          circulating_supply?: number;
+          total_supply?: number;
+          fully_diluted_market_cap?: number;
         };
       };
     }[];
@@ -31,7 +31,8 @@ interface CantonOverviewCardProps {
   error: Error | null;
 }
 
-const formatNumber = (num: number, decimals = 2) => {
+const formatNumber = (num: number | undefined, decimals = 2) => {
+  if (num === undefined || num === null) return 'N/A';
   if (num >= 1e12) return `$${(num / 1e12).toFixed(decimals)}T`;
   if (num >= 1e9) return `$${(num / 1e9).toFixed(decimals)}B`;
   if (num >= 1e6) return `$${(num / 1e6).toFixed(decimals)}M`;
@@ -39,20 +40,23 @@ const formatNumber = (num: number, decimals = 2) => {
   return `$${num.toFixed(decimals)}`;
 };
 
-const formatSupply = (num: number) => {
+const formatSupply = (num: number | undefined) => {
+  if (num === undefined || num === null) return 'N/A';
   if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
   if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
   if (num >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
   return num.toFixed(0);
 };
 
-const formatPrice = (price: number) => {
+const formatPrice = (price: number | undefined) => {
+  if (price === undefined || price === null) return 'N/A';
   if (price >= 1) return `$${price.toFixed(2)}`;
   if (price >= 0.01) return `$${price.toFixed(4)}`;
   return `$${price.toFixed(8)}`;
 };
 
-const PercentChange = ({ value }: { value: number }) => {
+const PercentChange = ({ value }: { value: number | undefined }) => {
+  if (value === undefined || value === null) return <span className="text-muted-foreground">N/A</span>;
   const isPositive = value >= 0;
   return (
     <span className={`flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
@@ -102,7 +106,9 @@ export function CantonOverviewCard({ data, isLoading, error }: CantonOverviewCar
     );
   }
 
-  const cantonData = data?.data ? Object.values(data.data)[0]?.[0] : null;
+  // Handle the CMC response structure - data.CC is an array
+  const ccArray = data?.data?.CC;
+  const cantonData = Array.isArray(ccArray) ? ccArray[0] : null;
   const quote = cantonData?.quote?.USD;
 
   if (!quote) {
@@ -172,7 +178,9 @@ export function CantonOverviewCard({ data, isLoading, error }: CantonOverviewCar
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">Circulating Supply</p>
-            <p className="text-lg font-semibold">{formatSupply(quote.circulating_supply)} CC</p>
+            <p className="text-lg font-semibold">
+              {quote.circulating_supply ? `${formatSupply(quote.circulating_supply)} CC` : 'N/A'}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">FDV</p>
