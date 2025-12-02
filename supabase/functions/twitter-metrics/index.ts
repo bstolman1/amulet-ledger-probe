@@ -216,14 +216,7 @@ Deno.serve(async (req) => {
         throw new Error("Invalid action. Use: user, tweets, tweet, analytics");
     }
 
-    // Handle rate limiting
-    if (result.status === 429) {
-      return new Response(JSON.stringify(result), {
-        status: 429,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
+    // Always return 200 so client can read response body
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
