@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, DollarSign, BarChart3, Globe, Coins } from "lucide-react";
+import { CantonOverviewCard } from "@/components/cmc/CantonOverviewCard";
+import { CantonPriceChart } from "@/components/cmc/CantonPriceChart";
+import { PricePerformanceCard } from "@/components/cmc/PricePerformanceCard";
+import { MarketPairsTable } from "@/components/cmc/MarketPairsTable";
+import { useCantonPricePerformance, useCantonMarketPairs, useCantonOHLCV } from "@/hooks/use-canton-cmc-data";
 
 interface CryptoQuote {
   price: number;
@@ -65,7 +70,7 @@ export default function CoinMarketCap() {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 60000,
   });
 
   // Fetch global metrics
@@ -94,7 +99,11 @@ export default function CoinMarketCap() {
     refetchInterval: 60000,
   });
 
-  const ccQuote = ccData?.data?.CC?.[0]?.quote?.USD;
+  // Canton-specific data
+  const { data: pricePerformance, isLoading: ppLoading } = useCantonPricePerformance();
+  const { data: marketPairs, isLoading: mpLoading } = useCantonMarketPairs();
+  const { data: ohlcvData, isLoading: ohlcvLoading } = useCantonOHLCV(90);
+
   const globalMetrics: GlobalMetrics | null = globalData?.data?.quote?.USD ? {
     total_market_cap: globalData.data.quote.USD.total_market_cap,
     total_volume_24h: globalData.data.quote.USD.total_volume_24h,
@@ -109,51 +118,28 @@ export default function CoinMarketCap() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-foreground">CoinMarketCap Data</h1>
-          <p className="text-muted-foreground mt-1">Real-time cryptocurrency market data</p>
+          <p className="text-muted-foreground mt-1">Real-time cryptocurrency market data for Canton (CC)</p>
         </div>
 
-        {/* CC (Canton Coin) Card */}
-        <Card className="glass-card border-primary/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Coins className="h-5 w-5 text-primary" />
-              Canton Coin (CC)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {ccLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-32" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-            ) : ccError ? (
-              <p className="text-destructive">Error loading CC data. Token may not be listed on CoinMarketCap yet.</p>
-            ) : ccQuote ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Price</p>
-                  <p className="text-2xl font-bold">{formatPrice(ccQuote.price)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">24h Change</p>
-                  <div className="text-lg font-semibold">
-                    <PercentChange value={ccQuote.percent_change_24h} />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Market Cap</p>
-                  <p className="text-lg font-semibold">{formatNumber(ccQuote.market_cap)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">24h Volume</p>
-                  <p className="text-lg font-semibold">{formatNumber(ccQuote.volume_24h)}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-muted-foreground">CC token data not available</p>
-            )}
-          </CardContent>
-        </Card>
+        {/* Canton Overview Card */}
+        <CantonOverviewCard 
+          data={ccData} 
+          isLoading={ccLoading} 
+          error={ccError as Error | null} 
+        />
+
+        {/* Price Chart and Performance */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <CantonPriceChart data={ohlcvData} isLoading={ohlcvLoading} />
+          </div>
+          <div>
+            <PricePerformanceCard data={pricePerformance} isLoading={ppLoading} />
+          </div>
+        </div>
+
+        {/* Market Pairs */}
+        <MarketPairsTable data={marketPairs} isLoading={mpLoading} />
 
         {/* Global Market Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
