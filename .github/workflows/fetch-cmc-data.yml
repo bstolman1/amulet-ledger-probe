@@ -1,0 +1,23 @@
+name: Fetch CoinMarketCap Data
+
+on:
+  workflow_dispatch: # Manual trigger
+  schedule:
+    - cron: '0 * * * *' # Every hour
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Fetch Canton CMC Data
+        run: |
+          curl -X POST \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/coinmarketcap" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -d '{"endpoint": "canton_full", "days": 180}'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
