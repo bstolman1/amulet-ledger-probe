@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Hash, Clock, TrendingUp } from "lucide-react";
+import { Activity, BarChart3, Coins, Database, Layers, Zap, Globe, Package, Vote, Award, Shield, Upload, ArrowRightLeft, Wallet, FileText, Radio, Users, Ticket, UserPlus, Hash, Clock, TrendingUp, DollarSign } from "lucide-react";
 
 
 interface DashboardLayoutProps {
@@ -34,6 +34,7 @@ const navigation = [
   { name: "Live Updates", href: "/live-updates", icon: TrendingUp },
   { name: "Admin", href: "/admin", icon: Shield },
   { name: "Templates", href: "/templates", icon: FileText },
+  { name: "CoinMarketCap", href: "/coinmarketcap", icon: DollarSign },
 ];
 
 export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
