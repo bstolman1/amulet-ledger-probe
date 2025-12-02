@@ -111,13 +111,17 @@ export default function TwitterMetrics() {
         </div>
 
         {error && (
-          <Card className="border-destructive">
+          <Card className="border-destructive bg-destructive/5">
             <CardContent className="pt-6">
-              <p className="text-destructive">Error loading Twitter data: {error.message}</p>
-              {error.message?.includes("Rate limited") && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  The Twitter API has rate limits. Please wait a few minutes and refresh the page.
-                </p>
+              <p className="text-destructive font-medium">Error loading Twitter data</p>
+              <p className="text-destructive/80 mt-1">{error.message}</p>
+              {(error.message?.includes("Rate limited") || error.message?.includes("429")) && (
+                <div className="mt-4 p-4 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Twitter API Rate Limit:</strong> The free tier allows only 15 requests per 15 minutes.
+                    Please wait about 15 minutes and refresh the page.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -138,7 +142,7 @@ export default function TwitterMetrics() {
           </Card>
         )}
 
-        {isLoading ? (
+        {isLoading && !error ? (
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: 8 }).map((_, i) => (
