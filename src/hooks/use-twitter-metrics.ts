@@ -75,27 +75,40 @@ export function useTwitterAnalytics(username: string) {
   return useQuery<TwitterAnalytics, Error>({
     queryKey: ["twitter-analytics", username],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("twitter-metrics", {
-        body: { action: "analytics", username },
-      });
-      
-      // Handle edge function errors
-      if (error) {
-        // Check if it's a rate limit error from the response body
-        if (error.message?.includes("429") || error.message?.includes("Rate limit")) {
+      try {
+        const { data, error } = await supabase.functions.invoke("twitter-metrics", {
+          body: { action: "analytics", username },
+        });
+        
+        // Handle Supabase invoke errors
+        if (error) {
+          const errorMsg = error.message || String(error);
+          if (errorMsg.includes("429") || errorMsg.includes("rate") || errorMsg.includes("Rate")) {
+            throw new Error("Rate limited by Twitter API. Please wait 15 minutes and try again.");
+          }
+          throw new Error(errorMsg);
+        }
+        
+        // Handle errors in response body
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+        
+        if (!data?.user) {
+          throw new Error("No data returned from Twitter API");
+        }
+        
+        return data as TwitterAnalytics;
+      } catch (err: any) {
+        // Catch any error and provide a friendly message
+        const message = err?.message || "Unknown error";
+        if (message.includes("429") || message.includes("rate") || message.includes("Rate")) {
           throw new Error("Rate limited by Twitter API. Please wait 15 minutes and try again.");
         }
-        throw error;
+        throw err;
       }
-      
-      // Handle errors returned in the response body
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-      
-      return data as TwitterAnalytics;
     },
-    staleTime: 10 * 60 * 1000, // 10 minutes - longer to avoid hitting rate limits
-    retry: false, // Don't retry to avoid hitting rate limits more
+    staleTime: 10 * 60 * 1000,
+    retry: false,
   });
 }
