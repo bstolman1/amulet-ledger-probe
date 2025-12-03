@@ -8,8 +8,6 @@ import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data"
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "@tanstack/react-query";
-import { scanApi } from "@/lib/api-client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format, parseISO } from "date-fns";
 
@@ -26,12 +24,6 @@ function getField(record: any, ...fieldNames: string[]) {
 function formatPartyId(id: string) {
   return id.split("::")[0] || id;
 }
-
-const formatRewards = (amount: number) => {
-  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2)}M`;
-  if (amount >= 1_000) return `${(amount / 1_000).toFixed(2)}K`;
-  return amount.toFixed(2);
-};
 
 // Build monthly timeline from activity markers
 function buildMonthlyTimeline(activities: any[]) {
@@ -81,34 +73,31 @@ const Apps = () => {
   const appsQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppRight", !!latestSnapshot);
   const activityQuery = useAggregatedTemplateData(latestSnapshot?.id, "Splice:Amulet:FeaturedAppActivityMarker", !!latestSnapshot);
 
-  // Fetch app rewards from scan API
-  const { data: appRewardsData } = useQuery({
-    queryKey: ["top-providers-app-rewards"],
-    queryFn: () => scanApi.fetchTopProviders(1000),
-    staleTime: 5 * 60 * 1000,
-  });
-
   const isLoading = appsQuery.isLoading || activityQuery.isLoading;
   const apps = appsQuery.data?.data || [];
   const activities = activityQuery.data?.data || [];
 
-  // Create a map of provider -> total rewards
-  const rewardsByProvider = new Map<string, number>();
-  appRewardsData?.providersAndRewards?.forEach((p) => {
-    const providerId = p.provider.split("::")[0];
-    rewardsByProvider.set(providerId, parseFloat(p.rewards) || 0);
+  // Create a map of FULL provider ID -> activity markers (not truncated for accuracy)
+  const activitiesByProvider = new Map<string, any[]>();
+  activities.forEach((activity: any) => {
+    const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id');
+    if (provider) {
+      if (!activitiesByProvider.has(provider)) {
+        activitiesByProvider.set(provider, []);
+      }
+      activitiesByProvider.get(provider)?.push(activity);
+    }
   });
 
-// Create a map of provider -> activity markers
-const activitiesByProvider = new Map<string, any[]>();
-activities.forEach((activity: any) => {
-  const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id');
-  const providerShort = formatPartyId(provider || '');
-  if (!activitiesByProvider.has(providerShort)) {
-    activitiesByProvider.set(providerShort, []);
-  }
-  activitiesByProvider.get(providerShort)?.push(activity);
-});
+  // Calculate total weight per provider from activity markers (on-chain reward data)
+  const totalWeightByProvider = new Map<string, number>();
+  activitiesByProvider.forEach((markers, provider) => {
+    const totalWeight = markers.reduce((sum, m) => {
+      const weight = parseFloat(getField(m, 'weight') || '0');
+      return sum + weight;
+    }, 0);
+    totalWeightByProvider.set(provider, totalWeight);
+  });
 
 // Group activity markers by beneficiary for summary
 const groupActivitiesByBeneficiary = (activities: any[]) => {
@@ -222,28 +211,28 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                   const provider = getField(app, 'provider', 'providerId', 'providerParty', 'provider_id');
                   const dso = getField(app, 'dso');
                   const providerShort = formatPartyId(provider || '');
-                  const totalRewards = rewardsByProvider.get(providerShort) || 0;
-                  const appActivities = activitiesByProvider.get(providerShort) || [];
+                  // Use full provider ID for accurate matching
+                  const totalWeight = totalWeightByProvider.get(provider) || 0;
+                  const appActivities = activitiesByProvider.get(provider) || [];
                   
                   return (
                   <Card key={i} className="p-6 space-y-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Package className="h-5 w-5 text-primary" />
-                        <h3 className="font-semibold text-lg">{appName || 'Unknown App'}</h3>
+                        <h3 className="font-semibold text-lg">{appName || providerShort || 'Unknown App'}</h3>
                       </div>
                       <Badge className="gradient-primary"><Star className="h-3 w-3 mr-1" />Featured</Badge>
                     </div>
                     
-                    {/* Total Rewards */}
+                    {/* Total Activity Weight (on-chain reward data) */}
                     <div className="bg-muted/50 rounded-lg p-3">
                       <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                         <Coins className="h-3 w-3" />
-                        Total App Rewards
+                        Total Activity Weight
                       </div>
                       <p className="text-xl font-bold">
-                        {totalRewards > 0 ? formatRewards(totalRewards) : '—'} 
-                        <span className="text-sm font-normal text-muted-foreground ml-1">CC</span>
+                        {totalWeight > 0 ? totalWeight.toFixed(4) : '—'}
                       </p>
                     </div>
 
