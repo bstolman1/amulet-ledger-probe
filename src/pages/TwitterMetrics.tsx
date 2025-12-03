@@ -3,10 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTwitterAnalytics, Tweet } from "@/hooks/use-twitter-metrics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { 
   Users, MessageSquare, Heart, Repeat2, Eye, Twitter, 
   TrendingUp, BarChart3, Calendar, Quote, Bookmark, 
-  MapPin, Link as LinkIcon, Award, Activity
+  MapPin, Link as LinkIcon, Award, Activity, RefreshCw
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { 
@@ -19,7 +20,7 @@ const CANTON_USERNAME = "CantonNetwork";
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--secondary))', '#10b981', '#f59e0b'];
 
 export default function TwitterMetrics() {
-  const { data, isLoading, error } = useTwitterAnalytics(CANTON_USERNAME);
+  const { data, isLoading, error, refetch, isFetching } = useTwitterAnalytics(CANTON_USERNAME);
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined || num === null) return "—";
@@ -113,13 +114,26 @@ export default function TwitterMetrics() {
         {error && (
           <Card className="border-destructive bg-destructive/5">
             <CardContent className="pt-6">
-              <p className="text-destructive font-medium">Error loading Twitter data</p>
-              <p className="text-destructive/80 mt-1">{error.message}</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-destructive font-medium">Error loading Twitter data</p>
+                  <p className="text-destructive/80 mt-1">{error.message}</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+                  Retry
+                </Button>
+              </div>
               {(error.message?.includes("Rate limited") || error.message?.includes("429")) && (
                 <div className="mt-4 p-4 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">
                     <strong>Twitter API Rate Limit:</strong> The free tier allows only 15 requests per 15 minutes.
-                    Please wait about 15 minutes and refresh the page.
+                    Wait a few minutes and click Retry.
                   </p>
                 </div>
               )}
