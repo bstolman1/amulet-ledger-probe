@@ -218,11 +218,12 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[200px]">App Name</TableHead>
+                      <TableHead className="w-[150px]">App Name</TableHead>
                       <TableHead>Provider</TableHead>
                       <TableHead className="text-right">Total Rewards (CC)</TableHead>
                       <TableHead className="text-right">Activity Markers</TableHead>
                       <TableHead>Beneficiaries</TableHead>
+                      <TableHead className="w-[300px]">JSON Data</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -283,6 +284,11 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                             ) : (
                               <span className="text-muted-foreground text-xs">No markers</span>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-24 max-w-[300px]">
+                              {JSON.stringify(app, null, 2)}
+                            </pre>
                           </TableCell>
                         </TableRow>
                       );
