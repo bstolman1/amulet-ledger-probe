@@ -248,12 +248,12 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                     </div>
 
                     {/* Activity Markers */}
-                    {appActivities.length > 0 && (
-                      <div className="bg-accent/30 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                          <Activity className="h-3 w-3" />
-                          Activity Markers ({appActivities.length})
-                        </div>
+                    <div className="bg-accent/30 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+                        <Activity className="h-3 w-3" />
+                        Activity Markers ({appActivities.length})
+                      </div>
+                      {appActivities.length > 0 ? (
                         <div className="space-y-1.5">
                           {(() => {
                             const beneficiaryData = groupActivitiesByBeneficiary(appActivities);
@@ -274,8 +274,10 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                             </p>
                           )}
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No activity markers found</p>
+                      )}
+                    </div>
                     
                     <div className="space-y-2">
                       <div>
