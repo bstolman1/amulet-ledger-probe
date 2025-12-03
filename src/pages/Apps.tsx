@@ -218,8 +218,8 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[200px]">App (Provider)</TableHead>
-                      <TableHead>ID</TableHead>
+                      <TableHead className="w-[200px]">App Name</TableHead>
+                      <TableHead>Provider</TableHead>
                       <TableHead className="text-right">Total Rewards (CC)</TableHead>
                       <TableHead className="text-right">Activity Markers</TableHead>
                       <TableHead>Beneficiaries</TableHead>
@@ -227,6 +227,7 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                   </TableHeader>
                   <TableBody>
                     {apps.map((app: any, i: number) => {
+                      const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description', 'title', 'displayName', 'display_name');
                       const provider = getField(app, 'provider', 'providerId', 'providerParty', 'provider_id') || '';
                       const providerShort = formatPartyId(provider);
                       const totalRewards = rewardsByProvider.get(providerShort) || 0;
@@ -240,12 +241,12 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               <Star className="h-4 w-4 text-primary" />
-                              {providerShort || 'Unknown'}
+                              {appName || 'Unknown App'}
                             </div>
                           </TableCell>
                           <TableCell>
                             <span className="font-mono text-xs text-muted-foreground truncate max-w-[200px] block" title={provider}>
-                              {provider.split("::")[1]?.slice(0, 16) || 'Unknown'}...
+                              {providerShort || 'Unknown'}
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
