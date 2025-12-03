@@ -75,40 +75,32 @@ export function useTwitterAnalytics(username: string) {
   return useQuery<TwitterAnalytics, Error>({
     queryKey: ["twitter-analytics", username],
     queryFn: async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke("twitter-metrics", {
-          body: { action: "analytics", username },
-        });
-        
-        // Handle Supabase invoke errors
-        if (error) {
-          const errorMsg = error.message || String(error);
-          if (errorMsg.includes("429") || errorMsg.includes("rate") || errorMsg.includes("Rate")) {
-            throw new Error("Rate limited by Twitter API. Please wait 15 minutes and try again.");
-          }
-          throw new Error(errorMsg);
-        }
-        
-        // Handle errors in response body
-        if (data?.error) {
-          throw new Error(data.error);
-        }
-        
-        if (!data?.user) {
-          throw new Error("No data returned from Twitter API");
-        }
-        
-        return data as TwitterAnalytics;
-      } catch (err: any) {
-        // Catch any error and provide a friendly message
-        const message = err?.message || "Unknown error";
-        if (message.includes("429") || message.includes("rate") || message.includes("Rate")) {
+      const { data, error } = await supabase.functions.invoke("twitter-metrics", {
+        body: { action: "analytics", username },
+      });
+      
+      // Handle Supabase invoke errors
+      if (error) {
+        const errorMsg = error.message || String(error);
+        if (errorMsg.includes("429") || errorMsg.includes("rate") || errorMsg.includes("Rate")) {
           throw new Error("Rate limited by Twitter API. Please wait 15 minutes and try again.");
         }
-        throw err;
+        throw new Error(errorMsg);
       }
+      
+      // Handle errors in response body
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+      
+      if (!data?.user) {
+        throw new Error("No data returned from Twitter API");
+      }
+      
+      return data as TwitterAnalytics;
     },
-    staleTime: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 1 * 60 * 1000, // Clear cache after 1 minute for faster retry
     retry: false,
   });
 }
