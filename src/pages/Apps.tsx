@@ -1,15 +1,14 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Star, Code, Coins, Calendar, Activity } from "lucide-react";
+import { Package, Star, Coins, Calendar, Activity } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestACSSnapshot } from "@/hooks/use-acs-snapshots";
 import { useAggregatedTemplateData } from "@/hooks/use-aggregated-template-data";
 import { DataSourcesFooter } from "@/components/DataSourcesFooter";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { scanApi } from "@/lib/api-client";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format, parseISO } from "date-fns";
 
@@ -99,15 +98,14 @@ const Apps = () => {
     rewardsByProvider.set(providerId, parseFloat(p.rewards) || 0);
   });
 
-// Create a map of provider -> activity markers
+// Create a map of provider -> activity markers (use FULL provider ID for matching)
 const activitiesByProvider = new Map<string, any[]>();
 activities.forEach((activity: any) => {
-  const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id');
-  const providerShort = formatPartyId(provider || '');
-  if (!activitiesByProvider.has(providerShort)) {
-    activitiesByProvider.set(providerShort, []);
+  const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id') || '';
+  if (!activitiesByProvider.has(provider)) {
+    activitiesByProvider.set(provider, []);
   }
-  activitiesByProvider.get(providerShort)?.push(activity);
+  activitiesByProvider.get(provider)?.push(activity);
 });
 
 // Group activity markers by beneficiary for summary
@@ -207,7 +205,7 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
               </section>
             )}
 
-            {/* Featured Applications */}
+            {/* Featured Applications Table */}
             <section>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-semibold">Featured Applications</h2>
@@ -216,114 +214,82 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                   <Badge variant="outline">{activities.length} Activity Markers</Badge>
                 </div>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {apps.map((app: any, i: number) => {
-                  const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description', 'title', 'displayName', 'display_name');
-                  const provider = getField(app, 'provider', 'providerId', 'providerParty', 'provider_id');
-                  const dso = getField(app, 'dso');
-                  const providerShort = formatPartyId(provider || '');
-                  const totalRewards = rewardsByProvider.get(providerShort) || 0;
-                  const appActivities = activitiesByProvider.get(providerShort) || [];
-                  
-                  return (
-                  <Card key={i} className="p-6 space-y-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-5 w-5 text-primary" />
-                        <h3 className="font-semibold text-lg">{appName || 'Unknown App'}</h3>
-                      </div>
-                      <Badge className="gradient-primary"><Star className="h-3 w-3 mr-1" />Featured</Badge>
-                    </div>
-                    
-                    {/* Total Rewards */}
-                    <div className="bg-muted/50 rounded-lg p-3">
-                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                        <Coins className="h-3 w-3" />
-                        Total App Rewards
-                      </div>
-                      <p className="text-xl font-bold">
-                        {totalRewards > 0 ? formatRewards(totalRewards) : '—'} 
-                        <span className="text-sm font-normal text-muted-foreground ml-1">CC</span>
-                      </p>
-                    </div>
-
-                    {/* Activity Markers */}
-                    {appActivities.length > 0 && (
-                      <div className="bg-accent/30 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                          <Activity className="h-3 w-3" />
-                          Activity Markers ({appActivities.length})
-                        </div>
-                        <div className="space-y-1.5">
-                          {(() => {
-                            const beneficiaryData = groupActivitiesByBeneficiary(appActivities);
-                            return Array.from(beneficiaryData.entries()).slice(0, 3).map(([beneficiary, data], idx) => (
-                              <div key={idx} className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground truncate max-w-32" title={beneficiary}>
-                                  {beneficiary || 'Unknown'}
-                                </span>
-                                <Badge variant="outline" className="text-xs">
-                                  {data.totalWeight.toFixed(4)}
-                                </Badge>
+              <Card className="overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[200px]">App Name</TableHead>
+                      <TableHead>Provider</TableHead>
+                      <TableHead className="text-right">Total Rewards (CC)</TableHead>
+                      <TableHead className="text-right">Activity Markers</TableHead>
+                      <TableHead>Beneficiaries</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {apps.map((app: any, i: number) => {
+                      const appName = getField(app, 'appName', 'name', 'applicationName', 'app_name', 'label', 'description', 'title', 'displayName', 'display_name');
+                      const provider = getField(app, 'provider', 'providerId', 'providerParty', 'provider_id') || '';
+                      const providerShort = formatPartyId(provider);
+                      const totalRewards = rewardsByProvider.get(providerShort) || 0;
+                      
+                      // Match by full provider ID
+                      const appActivities = activitiesByProvider.get(provider) || [];
+                      const beneficiaryData = groupActivitiesByBeneficiary(appActivities);
+                      
+                      return (
+                        <TableRow key={i}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <Star className="h-4 w-4 text-primary" />
+                              {appName || 'Unknown App'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-xs text-muted-foreground truncate max-w-[200px] block" title={provider}>
+                              {providerShort || 'Unknown'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {totalRewards > 0 ? (
+                              <span className="font-semibold">{formatRewards(totalRewards)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {appActivities.length > 0 ? (
+                              <Badge variant="secondary">{appActivities.length}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {beneficiaryData.size > 0 ? (
+                              <div className="space-y-1">
+                                {Array.from(beneficiaryData.entries()).slice(0, 2).map(([beneficiary, data], idx) => (
+                                  <div key={idx} className="flex items-center gap-2 text-xs">
+                                    <span className="text-muted-foreground truncate max-w-[120px]" title={beneficiary}>
+                                      {formatPartyId(beneficiary) || 'Unknown'}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {data.totalWeight.toFixed(4)}
+                                    </Badge>
+                                  </div>
+                                ))}
+                                {beneficiaryData.size > 2 && (
+                                  <span className="text-xs text-muted-foreground">+{beneficiaryData.size - 2} more</span>
+                                )}
                               </div>
-                            ));
-                          })()}
-                          {groupActivitiesByBeneficiary(appActivities).size > 3 && (
-                            <p className="text-xs text-muted-foreground">
-                              +{groupActivitiesByBeneficiary(appActivities).size - 3} more beneficiaries
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Provider</p>
-                        <p className="font-mono text-xs break-all">{providerShort || 'Unknown'}</p>
-                      </div>
-                      {dso && (
-                        <div>
-                          <p className="text-xs text-muted-foreground">DSO</p>
-                          <p className="font-mono text-xs break-all">{dso}</p>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Activity Markers Collapsible */}
-                    {appActivities.length > 0 && (
-                      <Collapsible className="pt-2 border-t">
-                        <CollapsibleTrigger asChild>
-                          <Button variant="ghost" size="sm" className="w-full justify-start">
-                            <Activity className="h-4 w-4 mr-2" />
-                            Show Activity Data ({appActivities.length})
-                          </Button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mt-2">
-                          <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-48">
-                            {JSON.stringify(appActivities, null, 2)}
-                          </pre>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                    
-                    <Collapsible className="pt-2 border-t">
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full justify-start">
-                          <Code className="h-4 w-4 mr-2" />
-                          Show Raw JSON
-                        </Button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="mt-2">
-                        <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96">
-                          {JSON.stringify(app, null, 2)}
-                        </pre>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </Card>
-                  );
-                })}
-              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">No markers</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </Card>
             </section>
           </>
         )}
