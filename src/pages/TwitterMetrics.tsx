@@ -103,12 +103,22 @@ export default function TwitterMetrics() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <Twitter className="h-8 w-8 text-[#1DA1F2]" />
-          <div>
-            <h1 className="text-3xl font-bold">@{CANTON_USERNAME} Analytics</h1>
-            <p className="text-muted-foreground">Comprehensive X.com metrics and insights</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Twitter className="h-8 w-8 text-[#1DA1F2]" />
+            <div>
+              <h1 className="text-3xl font-bold">@{CANTON_USERNAME} Analytics</h1>
+              <p className="text-muted-foreground">Comprehensive X.com metrics and insights</p>
+            </div>
           </div>
+          <Button 
+            variant="outline" 
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
         {error && (
