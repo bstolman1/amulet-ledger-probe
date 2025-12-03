@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTwitterAnalytics, Tweet } from "@/hooks/use-twitter-metrics";
@@ -15,12 +16,16 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend 
 } from "recharts";
 
-const CANTON_USERNAME = "CantonNetwork";
+const ACCOUNTS = [
+  { username: "CantonNetwork", label: "@CantonNetwork" },
+  { username: "CantonFdn", label: "@CantonFdn" },
+];
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--secondary))', '#10b981', '#f59e0b'];
 
 export default function TwitterMetrics() {
-  const { data, isLoading, error, refetch, isFetching } = useTwitterAnalytics(CANTON_USERNAME);
+  const [selectedAccount, setSelectedAccount] = useState(ACCOUNTS[0].username);
+  const { data, isLoading, error, refetch, isFetching } = useTwitterAnalytics(selectedAccount);
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined || num === null) return "—";
@@ -107,7 +112,7 @@ export default function TwitterMetrics() {
           <div className="flex items-center gap-3">
             <Twitter className="h-8 w-8 text-[#1DA1F2]" />
             <div>
-              <h1 className="text-3xl font-bold">@{CANTON_USERNAME} Analytics</h1>
+              <h1 className="text-3xl font-bold">X/Twitter Analytics</h1>
               <p className="text-muted-foreground">Comprehensive X.com metrics and insights</p>
             </div>
           </div>
@@ -120,6 +125,17 @@ export default function TwitterMetrics() {
             Refresh
           </Button>
         </div>
+
+        {/* Account Toggle Tabs */}
+        <Tabs value={selectedAccount} onValueChange={setSelectedAccount} className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            {ACCOUNTS.map((account) => (
+              <TabsTrigger key={account.username} value={account.username}>
+                {account.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {error && (
           <Card className="border-destructive bg-destructive/5">
