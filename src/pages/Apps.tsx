@@ -110,15 +110,20 @@ activities.forEach((activity: any) => {
   activitiesByProvider.get(providerShort)?.push(activity);
 });
 
-// Categorize activities by type (Canton Coin transfers vs other)
-const categorizeActivity = (activity: any) => {
-  const activityType = getField(activity, 'activityType', 'type', 'activity_type', 'kind');
-  const description = getField(activity, 'description', 'activityDescription', 'activity_description');
-  const isCCTransfer = activityType?.toLowerCase()?.includes('transfer') 
-    || activityType?.toLowerCase()?.includes('amulet')
-    || description?.toLowerCase()?.includes('transfer')
-    || description?.toLowerCase()?.includes('canton coin');
-  return isCCTransfer ? 'Canton Coin Transfer' : 'Other Activity';
+// Group activity markers by beneficiary for summary
+const groupActivitiesByBeneficiary = (activities: any[]) => {
+  const beneficiaryMap = new Map<string, { count: number; totalWeight: number }>();
+  activities.forEach((activity) => {
+    const beneficiary = formatPartyId(getField(activity, 'beneficiary') || '');
+    const weight = parseFloat(getField(activity, 'weight') || '0');
+    if (!beneficiaryMap.has(beneficiary)) {
+      beneficiaryMap.set(beneficiary, { count: 0, totalWeight: 0 });
+    }
+    const entry = beneficiaryMap.get(beneficiary)!;
+    entry.count++;
+    entry.totalWeight += weight;
+  });
+  return beneficiaryMap;
 };
 
   // Build monthly timeline data from activities
@@ -249,27 +254,27 @@ const categorizeActivity = (activity: any) => {
                           <Activity className="h-3 w-3" />
                           Activity Markers ({appActivities.length})
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                           {(() => {
-                            const ccTransfers = appActivities.filter(a => categorizeActivity(a) === 'Canton Coin Transfer');
-                            const otherActivities = appActivities.filter(a => categorizeActivity(a) !== 'Canton Coin Transfer');
-                            return (
-                              <>
-                                {ccTransfers.length > 0 && (
-                                  <div className="flex items-center justify-between text-sm">
-                                    <span className="text-muted-foreground">CC Transfers</span>
-                                    <Badge variant="secondary">{ccTransfers.length}</Badge>
-                                  </div>
-                                )}
-                                {otherActivities.length > 0 && (
-                                  <div className="flex items-center justify-between text-sm">
-                                    <span className="text-muted-foreground">Other Activities</span>
-                                    <Badge variant="outline">{otherActivities.length}</Badge>
-                                  </div>
-                                )}
-                              </>
-                            );
+                            const beneficiaryData = groupActivitiesByBeneficiary(appActivities);
+                            return Array.from(beneficiaryData.entries()).slice(0, 3).map(([beneficiary, data], idx) => (
+                              <div key={idx} className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground truncate max-w-32" title={beneficiary}>
+                                  {beneficiary || 'Unknown'}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {(data.totalWeight * 100).toFixed(0)}%
+                                  </Badge>
+                                </div>
+                              </div>
+                            ));
                           })()}
+                          {groupActivitiesByBeneficiary(appActivities).size > 3 && (
+                            <p className="text-xs text-muted-foreground">
+                              +{groupActivitiesByBeneficiary(appActivities).size - 3} more beneficiaries
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}
