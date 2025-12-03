@@ -108,16 +108,16 @@ activities.forEach((activity: any) => {
   activitiesByProvider.get(provider)?.push(activity);
 });
 
-// Group activity markers by beneficiary for summary
+// Group activity markers by beneficiary for summary (use full ID to keep different entities separate)
 const groupActivitiesByBeneficiary = (activities: any[]) => {
-  const beneficiaryMap = new Map<string, { count: number; totalWeight: number }>();
+  const beneficiaryMap = new Map<string, { count: number; totalWeight: number; displayName: string }>();
   activities.forEach((activity) => {
-    const beneficiary = formatPartyId(getField(activity, 'beneficiary') || '');
+    const fullBeneficiary = getField(activity, 'beneficiary') || '';
     const weight = parseFloat(getField(activity, 'weight') || '0');
-    if (!beneficiaryMap.has(beneficiary)) {
-      beneficiaryMap.set(beneficiary, { count: 0, totalWeight: 0 });
+    if (!beneficiaryMap.has(fullBeneficiary)) {
+      beneficiaryMap.set(fullBeneficiary, { count: 0, totalWeight: 0, displayName: formatPartyId(fullBeneficiary) });
     }
-    const entry = beneficiaryMap.get(beneficiary)!;
+    const entry = beneficiaryMap.get(fullBeneficiary)!;
     entry.count++;
     entry.totalWeight += weight;
   });
@@ -267,10 +267,10 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                           <TableCell>
                             {beneficiaryData.size > 0 ? (
                               <div className="space-y-1">
-                                {Array.from(beneficiaryData.entries()).slice(0, 2).map(([beneficiary, data], idx) => (
+                                {Array.from(beneficiaryData.entries()).slice(0, 2).map(([fullId, data], idx) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs">
-                                    <span className="text-muted-foreground truncate max-w-[120px]" title={beneficiary}>
-                                      {formatPartyId(beneficiary) || 'Unknown'}
+                                    <span className="text-muted-foreground truncate max-w-[120px]" title={fullId}>
+                                      {data.displayName || 'Unknown'}
                                     </span>
                                     <Badge variant="outline" className="text-xs">
                                       {data.totalWeight.toFixed(4)}
