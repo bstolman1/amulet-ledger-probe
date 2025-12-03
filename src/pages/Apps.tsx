@@ -99,16 +99,27 @@ const Apps = () => {
     rewardsByProvider.set(providerId, parseFloat(p.rewards) || 0);
   });
 
-  // Create a map of provider -> activity markers
-  const activitiesByProvider = new Map<string, any[]>();
-  activities.forEach((activity: any) => {
-    const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id');
-    const providerShort = formatPartyId(provider || '');
-    if (!activitiesByProvider.has(providerShort)) {
-      activitiesByProvider.set(providerShort, []);
-    }
-    activitiesByProvider.get(providerShort)?.push(activity);
-  });
+// Create a map of provider -> activity markers
+const activitiesByProvider = new Map<string, any[]>();
+activities.forEach((activity: any) => {
+  const provider = getField(activity, 'provider', 'providerId', 'providerParty', 'provider_id');
+  const providerShort = formatPartyId(provider || '');
+  if (!activitiesByProvider.has(providerShort)) {
+    activitiesByProvider.set(providerShort, []);
+  }
+  activitiesByProvider.get(providerShort)?.push(activity);
+});
+
+// Categorize activities by type (Canton Coin transfers vs other)
+const categorizeActivity = (activity: any) => {
+  const activityType = getField(activity, 'activityType', 'type', 'activity_type', 'kind');
+  const description = getField(activity, 'description', 'activityDescription', 'activity_description');
+  const isCCTransfer = activityType?.toLowerCase()?.includes('transfer') 
+    || activityType?.toLowerCase()?.includes('amulet')
+    || description?.toLowerCase()?.includes('transfer')
+    || description?.toLowerCase()?.includes('canton coin');
+  return isCCTransfer ? 'Canton Coin Transfer' : 'Other Activity';
+};
 
   // Build monthly timeline data from activities
   const monthlyData = buildMonthlyTimeline(activities);
@@ -234,11 +245,32 @@ const Apps = () => {
                     {/* Activity Markers */}
                     {appActivities.length > 0 && (
                       <div className="bg-accent/30 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                        <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
                           <Activity className="h-3 w-3" />
-                          Activity Markers
+                          Activity Markers ({appActivities.length})
                         </div>
-                        <p className="text-lg font-semibold">{appActivities.length}</p>
+                        <div className="space-y-1">
+                          {(() => {
+                            const ccTransfers = appActivities.filter(a => categorizeActivity(a) === 'Canton Coin Transfer');
+                            const otherActivities = appActivities.filter(a => categorizeActivity(a) !== 'Canton Coin Transfer');
+                            return (
+                              <>
+                                {ccTransfers.length > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">CC Transfers</span>
+                                    <Badge variant="secondary">{ccTransfers.length}</Badge>
+                                  </div>
+                                )}
+                                {otherActivities.length > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Other Activities</span>
+                                    <Badge variant="outline">{otherActivities.length}</Badge>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
                       </div>
                     )}
                     
