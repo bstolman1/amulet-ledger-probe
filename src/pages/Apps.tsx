@@ -262,11 +262,9 @@ const groupActivitiesByBeneficiary = (activities: any[]) => {
                                 <span className="text-muted-foreground truncate max-w-32" title={beneficiary}>
                                   {beneficiary || 'Unknown'}
                                 </span>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {(data.totalWeight * 100).toFixed(0)}%
-                                  </Badge>
-                                </div>
+                                <Badge variant="outline" className="text-xs">
+                                  {data.totalWeight.toFixed(4)}
+                                </Badge>
                               </div>
                             ));
                           })()}
